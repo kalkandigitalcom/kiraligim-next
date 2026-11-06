@@ -109,9 +109,10 @@ Teşhis:
 
 ## Kimlik (Better Auth) ve e-posta
 
-Durum (Aşama 2.0): yapılandırma kodda hazır (`src/server/auth/host-auth.ts`), **hiçbir route'a bağlı
-değil**: `/api/auth` uç noktası yok, kimlik tabloları henüz oluşturulmadı (migration `0003`, Aşama 2.1).
-Bu yüzden aşağıdaki değişkenler production'da **henüz gerekmez**; uygulama onlarsız açılır.
+Durum (Aşama 2.1): yapılandırma kodda hazır (`src/server/auth/host-auth.ts`) ve kimlik tabloları
+migration'ları yazıldı (`0003_auth_tables`, `0004_auth_grants`), ancak **hiçbir route'a bağlı değil**:
+`/api/auth` uç noktası yok. Bu yüzden aşağıdaki değişkenler production'da **henüz gerekmez**; uygulama
+onlarsız açılır, tablolar deploy'da oluşur ama kullanılmaz.
 
 | Değişken               | Örnek / değer                             | Not                                                              |
 | ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
@@ -132,6 +133,39 @@ Yapılandırmanın temel kararları:
 - Şifre sıfırlama/doğrulama belirteçleri veritabanında özet olarak saklanır; sıfırlamada tüm oturumlar kapanır.
 - Kimlikler UUID v7. Better Auth telemetrisi kapalı. Köken (CSRF) denetimi her ortamda açık.
 - Super Admin bu kimlik sistemini ve tablolarını **kullanmaz** (Aşama 2.3).
+
+### Kimlik tabloları ve yetkiler (0003, 0004)
+
+| Tablo           | İçerik                                                        | `app_user`                          | RLS |
+| --------------- | ------------------------------------------------------------- | ----------------------------------- | --- |
+| `users`         | ad, e-posta (benzersiz, küçük harf zorunlu), doğrulama durumu | SELECT, INSERT, UPDATE (DELETE yok) | Yok |
+| `sessions`      | oturum belirteci (benzersiz), son kullanma, IP, user agent    | SELECT, INSERT, UPDATE, DELETE      | Yok |
+| `accounts`      | sağlayıcı hesabı; `credential` için scrypt şifre özeti        | SELECT, INSERT, UPDATE, DELETE      | Yok |
+| `verifications` | doğrulama/sıfırlama belirteçleri (özet olarak)                | SELECT, INSERT, UPDATE, DELETE      | Yok |
+| `rate_limits`   | deneme sınırı sayaçları                                       | SELECT, INSERT, UPDATE, DELETE      | Yok |
+
+- Kolonlar snake_case (`email_verified`, `user_id`, `last_request` …); Drizzle'da camelCase alanlarla eşlenir.
+- `sessions` ve `accounts`, kullanıcı silindiğinde birlikte silinir (`ON DELETE CASCADE`).
+- PUBLIC, `app_admin` ve `app_worker`'ın bu tablolarda **hiçbir** yetkisi yoktur.
+- **RLS bilinçli olarak uygulanmaz:** Better Auth bu tabloları tenant bağlamı olmadan sorgular; RLS açık
+  olsaydı tüm sorgular boş dönerdi. Koruma en dar GRANT ile sağlanır. Super Admin bu tabloları kullanmaz
+  (ayrı `admin_*` tabloları, Aşama 2.3). Tenant verisi ayrı tablolarda `ENABLE` + `FORCE` RLS altındadır.
+- Doğrulama: `tests/integration/auth-tables.test.ts` (şema, kısıt, yetki, migration geçmişi),
+  `tests/integration/auth-flow.test.ts` (yalnız `app_user` ile kayıt → doğrulama → giriş → sıfırlama → deneme sınırı).
+
+Deploy sonrası salt-okunur kontrol (Coolify Postgres terminali veya `docker exec`):
+
+```sql
+select id, hash, created_at from drizzle.__migrations order by created_at;   -- 5 satır (0000–0004)
+select c.relname, a.privilege_type,
+       case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end as rol
+  from pg_class c, aclexplode(c.relacl) a
+ where c.relname in ('users','sessions','accounts','verifications','rate_limits')
+   and a.grantee <> c.relowner
+ order by 1, 3, 2;                                                             -- yalnız app_user, PUBLIC yok
+select relname, relrowsecurity from pg_class
+ where relname in ('users','sessions','accounts','verifications','rate_limits'); -- hepsi f
+```
 
 ### Deneme sınırı (rate limit) ve istemci IP'si
 

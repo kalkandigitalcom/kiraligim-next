@@ -22,6 +22,20 @@
       "when": 1793998354642,
       "tag": "0002_revoke_public_schema_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794002673216,
+      "tag": "0003_auth_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794002673800,
+      "tag": "0004_auth_grants",
+      "breakpoints": true
     }
   ]
 }
