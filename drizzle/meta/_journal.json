@@ -15,6 +15,13 @@
       "when": 1793996634683,
       "tag": "0001_function_privileges",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793998354642,
+      "tag": "0002_revoke_public_schema_usage",
+      "breakpoints": true
     }
   ]
 }

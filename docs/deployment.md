@@ -180,6 +180,70 @@ unset KG_MIGRATOR_PASSWORD KG_APP_PASSWORD; rm /tmp/db-bootstrap.sql
 Script veritabanını yeniden oluşturmaz ve veri silmez; mevcut `kiraligim_prod`'un ve `public` şemanın
 sahipliğini `app_migrator`'a devreder. Parola içeren ifadeler sunucu log'una yazılmaz.
 
+**C adımı – doğrulama (salt-okunur).**
+
+```bash
+docker exec -i "$KG_PG" sh -c 'psql -U "$POSTGRES_USER" -d kiraligim_prod -X' <<'SQL'
+select rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolcanlogin
+  from pg_roles where rolname like 'app_%' order by 1;
+select pg_get_userbyid(datdba) as db_sahibi,
+       (select nspowner::regrole from pg_namespace where nspname = 'public') as sema_sahibi
+  from pg_database where datname = current_database();
+select case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end as rol,
+       a.privilege_type as yetki
+  from pg_namespace n, aclexplode(n.nspacl) a
+ where n.nspname = 'public' order by 1, 2;
+select has_database_privilege('app_user', current_database(), 'CONNECT') as app_user_baglanir,
+       has_schema_privilege('app_user', 'public', 'CREATE')  as app_user_tablo_olusturur;
+select count(*) as tablo_sayisi from pg_tables where schemaname not in ('pg_catalog','information_schema');
+SQL
+```
+
+| Kontrol                                                              | C sonrası (bootstrap)                       | D sonrası (migration 0000–0002)                                                                              |
+| -------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `app_*` rolleri: süper kullanıcı / BYPASSRLS / CREATEROLE / CREATEDB | hepsi `f`                                   | aynı                                                                                                         |
+| Giriş açık                                                           | `app_migrator`, `app_user`                  | aynı                                                                                                         |
+| Veritabanı ve `public` şema sahibi                                   | `app_migrator`                              | aynı                                                                                                         |
+| `public` şema yetkileri                                              | `PUBLIC USAGE`, `app_migrator CREATE+USAGE` | `app_admin USAGE`, `app_migrator CREATE+USAGE`, `app_user USAGE`, `app_worker USAGE` — **PUBLIC satırı yok** |
+| `app_user` bağlanır / tablo oluşturur                                | `t` / `f`                                   | `t` / `f`                                                                                                    |
+| Tablo sayısı                                                         | `0`                                         | `0` (`drizzle.__migrations` `drizzle` şemasında, sayılmaz)                                                   |
+
+C sonrasında `PUBLIC USAGE` görünmesi PostgreSQL 15+'ın varsayılanıdır; `0002_revoke_public_schema_usage` kaldırır.
+PUBLIC'in veritabanına bağlanma (CONNECT) yetkisi bootstrap'ta kaldırıldığı için ara dönemde risk yoktur.
+
+**Parola doğrulama testleri.** Parolalar `read -rs` ile girilir. `PGPASSWORD="$…" docker exec -e PGPASSWORD`
+biçiminde değer komut argümanlarına girmez (`ps` ve shell geçmişinde yalnız değişken adı görünür).
+`-w` psql'in parola sormasını engeller; `PGPASSFILE=/nonexistent` konteynerdeki olası bir `.pgpass`'ın
+kullanılmasını önler; bağlantı konteynerin ağ adresinden yapılır (uygulamanın yolu).
+
+```bash
+read -rs -p "app_user parolası: " KG_APP_PASSWORD; echo
+read -rs -p "app_migrator parolası: " KG_MIGRATOR_PASSWORD; echo
+echo "${#KG_APP_PASSWORD} ${#KG_MIGRATOR_PASSWORD}"      # 48 48
+
+kg_login() {  # kullanım: PGPASSWORD=... kg_login <rol>
+  docker exec -i -e PGPASSWORD -e PGPASSFILE=/nonexistent -e KG_ROLE="$1" "$KG_PG" \
+    sh -c 'ip=$(hostname -i | cut -d" " -f1); psql -w -h "$ip" -U "$KG_ROLE" -d kiraligim_prod -X -tA -v ON_ERROR_STOP=1 -f -' <<'SQL'
+select current_user || ' | ' || coalesce(system_user, 'PAROLASIZ GIRIS!');
+SQL
+  echo "exit=$?"
+}
+
+PGPASSWORD="$KG_APP_PASSWORD"      kg_login app_user       # app_user | scram-sha-256:app_user      exit=0
+PGPASSWORD="$KG_MIGRATOR_PASSWORD" kg_login app_migrator   # app_migrator | scram-sha-256:app_migrator  exit=0
+PGPASSWORD="yanlis-parola-$RANDOM" kg_login app_user       # FATAL: password authentication failed  exit=2
+
+unset KG_APP_PASSWORD KG_MIGRATOR_PASSWORD; unset -f kg_login
+```
+
+| Sonuç                                            | Anlamı                                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `… \| scram-sha-256:<rol>` ve `exit=0`           | Parola doğrulandı (SCRAM). Beklenen.                                                                                                       |
+| `… \| PAROLASIZ GIRIS!`                          | Bağlantı parola sorulmadan kabul edildi (`trust`). **Dur.**                                                                                |
+| Yanlış parolada `password authentication failed` | Parola gerçekten kontrol ediliyor. Beklenen.                                                                                               |
+| `fe_sendauth: no password supplied`              | `PGPASSWORD` konteynere ulaşmadı (ör. `sudo` ortamı sildi); bu bir parola testi **değildir**. `sudo --preserve-env=PGPASSWORD …` kullanın. |
+| Yanlış parolada `exit=0`                         | Parola kontrol edilmiyor. **Dur.**                                                                                                         |
+
 **D ve E adımlarındaki bağlantı adresleri.** Host kısmını Coolify'daki veritabanı sayfasının
 "Postgres URL (internal)" alanından alın; kullanıcı ve parolayı oradan **kullanmayın**:
 

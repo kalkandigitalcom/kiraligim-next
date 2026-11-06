@@ -156,3 +156,102 @@ describe("inspectDbRole", () => {
     expect(r.findings).toEqual(expect.arrayContaining(["superuser", "bypassrls"]));
   });
 });
+
+describe("public şema yetkileri", () => {
+  const admin = new Pool({ connectionString: db.adminUrl, max: 1 });
+  afterAll(() => admin.end());
+
+  type AclRow = { grantee: string; privilege: string; grantable: boolean };
+  const schemaAcl = async () =>
+    (
+      await admin.query<AclRow>(`
+        select case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end as grantee,
+               a.privilege_type as privilege, a.is_grantable as grantable
+          from pg_namespace n, aclexplode(n.nspacl) a
+         where n.nspname = 'public'
+         order by 1, 2`)
+    ).rows;
+
+  it("PUBLIC'in public şemada hiçbir yetkisi yok", async () => {
+    const acl = await schemaAcl();
+    expect(acl.filter((r) => r.grantee === "PUBLIC")).toEqual([]);
+  });
+
+  it("uygulama rolleri USAGE'ı açık GRANT ile alır; CREATE yalnız şema sahibinde", async () => {
+    expect(await schemaAcl()).toEqual([
+      { grantee: "app_admin", privilege: "USAGE", grantable: false },
+      { grantee: "app_migrator", privilege: "CREATE", grantable: false },
+      { grantee: "app_migrator", privilege: "USAGE", grantable: false },
+      { grantee: "app_user", privilege: "USAGE", grantable: false },
+      { grantee: "app_worker", privilege: "USAGE", grantable: false },
+    ]);
+    const r = await admin.query(`
+      select has_schema_privilege('app_user', 'public', 'USAGE')    as user_usage,
+             has_schema_privilege('app_user', 'public', 'CREATE')   as user_create,
+             has_schema_privilege('app_admin', 'public', 'USAGE')   as admin_usage,
+             has_schema_privilege('app_worker', 'public', 'USAGE')  as worker_usage,
+             has_schema_privilege('app_migrator', 'public', 'CREATE') as migrator_create`);
+    expect(r.rows[0]).toEqual({
+      user_usage: true,
+      user_create: false,
+      admin_usage: true,
+      worker_usage: true,
+      migrator_create: true,
+    });
+  });
+
+  it("veritabanına bağlanabilen ama açık yetkisi olmayan bir rol şemayı kullanamaz", async () => {
+    const role = `kg_probe_${Math.random().toString(36).slice(2, 10)}`;
+    const password = `p${Math.random().toString(36).slice(2)}${Date.now()}`;
+    const server = new Pool({ connectionString: db.serverAdminUrl, max: 1 });
+    try {
+      await server.query(`create role ${role} login password '${password}'`);
+      await admin.query(`grant connect on database "${db.dbName}" to ${role}`);
+      expect(
+        (await admin.query(`select has_schema_privilege('${role}', 'public', 'USAGE') as u`))
+          .rows[0]?.u,
+      ).toBe(false);
+
+      const url = new URL(db.adminUrl);
+      url.username = role;
+      url.password = password;
+      const probe = new Pool({ connectionString: url.toString(), max: 1 });
+      try {
+        await expect(probe.query("select 1 from public.sec_probe_yok")).rejects.toThrow(
+          /permission denied for schema public/,
+        );
+      } finally {
+        await probe.end();
+      }
+    } finally {
+      await admin.query(`revoke all on database "${db.dbName}" from ${role}`).catch(() => {});
+      await server.query(`drop role if exists ${role}`);
+      await server.end();
+    }
+  });
+
+  it("btree_gist çakışma kısıtı app_user'ın eklemelerinde çalışır (izin hatası değil, çakışma hatası)", async () => {
+    const migrator = new Pool({ connectionString: db.migratorUrl, max: 1 });
+    const app = new Pool({ connectionString: db.appUrl, max: 1 });
+    try {
+      // Rezervasyon çakışma kısıtının kalıbı: aynı mülkte kesişen tarih aralığı yasak.
+      await migrator.query(`
+        create table public.gist_probe (
+          property_id uuid not null,
+          stay daterange not null,
+          exclude using gist (property_id with =, stay with &&)
+        );
+        grant select, insert on public.gist_probe to app_user;
+      `);
+      const p = "0190a6e0-0000-7000-8000-00000000c0de";
+      await app.query("insert into gist_probe values ($1, '[2026-07-01,2026-07-05)')", [p]);
+      await expect(
+        app.query("insert into gist_probe values ($1, '[2026-07-04,2026-07-08)')", [p]),
+      ).rejects.toThrow(/conflicting key value violates exclusion constraint/);
+      await app.query("insert into gist_probe values ($1, '[2026-07-05,2026-07-08)')", [p]);
+    } finally {
+      await migrator.query("drop table if exists public.gist_probe");
+      await Promise.all([migrator.end(), app.end()]);
+    }
+  });
+});
