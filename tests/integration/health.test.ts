@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, inject, it, vi } from "vitest";
 
+import { resetDbRoleGuard } from "@/lib/db-role-guard";
 import { resetEnvCache } from "@/lib/env";
 
 const db = inject("testDb");
@@ -19,6 +20,7 @@ async function resetDb() {
   delete g.__kiraligimPool;
   delete g.__kiraligimDb;
   resetEnvCache();
+  resetDbRoleGuard();
 }
 
 describe("GET /api/health", () => {
@@ -49,5 +51,37 @@ describe("GET /api/health", () => {
     const text = await res.text();
     expect(text).not.toMatch(/password|yanlis|authentication/i);
     expect(JSON.parse(text)).toMatchObject({ status: "degraded", checks: { database: "error" } });
+  });
+
+  it("DB_ROLE_GUARD=enforce: süper kullanıcıyla bağlanınca 503", async () => {
+    for (const [k, v] of Object.entries({
+      ...baseEnv,
+      DATABASE_URL: db.adminUrl,
+      DB_ROLE_GUARD: "enforce",
+    }))
+      vi.stubEnv(k, v);
+    const { GET } = await import("@/app/api/health/route");
+    const res = await GET();
+    expect(res.status).toBe(503);
+    const text = await res.text();
+    expect(text).not.toMatch(/superuser|postgres|bypass/i);
+  });
+
+  it("DB_ROLE_GUARD=warn: süper kullanıcıda çalışmaya devam eder (yalnız log)", async () => {
+    for (const [k, v] of Object.entries({ ...baseEnv, DATABASE_URL: db.adminUrl }))
+      vi.stubEnv(k, v);
+    const { GET } = await import("@/app/api/health/route");
+    expect((await GET()).status).toBe(200);
+  });
+
+  it("DB_ROLE_GUARD=enforce: app_user ile 200", async () => {
+    for (const [k, v] of Object.entries({
+      ...baseEnv,
+      DATABASE_URL: db.appUrl,
+      DB_ROLE_GUARD: "enforce",
+    }))
+      vi.stubEnv(k, v);
+    const { GET } = await import("@/app/api/health/route");
+    expect((await GET()).status).toBe(200);
   });
 });

@@ -40,6 +40,8 @@ export const envSchema = z
       z.enum(["debug", "info", "warn", "error"]).optional(),
     ),
     APP_VERSION: z.preprocess(emptyToUndefined, z.string().max(64).optional()),
+    // Uygulamanın DB rolü güvensizse: warn → yalnız log, enforce → /api/health 503.
+    DB_ROLE_GUARD: z.preprocess(emptyToUndefined, z.enum(["warn", "enforce"]).default("warn")),
   })
   .superRefine((env, ctx) => {
     const hosts = [env.APP_URL, env.ADMIN_URL, env.PUBLIC_URL].map((u) => new URL(u).host);

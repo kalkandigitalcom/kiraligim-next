@@ -6,9 +6,14 @@
 | Entegrasyon | `npm run test:integration`                   | Geçici Postgres 17 | CI (otomatik), sunucu, Mac + Docker |
 
 Entegrasyon testleri gerçek `scripts/db-bootstrap.sql` ve tüm migration'ları **boş, geçici** bir
-veritabanına uygular; roller, RLS tenant izolasyonu ve `/api/health` doğrulanır. Test altyapısı
-yalnız `localhost`'taki bir Postgres'e bağlanır; geliştirme veya production veritabanında
-çalışması teknik olarak engellenmiştir.
+veritabanına uygular ve şunları doğrular:
+
+- roller ve yetki ayrımı, tablo sahipliği, RLS ve `FORCE ROW LEVEL SECURITY` davranışı (`security.test.ts`)
+- kurulum script'inin parola kuralları ve mevcut veriyi koruması (`bootstrap.test.ts`)
+- konteyner giriş noktası: açılış migration'ı, hata durumu, parolanın uygulamaya geçmemesi (`entrypoint.test.ts`)
+- tenant izolasyonu (`tenant.test.ts`), migration (`migrate.test.ts`), `/api/health` ve rol denetimi (`health.test.ts`) Test altyapısı
+  yalnız `localhost`'taki bir Postgres'e bağlanır; geliştirme veya production veritabanında
+  çalışması teknik olarak engellenmiştir.
 
 ## 1. GitHub Actions (varsayılan)
 

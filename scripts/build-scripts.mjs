@@ -1,9 +1,10 @@
 // Next.js dışında çalışan Node giriş noktalarını tek dosyaya derler (dist/).
-// dist/migrate.js: ön-deploy migration. Faz 2'de dist/worker.js eklenecek.
+// dist/migrate.js: açılış migration'ı (docker-entrypoint.sh)
+// dist/db-doctor.js: uygulama DB rolünün güvenlik denetimi. Faz 2'de dist/worker.js eklenecek.
 import { build } from "esbuild";
 
 await build({
-  entryPoints: { migrate: "src/db/migrate.ts" },
+  entryPoints: { migrate: "src/db/migrate.ts", "db-doctor": "src/db/doctor.ts" },
   outdir: "dist",
   bundle: true,
   platform: "node",

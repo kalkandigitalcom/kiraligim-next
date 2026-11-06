@@ -8,6 +8,13 @@
       "when": 1793989821103,
       "tag": "0000_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793996634683,
+      "tag": "0001_function_privileges",
+      "breakpoints": true
     }
   ]
 }

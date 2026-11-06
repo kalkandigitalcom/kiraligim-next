@@ -5,19 +5,28 @@
  *   migration'lar uygulanır, testler biter bitmez veritabanı silinir.
  * Gerçek geliştirme/production veritabanına bağlanmak teknik olarak engellenir.
  */
-import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
 
 import { Client } from "pg";
 import type { TestProject } from "vitest/node";
 
 import { runMigrations } from "../../src/db/migrate";
+import { runBootstrap } from "./psql";
 
 declare module "vitest" {
   export interface ProvidedContext {
-    testDb: { appUrl: string; migratorUrl: string; adminUrl: string; dbName: string };
+    testDb: {
+      appUrl: string;
+      migratorUrl: string;
+      /** Test veritabanına süper kullanıcıyla bağlantı */
+      adminUrl: string;
+      /** Küme yöneticisi bağlantısı (postgres veritabanı) */
+      serverAdminUrl: string;
+      dbName: string;
+      migratorPassword: string;
+      appPassword: string;
+    };
   }
 }
 
@@ -83,31 +92,10 @@ async function prepare(project: TestProject) {
   const migratorPassword = randomBytes(24).toString("hex");
   const appPassword = randomBytes(24).toString("hex");
 
-  // Gerçek kurulum script'ini psql ile çalıştır (CI'da psql kurulu; Mac'te konteyner içindeki psql).
-  const psqlCmd = (process.env.PSQL_CMD ?? "psql").split(" ").filter(Boolean);
-  const psqlUrl = process.env.PSQL_URL ?? adminUrl;
-  const sql = fs.readFileSync(path.resolve(__dirname, "../../scripts/db-bootstrap.sql"), "utf8");
-  const [bin, ...pre] = psqlCmd;
-  const res = spawnSync(
-    bin!,
-    [
-      ...pre,
-      psqlUrl,
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-v",
-      `db_name=${dbName}`,
-      "-v",
-      `migrator_password=${migratorPassword}`,
-      "-v",
-      `app_password=${appPassword}`,
-      "-f",
-      "-",
-    ],
-    { input: sql, encoding: "utf8" },
-  );
+  // Gerçek kurulum script'i (parolalar ortam değişkeniyle).
+  const res = runBootstrap({ dbName, migratorPassword, appPassword });
   if (res.status !== 0) {
-    throw new Error(`db-bootstrap.sql başarısız:\n${res.stderr || res.stdout || res.error}`);
+    throw new Error(`db-bootstrap.sql başarısız:\n${res.output}`);
   }
 
   const migratorUrl = withDb(adminUrl, dbName, {
@@ -122,7 +110,15 @@ async function prepare(project: TestProject) {
     migrationsFolder: path.resolve(__dirname, "../../drizzle"),
   });
 
-  project.provide("testDb", { appUrl, migratorUrl, adminUrl: withDb(adminUrl, dbName), dbName });
+  project.provide("testDb", {
+    appUrl,
+    migratorUrl,
+    adminUrl: withDb(adminUrl, dbName),
+    serverAdminUrl: adminUrl,
+    dbName,
+    migratorPassword,
+    appPassword,
+  });
 
   return async () => {
     const client = new Client({ connectionString: adminUrl });

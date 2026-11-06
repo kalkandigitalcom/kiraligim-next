@@ -63,6 +63,8 @@ Tarayıcıda:
   Kurulum: `scripts/db-bootstrap.sql` (bkz. `docs/deployment.md`).
 - **Emniyet kemeri:** `APP_ENV=production` yalnız `*_prod`, `local`/`development` yalnız `*_dev`,
   `test` yalnız `*_test` adlı veritabanına bağlanır. Aksi halde uygulama ve migration açılmaz.
+- Uygulama bağlandığı rolü açılışta denetler; süper kullanıcı/BYPASSRLS/tablo sahibi rol güvensiz sayılır
+  (`DB_ROLE_GUARD`, `node dist/db-doctor.js`). Migration konteyner açılışında çalışır (`RUN_MIGRATIONS_ON_START`).
 - Tenant verisi her zaman `withTenant(db, workspaceId, fn)` içinde okunur/yazılır (`src/db/tenant.ts`).
 - **Uygulanmış migration dosyası değiştirilmez.** CI, `drizzle/` altındaki mevcut dosyaların
   değişmediğini kontrol eder; düzeltme her zaman yeni bir migration'la yapılır.

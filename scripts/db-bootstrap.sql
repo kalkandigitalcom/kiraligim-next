@@ -8,17 +8,32 @@
 --   app_worker    pg-boss işçisi    (Faz 2'de LOGIN açılacak)
 -- Hiçbiri SUPERUSER, CREATEDB, CREATEROLE veya BYPASSRLS değildir.
 --
--- Kullanım (parolalar dosyada değil, çalıştırma sırasında verilir):
---   psql "$ADMIN_URL" -v ON_ERROR_STOP=1 \
---     -v db_name=lodging_dev \
---     -v migrator_password="$MIGRATOR_PASSWORD" \
---     -v app_password="$APP_PASSWORD" \
---     -f scripts/db-bootstrap.sql
+-- Kullanım: parolalar KOMUT SATIRINDA DEĞİL, ortam değişkeninde verilir; böylece shell geçmişine,
+-- `ps` çıktısına ve psql log'una düşmez. Parolalar yalnız [A-Za-z0-9] olmalı (URL'de kaçış gerektirmesin):
+--   openssl rand -hex 24
 --
--- Tekrar çalıştırılabilir: var olan rollerin parolası güncellenir, veritabanı yeniden oluşturulmaz.
+--   export KG_MIGRATOR_PASSWORD=...   KG_APP_PASSWORD=...     (read -rs ile girilmesi önerilir)
+--   psql "$ADMIN_URL" -X -v ON_ERROR_STOP=1 -v db_name=lodging_dev -f scripts/db-bootstrap.sql
+--
+-- Docker içindeki psql ile (değerler `-e AD` biçiminde, değer yazılmadan aktarılır):
+--   docker exec -i -e KG_MIGRATOR_PASSWORD -e KG_APP_PASSWORD <konteyner> \
+--     sh -c 'psql -U "$POSTGRES_USER" -d postgres -X -v ON_ERROR_STOP=1 -v db_name=kiraligim_prod -f -' \
+--     < scripts/db-bootstrap.sql
+--
+-- Tekrar çalıştırılabilir: veritabanı yeniden oluşturulmaz, veri silinmez. Var olan rollerin parolası
+-- verilen değerlerle güncellenir (o zaman Coolify'daki bağlantı adresleri de güncellenmelidir).
 -- =====================================================================
 
 \set ON_ERROR_STOP on
+\set QUIET on
+
+-- Parola içeren ifadeler sunucu log'una yazılmasın (bu oturum için; süper kullanıcı gerekir).
+SET log_statement = 'none';
+SET log_min_duration_statement = -1;
+SET log_min_error_statement = 'panic';
+
+\getenv migrator_password KG_MIGRATOR_PASSWORD
+\getenv app_password KG_APP_PASSWORD
 
 \if :{?db_name}
 \else
@@ -27,12 +42,12 @@
 \endif
 \if :{?migrator_password}
 \else
-  \warn 'HATA: -v migrator_password=... verilmedi'
+  \warn 'HATA: KG_MIGRATOR_PASSWORD ortam değişkeni tanımlı değil'
   DO $$ BEGIN RAISE EXCEPTION 'db-bootstrap durduruldu'; END $$;
 \endif
 \if :{?app_password}
 \else
-  \warn 'HATA: -v app_password=... verilmedi'
+  \warn 'HATA: KG_APP_PASSWORD ortam değişkeni tanımlı değil'
   DO $$ BEGIN RAISE EXCEPTION 'db-bootstrap durduruldu'; END $$;
 \endif
 
@@ -43,15 +58,16 @@ SELECT (:'db_name' ~ '_(dev|prod|test)$') AS db_name_ok \gset
   DO $$ BEGIN RAISE EXCEPTION 'db-bootstrap durduruldu'; END $$;
 \endif
 
-SELECT (length(:'migrator_password') >= 24 AND length(:'app_password') >= 24
-        AND :'migrator_password' <> :'app_password') AS passwords_ok \gset
+SELECT (length(:'migrator_password') >= 32 AND length(:'app_password') >= 32
+        AND :'migrator_password' <> :'app_password'
+        AND :'migrator_password' ~ '^[A-Za-z0-9]+$' AND :'app_password' ~ '^[A-Za-z0-9]+$') AS passwords_ok \gset
 \if :passwords_ok
 \else
-  \warn 'HATA: parolalar en az 24 karakter ve birbirinden farklı olmalı'
+  \warn 'HATA: parolalar en az 32 karakter, yalnız harf/rakam ve birbirinden farklı olmalı (openssl rand -hex 24)'
   DO $$ BEGIN RAISE EXCEPTION 'db-bootstrap durduruldu'; END $$;
 \endif
 
--- Parolalar psql log'una düşmesin.
+-- Parolalar ekrana yazılmasın.
 \set QUIET on
 \set ECHO none
 
@@ -90,4 +106,4 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE app_migrator FROM CURRENT_USER;
 
 \set QUIET off
-\echo 'Tamam: roller ve veritabanı hazır. Sıradaki adım: migration (node dist/migrate.js).'
+\echo 'Tamam: roller ve veritabanı hazır. Sıradaki adım: migration (RUN_MIGRATIONS_ON_START=true ile deploy).'
