@@ -107,6 +107,55 @@ Teşhis:
 | Düz metin `Not found`                                        | 3. katman: env'deki URL host ile eşleşmiyor. Uygulama log'unda `unknown_host` satırı hangi host'un geldiğini gösterir |
 | `www.kiraligim.com` → `kiraligim.com` 308 yönlendirmesi      | Beklenen davranış                                                                                                     |
 
+## Kimlik (Better Auth) ve e-posta
+
+Durum (Aşama 2.0): yapılandırma kodda hazır (`src/server/auth/host-auth.ts`), **hiçbir route'a bağlı
+değil**: `/api/auth` uç noktası yok, kimlik tabloları henüz oluşturulmadı (migration `0003`, Aşama 2.1).
+Bu yüzden aşağıdaki değişkenler production'da **henüz gerekmez**; uygulama onlarsız açılır.
+
+| Değişken               | Örnek / değer                             | Not                                                              |
+| ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`   | `openssl rand -base64 32`                 | Ortam başına farklı, ≥32 karakter. Değişirse tüm oturumlar düşer |
+| `AUTH_SIGNUP_ENABLED`  | `false`                                   | Public kayıt Aşama 2.6'ya kadar kapalı                           |
+| `AUTH_IP_HEADER`       | `x-forwarded-for` veya `cf-connecting-ip` | Aşağıdaki IP bölümüne bakın                                      |
+| `AUTH_TRUSTED_PROXIES` | boş veya `CIDR,CIDR`                      | Güvenilen vekiller                                               |
+| `EMAIL_TRANSPORT`      | production: `resend`                      | `log` yalnız yerelde, `memory` yalnız testte                     |
+| `RESEND_API_KEY`       | `re_…`                                    | Yalnız "Sending access", tek alan adına kısıtlı anahtar          |
+| `EMAIL_FROM`           | `Kiralığım <bildirim@kiraligim.com>`      | Resend'de doğrulanmış alan adı                                   |
+| `EMAIL_REPLY_TO`       | `destek@kiraligim.com`                    | İsteğe bağlı                                                     |
+
+Yapılandırmanın temel kararları:
+
+- Uç nokta yalnız ev sahibi panelinde: `APP_URL/api/auth`. Güvenilen köken yalnız `APP_URL`.
+- Çerez `kg.` önekli, `HttpOnly`, `SameSite=Lax`, production'da `Secure`; `Domain` yok (yalnız `app.` host'u).
+- E-posta doğrulaması zorunlu; doğrulanmadan giriş yapılamaz. Şifre en az 10 karakter (scrypt özeti).
+- Şifre sıfırlama/doğrulama belirteçleri veritabanında özet olarak saklanır; sıfırlamada tüm oturumlar kapanır.
+- Kimlikler UUID v7. Better Auth telemetrisi kapalı. Köken (CSRF) denetimi her ortamda açık.
+- Super Admin bu kimlik sistemini ve tablolarını **kullanmaz** (Aşama 2.3).
+
+### Deneme sınırı (rate limit) ve istemci IP'si
+
+Better Auth sınırı `rate_limits` tablosunda tutar (`rateLimit.storage: "database"`; kaynak:
+`better-auth/dist/api/rate-limiter`): anahtar `<istemci-ip>|<yol>`, giriş/kayıt için 10 sn'de 3,
+sıfırlama/doğrulama e-postası için 60 sn'de 3, diğerleri için 60 sn'de 100 istek.
+
+İstemci IP'si `AUTH_IP_HEADER` başlığından okunur. Better Auth çok değerli `x-forwarded-for`
+zincirini (`istemci, vekil`) `AUTH_TRUSTED_PROXIES` tanımlı değilse **kabul etmez**; o zaman tüm
+istekler tek bir ortak kovaya düşer ve birkaç hatalı giriş herkesi kilitleyebilir. Bu yüzden
+kimlik uç noktası açılmadan (Aşama 2.1) şu iki seçenekten biri seçilmelidir:
+
+| Seçenek      | Ayar                                                                                                          | Ön koşul                                                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A (önerilen) | `AUTH_IP_HEADER=cf-connecting-ip`                                                                             | `app.` ve `admin.` DNS kayıtları Cloudflare'de **Proxied**; sunucu 80/443'e yalnız Cloudflare IP'lerinden erişilebilir (aksi halde başlık taklit edilebilir) |
+| B            | `AUTH_IP_HEADER=x-forwarded-for`, `AUTH_TRUSTED_PROXIES=<Traefik/Docker ağı CIDR>,<Cloudflare IP aralıkları>` | Zincirdeki her vekilin adresi biliniyor                                                                                                                      |
+
+### Resend kurulumu (gerçek gönderimden önce)
+
+1. Resend → Domains → `kiraligim.com` (veya `mail.kiraligim.com`) ekleyin.
+2. Verilen SPF, DKIM (ve önerilen DMARC) kayıtlarını Cloudflare DNS'e **DNS only** (gri bulut) olarak ekleyin; Resend'de "Verified" olana kadar bekleyin.
+3. Resend → API Keys → "Sending access", yalnız bu alan adı. Anahtarı Coolify'a `RESEND_API_KEY` olarak (Build Variable değil) girin.
+4. `EMAIL_FROM` alan adı doğrulanan alan adıyla aynı olmalı.
+
 ## Veritabanı rolleri ve migration
 
 ### Roller

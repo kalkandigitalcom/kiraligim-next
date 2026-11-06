@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 import { getEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 
+import { DB_CASING } from "./casing";
 import { createPool } from "./pool";
 import * as schema from "./schema";
 
@@ -25,6 +26,6 @@ export function getPool(): Pool {
 }
 
 export function getDb(): Database {
-  g.__kiraligimDb ??= drizzle(getPool(), { schema });
+  g.__kiraligimDb ??= drizzle(getPool(), { schema, casing: DB_CASING });
   return g.__kiraligimDb;
 }

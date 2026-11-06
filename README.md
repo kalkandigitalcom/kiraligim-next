@@ -14,8 +14,8 @@ Yönlendirme `src/proxy.ts` içinde, `Host` başlığına göre yapılır. Tanı
 ## Teknoloji
 
 Next.js 16 (App Router) · TypeScript (strict) · Tailwind CSS 4 · shadcn/ui · PostgreSQL 17 ·
-Drizzle ORM · Zod · Vitest. Sonraki fazlarda: Better Auth, pg-boss, Cloudflare R2, Resend,
-WhatsApp Cloud API. Barındırma: Hetzner + Coolify.
+Drizzle ORM · Better Auth (ev sahibi kimliği; yapılandırma hazır, uç nokta Aşama 2.1'de) · Zod · Vitest.
+E-posta: Resend (yerelde log, testte bellek). Sonraki fazlarda: pg-boss, Cloudflare R2, WhatsApp Cloud API. Barındırma: Hetzner + Coolify.
 
 ## Gereksinimler (Mac)
 

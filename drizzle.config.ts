@@ -1,5 +1,7 @@
 import { defineConfig } from "drizzle-kit";
 
+import { DB_CASING } from "./src/db/casing";
+
 /**
  * `npm run db:generate` veritabanına bağlanmadan SQL migration dosyası üretir.
  * RLS, roller ve özel kısıtlar için: `npm run db:generate:custom -- --name <ad>`.
@@ -9,7 +11,7 @@ export default defineConfig({
   dialect: "postgresql",
   schema: "./src/db/schema/index.ts",
   out: "./drizzle",
-  casing: "snake_case",
+  casing: DB_CASING,
   strict: true,
   verbose: true,
   dbCredentials: { url: process.env.MIGRATION_DATABASE_URL ?? "" },

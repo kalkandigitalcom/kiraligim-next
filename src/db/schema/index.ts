@@ -1,6 +1,7 @@
 /**
- * Drizzle şeması. İş tabloları Faz 2'den itibaren buraya eklenecek.
+ * Drizzle şeması.
  * Kurallar: UUID v7 anahtarlar, para tutarları bigint kuruş + currency char(3),
- * her tenant tablosunda workspace_id + RLS politikası (elle yazılan migration ile).
+ * her tenant tablosunda workspace_id + ENABLE/FORCE RLS politikası (elle yazılan migration ile),
+ * kolonlar TypeScript'te camelCase, veritabanında snake_case (src/db/casing.ts).
  */
-export {};
+export * from "./auth";
