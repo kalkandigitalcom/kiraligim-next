@@ -31,3 +31,19 @@ export function resolveSurface(hostHeader: string | null, map: HostMap): Surface
   }
   return null;
 }
+
+/**
+ * `www.<public-host>` isteklerini kalıcı olarak kök alan adına yönlendirmek için hedef origin döner.
+ * Yalnız public alan adının www sürümü yönlendirilir; diğer bilinmeyen host'lar 404 alır.
+ */
+export function wwwRedirectOrigin(
+  hostHeader: string | null,
+  map: HostMap,
+  publicUrl: string,
+): string | null {
+  if (!hostHeader) return null;
+  const host = hostHeader.trim().toLowerCase();
+  if (map.site.startsWith("www.")) return null;
+  if (host !== `www.${map.site}`) return null;
+  return new URL(publicUrl).origin;
+}

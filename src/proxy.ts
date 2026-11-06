@@ -1,21 +1,33 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { getEnv } from "@/lib/env";
-import { hostMapFromUrls, resolveSurface } from "@/lib/hosts";
+import { hostMapFromUrls, resolveSurface, wwwRedirectOrigin } from "@/lib/hosts";
+import { logger } from "@/lib/logger";
 import { buildCsp, createNonce, hstsHeader } from "@/lib/security-headers";
 
 /**
  * Her sayfa isteğinde:
  * 1. Host başlığına göre yüzeyi seçer ve isteği ilgili klasöre yeniden yazar
- *    (app.* → /host, admin.* → /admin, kök alan → /site). Tanımsız host → 404.
+ *    (app.* → /host, admin.* → /admin, kök alan → /site). `www.` kök alana 308 ile yönlenir.
+ *    Tanımsız host → 404 (log'a host adıyla yazılır; yanlış APP_URL/ADMIN_URL teşhisi için).
  * 2. İstek başına CSP nonce üretir; HSTS ve indeksleme başlıklarını ekler.
  * /api/* yeniden yazılmaz: Coolify sağlık kontrolü konteynere doğrudan localhost ile gelir.
  */
 export function proxy(request: NextRequest) {
   const env = getEnv();
-  const surface = resolveSurface(request.headers.get("host"), hostMapFromUrls(env));
+  const hostHeader = request.headers.get("host");
+  const hostMap = hostMapFromUrls(env);
+
+  const redirectOrigin = wwwRedirectOrigin(hostHeader, hostMap, env.PUBLIC_URL);
+  if (redirectOrigin) {
+    const target = new URL(request.nextUrl.pathname + request.nextUrl.search, redirectOrigin);
+    return NextResponse.redirect(target, 308);
+  }
+
+  const surface = resolveSurface(hostHeader, hostMap);
 
   if (!surface) {
+    logger.info("unknown_host", { host: hostHeader?.slice(0, 255) ?? null });
     return new NextResponse("Not found", {
       status: 404,
       headers: { "content-type": "text/plain; charset=utf-8", "x-robots-tag": "noindex" },
