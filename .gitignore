@@ -1,0 +1,42 @@
+# bağımlılıklar
+/node_modules
+
+# test
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# derlenmiş script'ler (migrate.js, ileride worker.js)
+/dist/
+
+# sistem
+.DS_Store
+*.pem
+
+# loglar
+npm-debug.log*
+
+# ortam dosyaları: yalnız .env.example Git'e girer
+.env*
+!.env.example
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# tünel durum dosyası
+.db-tunnel.pid
+
+# anahtar, sertifika ve veritabanı dökümleri asla Git'e girmez
+*.key
+*.p12
+*.pfx
+*.dump
+*.sql.gz
+/backups/
+
+# editör
+.idea/
+.vscode/

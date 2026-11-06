@@ -1,0 +1,15 @@
+.git
+.github
+node_modules
+.next
+dist
+coverage
+.env*
+!.env.example
+*.md
+!README.md
+docs
+tests
+.DS_Store
+*.pem
+.db-tunnel.pid

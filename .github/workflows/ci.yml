@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, tip, test, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    # Geçici test veritabanı: her çalıştırmada sıfırdan, iş bitince silinir.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      TEST_ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Uygulanmış migration'lar değişmemiş olmalı
+        if: github.event_name == 'pull_request'
+        run: bash scripts/check-migrations.sh "origin/${{ github.base_ref }}"
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm run test:unit
+
+      - name: psql istemcisi
+        run: command -v psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: Entegrasyon testleri (db-bootstrap.sql + tüm migration'lar sıfırdan)
+        run: npm run test:integration
+
+      - run: npm run build
+      - run: npm run build:scripts
+
+  docker:
+    name: Docker imajı
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    needs: verify
+    steps:
+      - uses: actions/checkout@v5
+      - name: İmajı derle (push yok)
+        run: docker build --pull -t kiraligim:ci .
+      - name: Konteyner root olmayan kullanıcıyla çalışıyor
+        run: test "$(docker run --rm --entrypoint id kiraligim:ci -u)" = "1001"
