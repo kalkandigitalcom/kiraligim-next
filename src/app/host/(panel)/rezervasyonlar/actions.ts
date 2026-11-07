@@ -2,7 +2,9 @@
 
 import { redirect, unstable_rethrow } from "next/navigation";
 
+import type { Quote } from "@/lib/pricing";
 import { type ActionResult, ok, toActionError } from "@/lib/result";
+import { quoteForProperty } from "@/server/rates/service";
 import { type ReservationField, reservationFormValues } from "@/server/reservations/schema";
 import { reservationSearchInput, SEARCH_PAGE_SIZE } from "@/server/reservations/search";
 import {
@@ -142,6 +144,25 @@ export async function checkAvailabilityAction(
   return result.data.length === 0
     ? { available: true }
     : { available: false, message: conflictMessage(result.data) };
+}
+
+export type QuoteResult = { quote: Quote | null };
+
+/**
+ * Konaklama fiyat hesabı (Aşama 3.2) — SALT OKUNUR. Formdaki "Önerilen tutar" paneli için;
+ * hiçbir kaydı değiştirmez. Tutar forma yalnız kullanıcı "Bu tutarı kullan" dediğinde yazılır.
+ */
+export async function quoteStayAction(
+  propertyId: string,
+  checkIn: string,
+  checkOut: string,
+): Promise<QuoteResult> {
+  const result = await runAction("reservation.quote", () =>
+    withPanelTenant((tx) =>
+      quoteForProperty(tx, String(propertyId), String(checkIn), String(checkOut)),
+    ),
+  );
+  return { quote: result.ok ? result.data : null };
 }
 
 export type SearchResult =

@@ -545,6 +545,63 @@ select policyname, cmd from pg_policies where tablename = 'property_photos' orde
 select prosecdef from pg_proc where proname = 'app_property_photos_before_insert';           -- f
 ```
 
+## Fiyat dönemleri (0017, 0018)
+
+`property_rates`: mülk başına fiyat dönemleri. Dönem `[start_date, end_date)` yarı açık aralıktır
+(rezervasyonlarla aynı): bitiş günü dahil değildir ve bir sonraki dönemin başlangıcı olabilir. Her
+dönemde gecelik (`nightly_amount_minor`) ve/veya haftalık (`weekly_amount_minor`: o dönemde geçerli 7
+gecelik toplam) fiyat, para birimi (TRY/EUR/USD/GBP) ve isteğe bağlı minimum konaklama (1–365 gece).
+Tutarlar kuruş/sent `bigint`. Arayüz: app.<alan-adı>/villalar/<id>/fiyatlar (sekme "Fiyatlar").
+
+- **Çakışma:** `property_rates_no_overlap` (`EXCLUDE USING gist`, btree_gist): aynı mülkte kesişen dönem
+  olamaz; eşzamanlı eklemelerde her izolasyon seviyesinde en fazla biri commit edilir. Rezervasyon
+  çakışma kısıtından bağımsızdır.
+- **CHECK:** bitiş > başlangıç ve en fazla 366 gece; en az bir fiyat dolu ve her fiyat 1 … 999.999.999.999;
+  para birimi listesi; minimum konaklama 1–365.
+- **RLS:** `ENABLE` + `FORCE`. Okuma: aktif işletmenin tüm üyeleri (staff dahil). Ekleme, düzenleme ve
+  **silme**: yalnız owner/manager; ekleme yalnız kendi adına (`created_by = app.user_id`).
+- **Kolon yetkileri:** `id`, `workspace_id`, `property_id`, `created_by`, `created_at` güncellenemez.
+  Yeni fonksiyon yok; `updated_at` için mevcut `app_set_updated_at` kullanılır.
+- **Denetim:** `property.rate_created`, `property.rate_updated` (yalnız değişen alan **adları**:
+  `dates`, `nightly_amount`, `weekly_amount`, `currency`, `min_nights`), `property.rate_deleted`.
+  Fiyat ve tarih değerleri yazılmaz.
+- Rezervasyon tutarları bu tablodan **hesaplanmaz** (ayrı aşama); mevcut rezervasyonlar etkilenmez.
+- Doğrulama: `tests/integration/property-rates.test.ts`, `tests/unit/rates.test.ts`.
+
+Deploy sonrası salt-okunur kontrol:
+
+```sql
+select count(*) from drizzle.__migrations;                                          -- 20 (0000–0019)
+select relrowsecurity, relforcerowsecurity from pg_class where relname = 'property_rates'; -- t, t
+select policyname, cmd from pg_policies where tablename = 'property_rates' order by 1;     -- delete, insert, select, update
+select conname from pg_constraint where conname = 'property_rates_no_overlap';             -- 1 satır
+```
+
+**Tek para birimi ve fiyat hesabı (0019, Aşama 3.2).** `property_rates_currency_guard` (BEFORE INSERT OR
+UPDATE OF currency, SECURITY INVOKER): bir mülkün tüm dönemleri ilk dönemin para birimindedir; farklı para
+birimiyle dönem eklenemez, birden çok dönem varken para birimi değiştirilemez (`property_rates_currency_mismatch`).
+Mülk başına advisory lock (anahtar uzayı **7004**); REPEATABLE READ'de yazma `property_rates_currency_isolation`
+ile reddedilir (uygulama READ COMMITTED kullanır). Migration rolü FORCE RLS nedeniyle satırları göremediğinden
+veri ön denetimi yoktur: **0017–0019 aynı sürümde deploy edilir** (tablo boş başlar).
+
+Konaklama fiyatı (`src/lib/pricing.ts`, `quoteForProperty`) **salt okunurdur**: her gece kendi döneminin
+fiyatıyla; haftalık fiyat dönem içindeki 7 gecelik bloklara, kalan geceler gecelik fiyata; fiyatsız tek gece
+varsa toplam yok; minimum konaklama giriş gecesinin dönemine göre uyarı. Rezervasyon formunda "Önerilen tutar"
+olarak gösterilir ve yalnız "Bu tutarı kullan" ile forma yazılır; kayıtlı rezervasyon tutarları değişmez.
+Geri alma: `DROP TRIGGER property_rates_currency_guard ON public.property_rates; DROP FUNCTION
+public.app_property_rates_currency_guard();`
+
+**Geri alma (3.1 fiyat dönemleri).** 0017–0018 yalnız yeni bir tablo ekler; mevcut tablo, fonksiyon ve
+veri değişmez. Uygulama sürümü geri alınırsa tablo kullanılmadan kalabilir (zararsız). Tabloyu da kaldırmak
+gerekirse (fiyat verisi silinir; önce yedek alın), Burhan'ın onayıyla:
+
+```sql
+DROP TABLE public.property_rates;   -- politikalar, kısıt, dizinler, tetikleyici ve yetkiler birlikte gider
+```
+
+Migration geçmişi kayıtları (`drizzle.__migrations`) elle silinmez; aynı sürüm yeniden deploy edilecekse
+tabloyu düşürmek yerine bırakın. Kalıcı geri alma gerekirse yeni bir ileri migration (`DROP TABLE`) yazılır.
+
 ## Veritabanı rolleri ve migration
 
 ### Roller
