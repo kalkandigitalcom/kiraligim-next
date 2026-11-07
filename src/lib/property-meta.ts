@@ -32,7 +32,33 @@ export const PROPERTY_LIMITS = {
   placeMax: 60,
   neighborhoodMax: 120,
   addressMax: 300,
+  /** Biçimlendirilmiş açıklama (HTML) en fazla; düz metin hali descriptionMax ile sınırlıdır. */
+  descriptionHtmlMax: 20000,
+  /** T.C. Kültür ve Turizm Bakanlığı belge numarası. */
+  licenseMax: 40,
+  youtubeMax: 10,
+  /** Havuz ölçüleri (metre, 2 ondalık). */
+  poolDepthMin: 0.1,
+  poolDepthMax: 10,
+  poolSideMin: 0.5,
+  poolSideMax: 100,
 } as const;
+
+/** Belge numarasında izin verilen karakterler: harf, rakam, boşluk, - / . */
+export const LICENSE_PATTERN = /^[0-9A-Za-zÇĞİÖŞÜçğıöşü][0-9A-Za-zÇĞİÖŞÜçğıöşü ./-]*$/;
+
+export const POOL_KINDS = ["swimming", "indoor", "kids"] as const;
+export type PoolKind = (typeof POOL_KINDS)[number];
+
+export const POOL_LABELS: Record<PoolKind, string> = {
+  swimming: "Yüzme Havuzu",
+  indoor: "Kapalı Havuz",
+  kids: "Çocuk Havuzu",
+};
+
+/** Havuz ölçüsü: Türkçe gösterim (1,50). */
+export const formatMeters = (n: number) =>
+  n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** "Haritada aç" bağlantısı (OpenStreetMap, yeni sekmede). Gömülü harita kullanılmaz. */
 export function mapLink(lat: number, lng: number): string {

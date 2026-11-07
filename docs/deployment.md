@@ -459,6 +459,14 @@ select relname, relrowsecurity, relforcerowsecurity from pg_class
 - Konum için gömülü harita yok; "Haritada aç" OpenStreetMap'i yeni sekmede açar (CSP değişmedi).
 - Doğrulama: `tests/integration/properties.test.ts`, `tests/unit/properties.test.ts`.
 
+- **Ek alanlar (0013, 0014):** T.C. Kültür ve Turizm Bakanlığı belge no (`tourism_license_no`,
+  isteğe bağlı), biçimlendirilmiş açıklama (`description_html`: sunucuda `sanitize-html` ile yalnız
+  p/br/strong/em/u/a — http/https/mailto, yeni sekme + `noopener noreferrer nofollow`; düz metin hali
+  `description`'da kalır, eski kayıtlar düz metinden kaçışlı HTML'e çevrilerek gösterilir), YouTube
+  videoları (`youtube_video_ids`: en fazla 10 video kimliği) ve havuzlar (yüzme / kapalı / çocuk: var-yok
+  - derinlik, genişlik, uzunluk metre; korunaklı yalnız yüzme havuzu). Havuz "var" iken üç ölçü zorunlu,
+    "yok" iken ölçüler NULL (CHECK). Yeni kolonlar NULL / varsayılanla eklenir; mevcut veri değişmez.
+
 Deploy sonrası salt-okunur kontrol:
 
 ```sql

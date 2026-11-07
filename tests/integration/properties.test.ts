@@ -629,3 +629,237 @@ describe("yetkiler, politikalar, fonksiyon", () => {
     expect(t.rows[0].def).toMatch(/BEFORE INSERT ON public\.properties FOR EACH ROW/);
   });
 });
+
+describe("ek alanlar: belge no, biçimlendirilmiş açıklama, YouTube, havuzlar (0013, 0014)", () => {
+  let X: U, wsX: string;
+  beforeAll(async () => {
+    X = await mkUser("detay");
+    wsX = await mkWorkspace(X, "detay");
+  });
+  const asX = <T>(
+    fn: (tx: Tx, ctx: Parameters<Parameters<typeof withTenant>[2]>[1]) => Promise<T>,
+  ) => withTenant(app, { userId: X.id, workspaceId: wsX }, fn);
+  const full = {
+    tourismLicenseNo: " 07-2024/1234 ",
+    description:
+      '<p><b>Havuzlu</b> villa <i>denize</i> <u>yakın</u>. <a href="https://ornek.com" onclick="x()">Site</a><script>alert(1)</script></p>',
+    youtubeUrls: ["https://youtu.be/dQw4w9WgXcQ", "", "https://www.youtube.com/shorts/a_b-C1d2E3f"],
+    poolSwimming: "yes",
+    poolSwimmingDepth: "1,50",
+    poolSwimmingWidth: "4",
+    poolSwimmingLength: "8,25",
+    poolSwimmingProtected: "yes",
+    poolIndoor: "no",
+    poolIndoorDepth: "3",
+    poolKids: "yes",
+    poolKidsDepth: "0,40",
+    poolKidsWidth: "2",
+    poolKidsLength: "3",
+  };
+  let id: string;
+
+  it("oluşturma: yeni alanlar temizlenmiş/normalleştirilmiş olarak kaydedilir ve geri okunur", async () => {
+    id = await asX((tx, ctx) => createProperty(tx, ctx, valid(full)));
+    const r = (
+      await admin.query(
+        `select description, description_html, tourism_license_no, youtube_video_ids,
+                pool_swimming, pool_swimming_depth, pool_swimming_width, pool_swimming_length,
+                pool_swimming_protected, pool_indoor, pool_indoor_depth, pool_kids,
+                pool_kids_depth, pool_kids_width, pool_kids_length
+           from properties where id = $1`,
+        [id],
+      )
+    ).rows[0];
+    expect(r).toEqual({
+      description: "Havuzlu villa denize yakın. Site",
+      description_html:
+        '<p><strong>Havuzlu</strong> villa <em>denize</em> <u>yakın</u>. <a href="https://ornek.com/" target="_blank" rel="noopener noreferrer nofollow">Site</a></p>',
+      tourism_license_no: "07-2024/1234",
+      youtube_video_ids: ["dQw4w9WgXcQ", "a_b-C1d2E3f"],
+      pool_swimming: true,
+      pool_swimming_depth: "1.50",
+      pool_swimming_width: "4.00",
+      pool_swimming_length: "8.25",
+      pool_swimming_protected: true,
+      pool_indoor: false,
+      pool_indoor_depth: null,
+      pool_kids: true,
+      pool_kids_depth: "0.40",
+      pool_kids_width: "2.00",
+      pool_kids_length: "3.00",
+    });
+    const p = await asX((tx) => getProperty(tx, id));
+    expect(p).toMatchObject({
+      tourismLicenseNo: "07-2024/1234",
+      youtubeVideoIds: ["dQw4w9WgXcQ", "a_b-C1d2E3f"],
+      pools: {
+        swimming: { present: true, depth: 1.5, width: 4, length: 8.25 },
+        indoor: { present: false, depth: null, width: null, length: null },
+        kids: { present: true, depth: 0.4, width: 2, length: 3 },
+        swimmingProtected: true,
+      },
+    });
+    expect(p?.descriptionHtml).toBe(r.description_html);
+  });
+
+  it("düzenleme: alanlar güncellenir / temizlenir; denetim kaydında yalnız alan adları", async () => {
+    const res = await asX((tx, ctx) =>
+      updateProperty(
+        tx,
+        ctx,
+        id,
+        valid({
+          ...full,
+          tourismLicenseNo: "",
+          youtubeUrls: ["https://www.youtube.com/watch?v=a_b-C1d2E3f"],
+          poolSwimming: "no",
+          poolKids: "yes",
+        }),
+      ),
+    );
+    expect(res).toEqual({ changed: 3 });
+    const p = await asX((tx) => getProperty(tx, id));
+    expect(p).toMatchObject({
+      tourismLicenseNo: null,
+      youtubeVideoIds: ["a_b-C1d2E3f"],
+      pools: {
+        swimming: { present: false, depth: null, width: null, length: null },
+        swimmingProtected: false,
+      },
+    });
+    const audit = (
+      await admin.query(
+        "select metadata from audit_log where target_id = $1 and action = 'property.updated' order by occurred_at desc limit 1",
+        [id],
+      )
+    ).rows[0].metadata;
+    expect(audit).toEqual({ fields: ["tourism_license_no", "youtube_videos", "pools"] });
+    expect(JSON.stringify(audit)).not.toMatch(/07-2024|a_b-C1d2E3f|1\.5/);
+    // Değişiklik yoksa güncelleme yok.
+    const same = await asX((tx, ctx) =>
+      updateProperty(
+        tx,
+        ctx,
+        id,
+        valid({
+          ...full,
+          tourismLicenseNo: "",
+          youtubeUrls: ["https://youtu.be/a_b-C1d2E3f"],
+          poolSwimming: "no",
+        }),
+      ),
+    );
+    expect(same).toEqual({ changed: 0 });
+  });
+
+  it("geçersiz değerler: uygulama alan hatası verir, kayıt değişmez", async () => {
+    await expect(
+      asX((tx, ctx) =>
+        updateProperty(
+          tx,
+          ctx,
+          id,
+          valid({ youtubeUrls: ["https://vimeo.com/1"], poolIndoor: "yes" }),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      fieldErrors: {
+        "youtubeUrls.0": ["Geçerli bir YouTube video bağlantısı girin."],
+        poolIndoorDepth: ["Derinlik gerekli."],
+        poolIndoorWidth: ["Genişlik gerekli."],
+        poolIndoorLength: ["Uzunluk gerekli."],
+      },
+    });
+  });
+
+  it("eski kayıtlar: düz metin açıklama korunur, düzenleyiciye kaçışlı HTML olarak gelir", async () => {
+    const legacyId = uuidv7();
+    const Y = await mkUser("eski");
+    const wsY = await mkWorkspace(Y, "eski");
+    await admin.query(
+      `insert into properties (id, workspace_id, created_by, name, property_type, description,
+                               max_guests, bedrooms, bathrooms, province, district)
+       values ($1, $2, $3, 'Eski', 'ev', $4, 2, 1, 1, 'Muğla', 'Fethiye')`,
+      [legacyId, wsY, Y.id, "Bahçeli <ev> & şömine\nİkinci satır"],
+    );
+    const p = await withTenant(app, { userId: Y.id, workspaceId: wsY }, (tx) =>
+      getProperty(tx, legacyId),
+    );
+    expect(p).toMatchObject({
+      description: "Bahçeli <ev> & şömine\nİkinci satır",
+      descriptionHtml: "<p>Bahçeli &lt;ev&gt; &amp; şömine<br />İkinci satır</p>",
+      tourismLicenseNo: null,
+      youtubeVideoIds: [],
+      pools: { swimming: { present: false }, swimmingProtected: false },
+    });
+    const raw = (
+      await admin.query("select description, description_html from properties where id = $1", [
+        legacyId,
+      ])
+    ).rows[0];
+    expect(raw).toEqual({
+      description: "Bahçeli <ev> & şömine\nİkinci satır",
+      description_html: null,
+    });
+  });
+
+  it("veritabanı kısıtları (son savunma hattı)", async () => {
+    const bad = (set: string) =>
+      pgMessage(
+        asX((tx) => tx.execute(sql.raw(`update properties set ${set} where id = '${id}'`))),
+      );
+    expect(await bad("pool_indoor = true")).toMatch(/properties_pool_indoor/);
+    expect(await bad("pool_indoor = true, pool_indoor_depth = 1, pool_indoor_width = 2")).toMatch(
+      /properties_pool_indoor/,
+    );
+    expect(
+      await bad(
+        "pool_indoor = true, pool_indoor_depth = 11, pool_indoor_width = 2, pool_indoor_length = 3",
+      ),
+    ).toMatch(/properties_pool_indoor/);
+    expect(await bad("pool_kids = false")).toMatch(/properties_pool_kids/);
+    expect(await bad("pool_swimming_protected = true")).toMatch(
+      /properties_pool_swimming_protected/,
+    );
+    expect(await bad("youtube_video_ids = array['kisa']")).toMatch(/properties_youtube_video_ids/);
+    expect(await bad("youtube_video_ids = array['dQw4w9WgXcQ', null]")).toMatch(
+      /properties_youtube_video_ids/,
+    );
+    expect(await bad(`youtube_video_ids = array_fill('dQw4w9WgXcQ'::text, array[11])`)).toMatch(
+      /properties_youtube_video_ids/,
+    );
+    expect(await bad("tourism_license_no = '<b>1</b>'")).toMatch(
+      /properties_tourism_license_format/,
+    );
+    expect(await bad("tourism_license_no = ''")).toMatch(/properties_tourism_license_format/);
+    expect(await bad(`description_html = repeat('a', 20001)`)).toMatch(
+      /properties_description_html_length/,
+    );
+  });
+
+  it("yetkiler: yeni kolonlar app_user için eklenebilir/güncellenebilir; staff ve başka işletme yazamaz", async () => {
+    const cols = await admin.query(`
+      select a.attname, x.privilege_type from pg_attribute a, aclexplode(a.attacl) x
+       where a.attrelid = 'properties'::regclass and x.grantee = 'app_user'::regrole
+         and a.attname in ('description_html', 'tourism_license_no', 'youtube_video_ids',
+                           'pool_swimming', 'pool_kids_length', 'pool_swimming_protected')
+       order by 1, 2`);
+    expect(cols.rows).toHaveLength(12);
+    // staff (wsA) düzenleyemez — uygulama ve RLS
+    await expect(
+      withTenant(app, { userId: S.id, workspaceId: wsA }, (tx, ctx) =>
+        updateProperty(tx, ctx, propA, valid({ tourismLicenseNo: "1" })),
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const upd = await withTenant(app, { userId: S.id, workspaceId: wsA }, (tx) =>
+      tx.execute(sql`update properties set tourism_license_no = 'X1' where id = ${propA}`),
+    );
+    expect(upd.rowCount).toBe(0);
+    // Başka işletmenin mülkü görünmez/güncellenmez.
+    const other = await asX((tx) =>
+      tx.execute(sql`update properties set tourism_license_no = 'X1' where id = ${propB}`),
+    );
+    expect(other.rowCount).toBe(0);
+  });
+});

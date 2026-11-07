@@ -3,7 +3,8 @@
 import { redirect, unstable_rethrow } from "next/navigation";
 
 import { type ActionResult, ok, toActionError } from "@/lib/result";
-import { type PropertyField, propertyFormValues } from "@/server/properties/schema";
+import { sanitizeDescription } from "@/server/properties/description";
+import { type PropertyFormRaw, propertyFormValues } from "@/server/properties/schema";
 import { createProperty, setPropertyStatus, updateProperty } from "@/server/properties/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
@@ -28,24 +29,36 @@ async function runAction<T>(name: string, fn: () => Promise<T>): Promise<ActionR
 
 export type PropertyFormState = {
   error?: string;
-  fieldErrors?: Partial<Record<PropertyField, string>>;
-  values?: Record<PropertyField, string>;
+  /** Alan adı → ilk hata. Liste alanlarında sıra eklenir: "youtubeUrls.2". */
+  fieldErrors?: Record<string, string>;
+  values?: PropertyFormRaw;
   saved?: boolean;
 };
 
 const firstErrors = (fe: Record<string, string[]> | undefined) => {
-  const out: Partial<Record<PropertyField, string>> = {};
-  for (const [k, v] of Object.entries(fe ?? {})) if (v[0]) out[k as PropertyField] = v[0];
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fe ?? {})) if (v[0]) out[k] = v[0];
   return out;
 };
+
+/**
+ * Forma geri gönderilen değerler. Açıklama HTML'i istemciye dönmeden önce temizlenir: düzenleyici
+ * bu değeri yeniden gösterir; temizlenmemiş HTML hiçbir zaman sayfaya yazılmaz.
+ */
+function formValues(formData: FormData): PropertyFormRaw {
+  const values = propertyFormValues(formData);
+  values.description = sanitizeDescription(values.description)?.html ?? "";
+  return values;
+}
 
 export async function createPropertyAction(
   _prev: PropertyFormState,
   formData: FormData,
 ): Promise<PropertyFormState> {
-  const values = propertyFormValues(formData);
+  const input = propertyFormValues(formData);
+  const values = formValues(formData);
   const result = await runAction("property.create", () =>
-    withPanelTenant((tx, ctx) => createProperty(tx, ctx, values)),
+    withPanelTenant((tx, ctx) => createProperty(tx, ctx, input)),
   );
   if (!result.ok) {
     return {
@@ -62,9 +75,10 @@ export async function updatePropertyAction(
   _prev: PropertyFormState,
   formData: FormData,
 ): Promise<PropertyFormState> {
-  const values = propertyFormValues(formData);
+  const input = propertyFormValues(formData);
+  const values = formValues(formData);
   const result = await runAction("property.update", () =>
-    withPanelTenant((tx, ctx) => updateProperty(tx, ctx, id, values)),
+    withPanelTenant((tx, ctx) => updateProperty(tx, ctx, id, input)),
   );
   if (!result.ok) {
     return {

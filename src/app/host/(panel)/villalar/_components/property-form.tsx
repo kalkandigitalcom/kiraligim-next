@@ -14,11 +14,17 @@ import {
 import { TR_PROVINCES_SORTED } from "@/lib/tr-provinces";
 
 import type { PropertyFormState } from "../actions";
+import { PoolFields, type PoolFormValues } from "./pool-fields";
+import { RichTextEditor } from "./rich-text-editor";
+import { YoutubeField } from "./youtube-field";
 
-export type PropertyFormValues = {
+export type PropertyFormValues = PoolFormValues & {
   name: string;
   propertyType: string;
+  /** Temizlenmiş HTML (sunucudan). */
   description: string;
+  tourismLicenseNo: string;
+  youtubeUrls: string[];
   maxGuests: string;
   bedrooms: string;
   bathrooms: string;
@@ -38,6 +44,8 @@ export const EMPTY_PROPERTY: PropertyFormValues = {
   name: "",
   propertyType: "villa",
   description: "",
+  tourismLicenseNo: "",
+  youtubeUrls: [],
   maxGuests: "",
   bedrooms: "",
   bathrooms: "",
@@ -51,6 +59,19 @@ export const EMPTY_PROPERTY: PropertyFormValues = {
   postalCode: "",
   latitude: "",
   longitude: "",
+  poolSwimming: "no",
+  poolSwimmingDepth: "",
+  poolSwimmingWidth: "",
+  poolSwimmingLength: "",
+  poolSwimmingProtected: "no",
+  poolIndoor: "no",
+  poolIndoorDepth: "",
+  poolIndoorWidth: "",
+  poolIndoorLength: "",
+  poolKids: "no",
+  poolKidsDepth: "",
+  poolKidsWidth: "",
+  poolKidsLength: "",
 };
 
 type Props = {
@@ -71,11 +92,24 @@ function parseCoord(v: string, min: number, max: number): number | null {
   return Number.isFinite(n) && n >= min && n <= max ? n : null;
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   return (
     <fieldset className="flex flex-col gap-5 border-t border-border pt-6 first:border-t-0 first:pt-0">
       <legend className="float-left mb-1 w-full text-base font-semibold text-navy-900">
         {title}
+        {description ? (
+          <span className="mt-0.5 block text-sm font-normal text-muted-foreground">
+            {description}
+          </span>
+        ) : null}
       </legend>
       <div className="clear-left flex flex-col gap-5">{children}</div>
     </fieldset>
@@ -109,6 +143,8 @@ export function PropertyForm({ action, initial, submitLabel, pendingLabel, readO
             required
           />
           <SelectField
+            // React form sıfırlaması <select>'i yeni varsayılana döndürmüyor: değer değişince yeniden kur.
+            key={`propertyType-${v.propertyType}`}
             id="propertyType"
             name="propertyType"
             label="Mülk türü"
@@ -117,13 +153,25 @@ export function PropertyForm({ action, initial, submitLabel, pendingLabel, readO
             error={fe.propertyType}
             required
           />
-          <TextareaField
+          <Field
+            id="tourismLicenseNo"
+            name="tourismLicenseNo"
+            label="T.C. Kültür ve Turizm Bakanlığı Belge No (isteğe bağlı)"
+            maxLength={L.licenseMax}
+            autoComplete="off"
+            defaultValue={v.tourismLicenseNo}
+            error={fe.tourismLicenseNo}
+          />
+          <RichTextEditor
+            // Sunucunun döndürdüğü (temizlenmiş) açıklama farklıysa düzenleyici onunla yeniden kurulur.
+            key={v.description}
             id="description"
             name="description"
             label="Açıklama (isteğe bağlı)"
-            maxLength={L.descriptionMax}
-            defaultValue={v.description}
+            defaultHtml={v.description}
+            maxText={L.descriptionMax}
             error={fe.description}
+            readOnly={readOnly}
           />
         </Section>
 
@@ -203,9 +251,14 @@ export function PropertyForm({ action, initial, submitLabel, pendingLabel, readO
           </div>
         </Section>
 
+        <Section title="Havuz Bilgileri" description="Havuz tiplerini ve ölçülerini gir.">
+          <PoolFields values={v} errors={fe} readOnly={readOnly} />
+        </Section>
+
         <Section title="Adres ve konum">
           <div className="grid gap-5 sm:grid-cols-2">
             <SelectField
+              key={`province-${v.province}`}
               id="province"
               name="province"
               label="İl"
@@ -289,6 +342,10 @@ export function PropertyForm({ action, initial, submitLabel, pendingLabel, readO
               </a>
             ) : null}
           </p>
+        </Section>
+
+        <Section title="YouTube videoları">
+          <YoutubeField initial={v.youtubeUrls} errors={fe} readOnly={readOnly} />
         </Section>
       </fieldset>
 
