@@ -1,4 +1,9 @@
-import { Pool, type PoolConfig } from "pg";
+import { Pool, type PoolConfig, types } from "pg";
+
+// DATE (OID 1082) saat dilimsiz takvim günüdür: JavaScript Date'e çevrilirse sunucunun saat
+// dilimine göre bir gün kayabilir. Bu yüzden "YYYY-MM-DD" metni olarak bırakılır
+// (rezervasyon tarihleri; bkz. src/lib/reservation-meta.ts). timestamptz etkilenmez.
+types.setTypeParser(types.builtins.DATE, (v) => v);
 
 /** Ortak pg havuzu ayarları; uygulama, migration ve testler aynı varsayılanları kullanır. */
 export function createPool(connectionString: string, overrides: PoolConfig = {}): Pool {

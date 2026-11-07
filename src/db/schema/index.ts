@@ -10,3 +10,4 @@ export * from "./billing";
 export * from "./photos";
 export * from "./properties";
 export * from "./tenancy";
+export * from "./reservations";
