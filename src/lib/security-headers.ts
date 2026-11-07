@@ -34,13 +34,21 @@ export function createNonce(): string {
   return btoa(String.fromCharCode(...bytes));
 }
 
-export function buildCsp(nonce: string, opts: { isDev: boolean; isHttps?: boolean }): string {
+/**
+ * `imgOrigins`: ek görsel kökenleri (ör. fotoğraf CDN'i https://img.kiraligim.com). Yalnız
+ * https kökenleri (yol / joker yok) kabul edilir; diğerleri sessizce atlanır.
+ */
+export function buildCsp(
+  nonce: string,
+  opts: { isDev: boolean; isHttps?: boolean; imgOrigins?: readonly string[] },
+): string {
+  const imgExtra = (opts.imgOrigins ?? []).filter((o) => /^https:\/\/[a-z0-9.-]+(:\d+)?$/.test(o));
   const directives = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${opts.isDev ? " 'unsafe-eval'" : ""}`,
     // Geliştirmede HMR satır içi stil ekler; nonce varken 'unsafe-inline' yok sayıldığı için ayrı.
     opts.isDev ? "style-src 'self' 'unsafe-inline'" : `style-src 'self' 'nonce-${nonce}'`,
-    "img-src 'self' blob: data:",
+    ["img-src 'self' blob: data:", ...imgExtra].join(" "),
     "font-src 'self'",
     "connect-src 'self'",
     "object-src 'none'",

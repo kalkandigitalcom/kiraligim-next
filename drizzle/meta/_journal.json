@@ -78,6 +78,20 @@
       "when": 1794046282116,
       "tag": "0010_properties_security",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794056870983,
+      "tag": "0011_property_photos",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794056871791,
+      "tag": "0012_property_photos_security",
+      "breakpoints": true
     }
   ]
 }

@@ -52,13 +52,18 @@ export const AUDIT_ACTIONS = {
     from: z.enum(PROPERTY_STATUSES),
     to: z.enum(PROPERTY_STATUSES),
   }),
+  // Fotoğraf: yalnız mülk kimliği; dosya adı, boyut veya görsel bilgisi yazılmaz.
+  "property.photo_added": z.strictObject({ property: z.uuid() }),
+  "property.photo_removed": z.strictObject({ property: z.uuid() }),
+  "property.photo_cover_changed": z.strictObject({ property: z.uuid() }),
+  "property.photos_reordered": z.strictObject({ property: z.uuid() }),
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 
 export type AuditEntry<A extends AuditAction = AuditAction> = {
   action: A;
-  targetType?: "workspace" | "workspace_member" | "user" | "property";
+  targetType?: "workspace" | "workspace_member" | "user" | "property" | "property_photo";
   targetId?: string;
   metadata: z.input<(typeof AUDIT_ACTIONS)[A]>;
 };

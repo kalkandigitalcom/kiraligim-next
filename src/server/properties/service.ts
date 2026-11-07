@@ -42,6 +42,9 @@ export type PropertySummary = {
   district: string;
 };
 
+/** Liste görünümü: özet + kapak fotoğrafının depolama öneki (yoksa null). */
+export type PropertyListItem = PropertySummary & { coverPrefix: string | null };
+
 export type Property = PropertySummary & {
   description: string | null;
   bedsDouble: number;
@@ -109,14 +112,17 @@ const toProperty = (r: Row): Property => ({
   updatedAt: new Date(r.updated_at),
 });
 
-/** Bağlamdaki işletmenin mülkleri: aktifler önce, sonra ada göre. */
-export async function listProperties(tx: Tx): Promise<PropertySummary[]> {
-  const res = await tx.execute<Row>(sql`
-    select id, name, property_type, status, max_guests, bedrooms, bathrooms, province, district
-      from properties
-     where workspace_id = app_current_workspace_id()
-     order by (status = 'active') desc, name collate "C", created_at`);
-  return res.rows.map(toSummary);
+/** Bağlamdaki işletmenin mülkleri: aktifler önce, sonra ada göre; kapak fotoğrafıyla. */
+export async function listProperties(tx: Tx): Promise<PropertyListItem[]> {
+  const res = await tx.execute<Row & { cover_prefix: string | null }>(sql`
+    select p.id, p.name, p.property_type, p.status, p.max_guests, p.bedrooms, p.bathrooms,
+           p.province, p.district, c.storage_prefix as cover_prefix
+      from properties p
+      left join property_photos c
+        on c.property_id = p.id and c.workspace_id = p.workspace_id and c.is_cover
+     where p.workspace_id = app_current_workspace_id()
+     order by (p.status = 'active') desc, p.name collate "C", p.created_at`);
+  return res.rows.map((r) => ({ ...toSummary(r), coverPrefix: r.cover_prefix }));
 }
 
 /** Tek mülk; başka işletmeye aitse veya yoksa null (RLS satırı göstermez). */

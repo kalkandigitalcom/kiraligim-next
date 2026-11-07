@@ -13,3 +13,4 @@ tests
 .DS_Store
 *.pem
 .db-tunnel.pid
+.storage

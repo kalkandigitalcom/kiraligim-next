@@ -4,6 +4,7 @@ import { getEnv } from "@/lib/env";
 import { hostMapFromUrls, resolveSurface, wwwRedirectOrigin } from "@/lib/hosts";
 import { logger } from "@/lib/logger";
 import { buildCsp, createNonce, hstsHeader } from "@/lib/security-headers";
+import { mediaOriginForCsp } from "@/server/storage/env";
 
 /**
  * Her sayfa isteğinde:
@@ -37,7 +38,12 @@ export function proxy(request: NextRequest) {
   const isHttps =
     request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   const nonce = createNonce();
-  const csp = buildCsp(nonce, { isDev: process.env.NODE_ENV === "development", isHttps });
+  const mediaOrigin = mediaOriginForCsp(process.env);
+  const csp = buildCsp(nonce, {
+    isDev: process.env.NODE_ENV === "development",
+    isHttps,
+    imgOrigins: mediaOrigin ? [mediaOrigin] : [],
+  });
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);

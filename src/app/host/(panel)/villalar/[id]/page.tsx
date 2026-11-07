@@ -10,6 +10,7 @@ import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 import { setPropertyStatusAction, updatePropertyAction } from "../actions";
 import { StatusBadge } from "../_components/property-bits";
 import { PropertyForm, type PropertyFormValues } from "../_components/property-form";
+import { PropertyTabs } from "../_components/property-tabs";
 import { StatusToggle } from "../_components/status-toggle";
 
 export const metadata: Metadata = { title: "Mülk" };
@@ -72,6 +73,7 @@ export default async function PropertyPage({ params, searchParams }: Props) {
         </div>
         <StatusBadge status={p.status} />
       </div>
+      <PropertyTabs propertyId={p.id} active="info" />
 
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {!view.canManage ? (

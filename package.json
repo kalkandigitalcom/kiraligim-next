@@ -19,9 +19,11 @@
     "db:generate:custom": "drizzle-kit generate --custom",
     "db:migrate": "npm run build:scripts && node --env-file-if-exists=.env.local dist/migrate.js",
     "db:tunnel": "bash scripts/db-tunnel.sh",
+    "storage:check": "npm run build:scripts && node --env-file-if-exists=.env.local dist/storage-check.js",
     "check": "npm run lint && npm run typecheck && npm run format:check && npm run test:unit"
   },
   "dependencies": {
+    "aws4fetch": "1.0.20",
     "better-auth": "1.7.12",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -31,6 +33,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "0.0.1",
+    "sharp": "0.35.5",
     "tailwind-merge": "3.7.0",
     "uuidv7": "1.2.1",
     "zod": "4.6.7"

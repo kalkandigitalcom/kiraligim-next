@@ -45,3 +45,19 @@ describe("denetim metadata doğrulaması", () => {
     );
   });
 });
+
+describe("fotoğraf denetim kayıtları", () => {
+  const property = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+  it.each([
+    "property.photo_added",
+    "property.photo_removed",
+    "property.photo_cover_changed",
+    "property.photos_reordered",
+  ] as const)("%s yalnız mülk kimliği taşır", (action) => {
+    expect(validateAuditEntry({ action, metadata: { property } })).toEqual({ property });
+    // Dosya adı, boyut veya başka alan yazılamaz.
+    expect(bad({ action, metadata: { property, filename: "IMG_0001.jpg" } })).toThrow();
+    expect(bad({ action, metadata: { property, bytes: 123 } })).toThrow();
+    expect(bad({ action, metadata: { property: "x" } })).toThrow();
+  });
+});

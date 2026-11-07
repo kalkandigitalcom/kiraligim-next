@@ -7,5 +7,6 @@
 export * from "./audit";
 export * from "./auth";
 export * from "./billing";
+export * from "./photos";
 export * from "./properties";
 export * from "./tenancy";

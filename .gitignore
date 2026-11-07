@@ -26,6 +26,9 @@ npm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# yerel fotoğraf depolama (STORAGE_DRIVER=filesystem)
+/.storage/
+
 # tünel durum dosyası
 .db-tunnel.pid
 

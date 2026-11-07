@@ -468,6 +468,75 @@ select policyname, cmd from pg_policies where tablename = 'properties' order by 
 select prosecdef from pg_proc where proname = 'app_properties_enforce_limit';           -- f
 ```
 
+## Mülk fotoğrafları (0011, 0012) ve Cloudflare R2
+
+`property_photos`: mülk başına en fazla **80** fotoğraf. Yalnız işlenmiş WebP varyantlarının yeri
+(`storage_prefix`), boyutu ve kalitesi tutulur; **orijinal dosya, dosya adı ve görsel metadata'sı hiçbir
+yerde saklanmaz**. Arayüz: app.<alan-adı>/villalar/{id}/fotograflar (sekme "Fotoğraflar").
+
+- **İşleme (sharp):** JPG/JPEG/PNG/WebP kabul edilir; biçim uzantı veya Content-Type'tan değil dosya
+  baytlarından belirlenir (GIF, SVG, HEIC, hareketli görsel reddedilir). Yükleme en fazla 15 MB,
+  çözünürlük en fazla 50 MP. EXIF yönü uygulanır; görüntü ham piksele çevrildiği için EXIF/GPS/XMP/ICC
+  kesin olarak düşer. 400 / 1200 / 2000 px genişlikte WebP üretilir (küçük görsel büyütülmez). Her
+  varyant ≤ 5 MB; aşarsa kalite 82 → 74 → 66 → 58, en düşükte de aşarsa yükleme reddedilir.
+- **Bellek (3.7 GB, swap yok):** libvips tek iş parçacığı, önbellek kapalı; aynı anda tek görsel,
+  en fazla 3 bekleyen (fazlası 503 + `Retry-After`, arayüz otomatik yeniden dener). Ölçülen ek bellek
+  (tek görsel, 50 MP): JPEG ≈ 70 MB, PNG ≈ 100 MB; buna en fazla 15 MB yükleme gövdesi eklenir. 50 MP
+  JPEG işleme süresi ≈ 1,5 sn (2 çekirdek).
+- **Uç nokta:** `POST /api/mulkler/{id}/fotograflar` (ham dosya gövdesi). Yalnız app.<alan-adı>, aynı
+  Origin, doğrulanmış oturum, aktif işletme; rol ve 80 sınırı işlemden önce ve kayıt sırasında
+  veritabanında denetlenir. Depolamaya yazma transaction dışındadır; kayıt başarısız olursa yüklenen
+  nesneler silinir. Kapak, sıra ve silme server action'larla.
+- **RLS:** `ENABLE` + `FORCE`. Okuma: aktif işletmenin tüm üyeleri; ekleme / sıra / kapak / **silme**:
+  owner ve manager. Kolon yetkileri: yalnız `sort_order` ve `is_cover` güncellenebilir.
+  `(property_id, workspace_id)` bileşik FK: fotoğraf yalnız aynı işletmenin mülküne bağlanır.
+- **80 sınırı, sıra ve kapak:** `property_photos_before_insert` (BEFORE INSERT, **SECURITY INVOKER**),
+  mülk başına advisory lock (anahtar 7003) altında sayar; sırayı (son + 1) ve kapağı (ilk fotoğraf) kendisi
+  atar. Kapak / sıra / silme de aynı kilidi alır. REPEATABLE READ'de `property_photo_isolation` ile
+  reddedilir. Tek kapak: kısmi benzersiz indeks. Kapak silinince sıradaki ilk fotoğraf kapak olur.
+- **Deneme süresi** bitmiş işletmeler de fotoğraf yükler, sıralar, siler (mevcut mülkün düzenlenmesi).
+- **Denetim:** `property.photo_added`, `photo_removed`, `photo_cover_changed`, `photos_reordered` —
+  yalnız mülk kimliği; dosya adı/boyutu yazılmaz.
+- **Herkese açık adresler:** `https://img.kiraligim.com/w/{işletme}/p/{mülk}/{foto}/{400|1200|2000}.webp`
+  (UUID'ler tahmin edilemez ama URL'yi bilen herkes görüntüleyebilir). `Cache-Control: public,
+max-age=31536000, immutable`. CDN kökeni CSP `img-src`'ye otomatik eklenir.
+- Doğrulama: `tests/integration/photos.test.ts`, `tests/unit/image.test.ts`, `storage.test.ts`,
+  `media-queue.test.ts`.
+
+### R2 kurulumu (bir kez, her ortam için ayrı)
+
+|               | development             | production             |
+| ------------- | ----------------------- | ---------------------- |
+| Bucket        | `kiraligim-media-dev`   | `kiraligim-media-prod` |
+| Özel alan adı | `img-dev.kiraligim.com` | `img.kiraligim.com`    |
+
+1. Cloudflare → R2 → **Create bucket**: ad yukarıdaki gibi, konum otomatik. Public "r2.dev" erişimini
+   **açmayın**.
+2. Bucket → Settings → **Custom Domains** → alan adını bağlayın; durum **Active** olana kadar bekleyin
+   (Cloudflare DNS kaydını kendisi ekler).
+3. R2 → **Manage API tokens** → Create API token: izin **Object Read & Write**, kapsam **yalnız ilgili
+   bucket** (dev ve prod için ayrı belirteç). Access Key ID ve Secret yalnız bir kez gösterilir.
+4. Ortam değişkenleri (Coolify'da ilgili uygulamaya; Mac'te `.env.local`'e geliştirme değerleri):
+   `STORAGE_DRIVER=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (secret olarak),
+   `R2_BUCKET`, `R2_PUBLIC_BASE_URL` (`https://img-dev.kiraligim.com` / `https://img.kiraligim.com`).
+   Bucket adı ortamla eşleşmezse (`-dev` / `-prod`) uygulama yüklemeyi reddeder.
+5. Denetim: Mac'te `npm run storage:check`; sunucuda konteyner içinde `node dist/storage-check.js`.
+   Yazma, herkese açık okuma ve silme adımlarının üçü de ✓ olmalı.
+6. Arayüzde bir fotoğraf yükleyip tarayıcıda görüntülendiğini doğrulayın.
+
+Yapılandırma eksikse uygulama açılır; fotoğraf sayfası "depolama yapılandırılmadı" der, yükleme 503 döner.
+Mac'te R2 olmadan geliştirme: `STORAGE_DRIVER=filesystem` (dosyalar `.storage/`, `/api/medya` ile sunulur;
+production'da kapalı).
+
+Deploy sonrası salt-okunur kontrol:
+
+```sql
+select count(*) from drizzle.__migrations;                                          -- 13 (0000–0012)
+select relrowsecurity, relforcerowsecurity from pg_class where relname = 'property_photos'; -- t, t
+select policyname, cmd from pg_policies where tablename = 'property_photos' order by 1;     -- delete, insert, select, update
+select prosecdef from pg_proc where proname = 'app_property_photos_before_insert';           -- f
+```
+
 ## Veritabanı rolleri ve migration
 
 ### Roller
