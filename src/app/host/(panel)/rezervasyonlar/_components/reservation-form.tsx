@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { PropertyOption, ReservationFormValues } from "./form-values";
+import { PriceQuote } from "./price-quote";
 import {
   type AvailabilityResult,
   checkAvailabilityAction,
@@ -346,6 +347,18 @@ function FormBody({
 
       {isBlock ? null : (
         <Section title="Ödeme">
+          <PriceQuote
+            propertyId={propertyId}
+            propertyName={property?.name ?? ""}
+            checkIn={checkIn}
+            checkOut={checkOut}
+            currentTotal={total}
+            currentCurrency={currency}
+            onUse={(amount, c) => {
+              setTotal(amount);
+              setCurrency(c);
+            }}
+          />
           <div className="grid gap-5 sm:grid-cols-[1fr_1fr_8rem]">
             <Field
               id="totalAmount"

@@ -56,6 +56,14 @@ export const RESERVATION_AUDIT_FIELDS = [
   "currency",
   "note",
 ] as const;
+/** Denetim kaydına yazılabilecek fiyat dönemi alan adları (tutar DEĞERLERİ yazılmaz). */
+export const RATE_AUDIT_FIELDS = [
+  "dates",
+  "nightly_amount",
+  "weekly_amount",
+  "currency",
+  "min_nights",
+] as const;
 const slug = z.string().max(48);
 
 export const AUDIT_ACTIONS = {
@@ -77,6 +85,13 @@ export const AUDIT_ACTIONS = {
   "property.photo_removed": z.strictObject({ property: z.uuid() }),
   "property.photo_cover_changed": z.strictObject({ property: z.uuid() }),
   "property.photos_reordered": z.strictObject({ property: z.uuid() }),
+  // Fiyat dönemi: yalnız mülk kimliği ve değişen ALAN ADLARI; fiyat ve tarih değerleri yazılmaz.
+  "property.rate_created": z.strictObject({ property: z.uuid() }),
+  "property.rate_updated": z.strictObject({
+    property: z.uuid(),
+    fields: z.array(z.enum(RATE_AUDIT_FIELDS)).min(1),
+  }),
+  "property.rate_deleted": z.strictObject({ property: z.uuid() }),
   // Rezervasyon: misafir adı/telefonu/e-postası ve tutar DEĞERLERİ yazılmaz (kişisel/ticari veri).
   "reservation.created": z.strictObject({
     property: z.uuid(),
@@ -100,7 +115,13 @@ export type AuditAction = keyof typeof AUDIT_ACTIONS;
 export type AuditEntry<A extends AuditAction = AuditAction> = {
   action: A;
   targetType?:
-    "workspace" | "workspace_member" | "user" | "property" | "property_photo" | "reservation";
+    | "workspace"
+    | "workspace_member"
+    | "user"
+    | "property"
+    | "property_photo"
+    | "property_rate"
+    | "reservation";
   targetId?: string;
   metadata: z.input<(typeof AUDIT_ACTIONS)[A]>;
 };
