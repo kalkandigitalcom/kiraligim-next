@@ -5,10 +5,18 @@ import { getDb } from "@/db/client";
 import { withTenant } from "@/db/tenant";
 import { isAppError } from "@/lib/errors";
 import { requireUser } from "@/server/auth/session";
+import { getEntitlements } from "@/server/billing/entitlements";
 import { resolveActiveWorkspace } from "@/server/workspaces/active";
 import { listWorkspaceMembers } from "@/server/workspaces/service";
 
 export const metadata: Metadata = { title: "Panel" };
+
+const dateTr = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "Europe/Istanbul",
+});
 
 const ROLE_LABEL = { owner: "Sahip", manager: "Yönetici", staff: "Personel" } as const;
 
@@ -31,7 +39,11 @@ export default async function PanelPage() {
     view = await withTenant(
       getDb(),
       { userId: user.id, workspaceId: active.workspace.id },
-      async (tx, ctx) => ({ role: ctx.role, memberCount: (await listWorkspaceMembers(tx)).length }),
+      async (tx, ctx) => ({
+        role: ctx.role,
+        memberCount: (await listWorkspaceMembers(tx)).length,
+        plan: await getEntitlements(tx),
+      }),
     );
   } catch (err) {
     if (isAppError(err) && err.code === "NOT_FOUND") redirect("/");
@@ -72,6 +84,51 @@ export default async function PanelPage() {
             </dd>
           </div>
         </dl>
+      </section>
+
+      <section
+        aria-labelledby="paket-baslik"
+        className="rounded-2xl border border-border bg-white p-6 shadow-sm"
+      >
+        <h2 id="paket-baslik" className="text-base font-semibold text-navy-900">
+          Paket
+        </h2>
+        {view.plan ? (
+          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-muted-foreground">Paket</dt>
+              <dd className="mt-1 font-medium text-navy-900">{view.plan.planName}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Mülk hakkı</dt>
+              <dd className="mt-1 font-medium text-navy-900">{view.plan.maxProperties}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Durum</dt>
+              <dd className="mt-1 font-medium text-navy-900">
+                {view.plan.effectiveStatus === "trialing" && view.plan.trialEndsAt
+                  ? `Ücretsiz deneme · ${view.plan.trialDaysLeft} gün kaldı (${dateTr.format(view.plan.trialEndsAt)})`
+                  : view.plan.effectiveStatus === "active"
+                    ? "Aktif"
+                    : view.plan.effectiveStatus === "canceled"
+                      ? "İptal edildi"
+                      : "Süresi doldu"}
+              </dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">
+            İşletmeniz için tanımlı bir paket bulunamadı.
+          </p>
+        )}
+        {view.plan && !view.plan.isCurrent ? (
+          <p className="mt-4 rounded-lg bg-mist px-4 py-3 text-sm text-navy-900">
+            {view.plan.effectiveStatus === "canceled"
+              ? "Aboneliğiniz iptal edildi."
+              : "Deneme süreniz sona erdi."}{" "}
+            Mevcut mülklerinizi görüntüleyip düzenleyebilirsiniz; yeni mülk ekleyemezsiniz.
+          </p>
+        ) : null}
       </section>
 
       <section aria-labelledby="yakinda-baslik">

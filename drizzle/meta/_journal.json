@@ -50,6 +50,20 @@
       "when": 1794034725265,
       "tag": "0006_tenancy_security",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794044281618,
+      "tag": "0007_plans_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794044336183,
+      "tag": "0008_plans_security",
+      "breakpoints": true
     }
   ]
 }

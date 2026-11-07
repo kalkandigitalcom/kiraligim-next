@@ -32,7 +32,10 @@ describe("fonksiyonlar", () => {
       "app_current_workspace_id",
       "app_current_workspace_unclaimed",
       "app_set_updated_at",
+      "app_subscription_is_current",
+      "app_uuid_v7",
       "app_workspace_members_keep_owner",
+      "app_workspace_start_trial",
     ]);
     for (const r of rows) {
       expect(r.owner, r.proname).toBe("app_migrator");
@@ -40,12 +43,13 @@ describe("fonksiyonlar", () => {
     }
   });
 
-  it("yalnız üyelik aramaları ve son owner koruması SECURITY DEFINER", async () => {
+  it("yalnız üyelik aramaları, son owner koruması ve deneme aboneliği tetikleyicisi SECURITY DEFINER", async () => {
     const definers = (await fn()).filter((r) => r.definer).map((r) => r.proname);
     expect(definers).toEqual([
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
       "app_workspace_members_keep_owner",
+      "app_workspace_start_trial",
     ]);
   });
 
@@ -76,7 +80,10 @@ describe("fonksiyonlar", () => {
       app_current_workspace_id: ["app_user"],
       app_current_workspace_unclaimed: ["app_user"],
       app_set_updated_at: [],
+      app_subscription_is_current: ["app_user"],
+      app_uuid_v7: [],
       app_workspace_members_keep_owner: [],
+      app_workspace_start_trial: [],
     });
   });
 

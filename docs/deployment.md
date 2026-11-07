@@ -404,6 +404,40 @@ select p.proname, p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig, p.proac
  where n.nspname = 'public' and p.proname like 'app\_%' order by 1;           -- sahip app_migrator, PUBLIC yok
 ```
 
+## Paketler ve abonelikler (0007, 0008)
+
+| Tablo                     | İçerik                                                                     | `app_user` | RLS                                  |
+| ------------------------- | -------------------------------------------------------------------------- | ---------- | ------------------------------------ |
+| `plans`                   | paket kataloğu: kod, ad, `max_properties`, `trial_days`, aktif, varsayılan | SELECT     | Yok (tenant verisi değil; dar GRANT) |
+| `workspace_subscriptions` | işletme başına **tek** abonelik: paket, durum, deneme bitişi, dönem bitişi | SELECT     | `ENABLE` + `FORCE`                   |
+
+- Başlangıç paketi migration ile tanımlıdır: **Başlangıç** (`baslangic`), 1 mülk, 14 gün deneme, varsayılan.
+  Paketler şimdilik yalnız migration ile değişir; yönetim arayüzü Super Admin aşamasında gelecek.
+- **Otomatik deneme:** `workspaces` üzerindeki `workspaces_start_trial` tetikleyicisi (AFTER INSERT,
+  SECURITY DEFINER) her yeni işletmeye varsayılan paketle `trialing` abonelik açar. İşletme, owner üyeliği,
+  denetim kaydı ve abonelik **tek transaction**'dadır; varsayılan paket yoksa (`default_plan_missing`) hiçbiri oluşmaz.
+- **Geçerlilik** tek yerde: `app_subscription_is_current(status, trial_ends_at, current_period_end)`.
+  `trialing` satırı deneme bitince güncellenmez; süresi dolmuş sayılır (zamanlanmış iş gerekmez). Deneme
+  bitince mevcut mülkler görüntülenir/düzenlenir, yeni mülk eklenemez (mülk limiti tetikleyicisi Aşama 2.4b).
+- **Yetkiler:** `app_user` paketleri ve kendi işletmesinin aboneliğini yalnız okur (askıdaki işletmede görünmez);
+  ekleme, değiştirme, silme yok. `app_migrator` için tek dar istisna: `subscriptions_migrator_trial_insert`
+  (yalnız INSERT, yalnız `status = 'trialing'`; okuma/güncelleme yok) — tetikleyici ve backfill içindir.
+- **Backfill (0008):** mevcut her işletmeye (askıdakiler dahil) tek deneme aboneliği açılır; deneme migration
+  anından başlar. `workspaces` için `FORCE` yalnız migration transaction'ı içinde kaldırılıp geri konur.
+- Doğrulama: `tests/integration/billing.test.ts` (katalog, atomik oluşturma, izolasyon, yetkiler, geçerlilik,
+  0006 → 0008 backfill).
+
+Deploy sonrası salt-okunur kontrol:
+
+```sql
+select count(*) from drizzle.__migrations;                                    -- 9 (0000–0008)
+select code, name, max_properties, trial_days, is_default from plans;         -- baslangic | Başlangıç | 1 | 14 | t
+select count(*) filter (where s.id is null) as aboneliksiz
+  from workspaces w left join workspace_subscriptions s on s.workspace_id = w.id; -- 0
+select relname, relrowsecurity, relforcerowsecurity from pg_class
+ where relname in ('workspaces','workspace_subscriptions');                   -- t, t
+```
+
 ## Veritabanı rolleri ve migration
 
 ### Roller
