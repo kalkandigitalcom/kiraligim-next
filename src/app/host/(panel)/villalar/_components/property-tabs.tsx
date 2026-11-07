@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 type Props = { propertyId: string; active: "info" | "photos"; photoCount?: number };
 
-/** Mülk sayfası sekmeleri: Bilgiler · Fotoğraflar. */
+/** Mülk sayfası sekmeleri: Bilgiler · Fotoğraflar · Takvim (takvim sayfasına, bu mülk seçili). */
 export function PropertyTabs({ propertyId, active, photoCount }: Props) {
   const tabs = [
     { key: "info", href: `/villalar/${propertyId}`, label: "Bilgiler" },
@@ -13,6 +13,7 @@ export function PropertyTabs({ propertyId, active, photoCount }: Props) {
       href: `/villalar/${propertyId}/fotograflar`,
       label: photoCount === undefined ? "Fotoğraflar" : `Fotoğraflar (${photoCount})`,
     },
+    { key: "calendar", href: `/takvim?mulk=${propertyId}`, label: "Takvim" },
   ] as const;
   return (
     <nav aria-label="Mülk bölümleri" className="flex gap-1 border-b border-border">
