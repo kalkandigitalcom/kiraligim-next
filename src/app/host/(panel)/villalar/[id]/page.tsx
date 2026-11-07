@@ -3,12 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Alert } from "@/components/ui/alert";
-import { PROPERTY_TYPE_LABELS } from "@/lib/property-meta";
+import { formatMeters, POOL_KINDS, PROPERTY_TYPE_LABELS } from "@/lib/property-meta";
+import { youtubeWatchUrl } from "@/lib/youtube";
 import { canManageProperties, getProperty, type Property } from "@/server/properties/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
 import { setPropertyStatusAction, updatePropertyAction } from "../actions";
 import { StatusBadge } from "../_components/property-bits";
+import type { PoolFormValues } from "../_components/pool-fields";
 import { PropertyForm, type PropertyFormValues } from "../_components/property-form";
 import { PropertyTabs } from "../_components/property-tabs";
 import { StatusToggle } from "../_components/status-toggle";
@@ -20,10 +22,30 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+const KEY = { swimming: "Swimming", indoor: "Indoor", kids: "Kids" } as const;
+const meters = (n: number | null) => (n === null ? "" : formatMeters(n));
+
+function poolValues(p: Property) {
+  const out: Record<string, string> = {
+    poolSwimmingProtected: p.pools.swimmingProtected ? "yes" : "no",
+  };
+  for (const k of POOL_KINDS) {
+    const pool = p.pools[k];
+    out[`pool${KEY[k]}`] = pool.present ? "yes" : "no";
+    out[`pool${KEY[k]}Depth`] = meters(pool.depth);
+    out[`pool${KEY[k]}Width`] = meters(pool.width);
+    out[`pool${KEY[k]}Length`] = meters(pool.length);
+  }
+  return out as PoolFormValues;
+}
+
 const toFormValues = (p: Property): PropertyFormValues => ({
+  ...poolValues(p),
   name: p.name,
   propertyType: p.propertyType,
-  description: p.description ?? "",
+  description: p.descriptionHtml ?? "",
+  tourismLicenseNo: p.tourismLicenseNo ?? "",
+  youtubeUrls: p.youtubeVideoIds.map(youtubeWatchUrl),
   maxGuests: String(p.maxGuests),
   bedrooms: String(p.bedrooms),
   bathrooms: String(p.bathrooms),

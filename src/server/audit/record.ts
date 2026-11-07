@@ -35,6 +35,9 @@ export const PROPERTY_AUDIT_FIELDS = [
   "address_line",
   "postal_code",
   "coordinates",
+  "tourism_license_no",
+  "youtube_videos",
+  "pools",
 ] as const;
 const slug = z.string().max(48);
 

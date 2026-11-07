@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
+import { type AnyColumn, sql } from "drizzle-orm";
 import {
+  boolean,
   char,
   check,
   index,
@@ -33,6 +34,13 @@ export {
   type PropertyType,
 } from "../../lib/property-meta";
 
+/** Havuz yoksa ölçüler NULL; varsa üç ölçü dolu ve aralıkta (property-meta PROPERTY_LIMITS). */
+const poolCheck = (has: AnyColumn, depth: AnyColumn, width: AnyColumn, length: AnyColumn) => {
+  const L = PROPERTY_LIMITS;
+  const n = (v: number) => sql.raw(String(v));
+  return sql`case when ${has} then ${depth} is not null and ${width} is not null and ${length} is not null and ${depth} between ${n(L.poolDepthMin)} and ${n(L.poolDepthMax)} and ${width} between ${n(L.poolSideMin)} and ${n(L.poolSideMax)} and ${length} between ${n(L.poolSideMin)} and ${n(L.poolSideMax)} else ${depth} is null and ${width} is null and ${length} is null end`;
+};
+
 export const properties = pgTable(
   "properties",
   {
@@ -42,7 +50,18 @@ export const properties = pgTable(
       .references(() => workspaces.id, { onDelete: "restrict" }),
     name: text().notNull(),
     propertyType: text({ enum: PROPERTY_TYPES }).notNull(),
+    /** Düz metin açıklama (arama, liste ve eski kayıtlar için). */
     description: text(),
+    /** Biçimlendirilmiş açıklama: sunucuda temizlenmiş HTML (p, br, strong, em, u, a). NULL ise
+     *  eski kayıt: gösterimde düz metin açıklamadan üretilir. */
+    descriptionHtml: text(),
+    /** T.C. Kültür ve Turizm Bakanlığı belge numarası (isteğe bağlı). */
+    tourismLicenseNo: text(),
+    /** YouTube video kimlikleri (11 karakter), sırayla. */
+    youtubeVideoIds: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     status: text({ enum: PROPERTY_STATUSES }).notNull().default("active"),
     maxGuests: smallint().notNull(),
     bedrooms: smallint().notNull(),
@@ -58,6 +77,21 @@ export const properties = pgTable(
     postalCode: text(),
     latitude: numeric({ precision: 9, scale: 6 }),
     longitude: numeric({ precision: 9, scale: 6 }),
+    // Havuzlar: var/yok + ölçüler (metre). Yoksa ölçüler NULL; varsa üçü de dolu.
+    poolSwimming: boolean().notNull().default(false),
+    poolSwimmingDepth: numeric({ precision: 5, scale: 2 }),
+    poolSwimmingWidth: numeric({ precision: 5, scale: 2 }),
+    poolSwimmingLength: numeric({ precision: 5, scale: 2 }),
+    /** Korunaklı (çitli / güvenlikli) havuz — yalnız yüzme havuzu için. */
+    poolSwimmingProtected: boolean().notNull().default(false),
+    poolIndoor: boolean().notNull().default(false),
+    poolIndoorDepth: numeric({ precision: 5, scale: 2 }),
+    poolIndoorWidth: numeric({ precision: 5, scale: 2 }),
+    poolIndoorLength: numeric({ precision: 5, scale: 2 }),
+    poolKids: boolean().notNull().default(false),
+    poolKidsDepth: numeric({ precision: 5, scale: 2 }),
+    poolKidsWidth: numeric({ precision: 5, scale: 2 }),
+    poolKidsLength: numeric({ precision: 5, scale: 2 }),
     // Kullanıcı silinince mülk kalır, oluşturan bilgisi NULL olur (KVKK silme akışını engellemez).
     createdBy: uuid().references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp({ withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -99,6 +133,34 @@ export const properties = pgTable(
     check(
       "properties_postal_code_format",
       sql`${t.postalCode} is null or ${t.postalCode} ~ '^[0-9]{5}$'`,
+    ),
+    check(
+      "properties_description_html_length",
+      sql`${t.descriptionHtml} is null or length(${t.descriptionHtml}) <= ${sql.raw(String(PROPERTY_LIMITS.descriptionHtmlMax))}`,
+    ),
+    check(
+      "properties_tourism_license_format",
+      sql`${t.tourismLicenseNo} is null or (length(${t.tourismLicenseNo}) between 1 and ${sql.raw(String(PROPERTY_LIMITS.licenseMax))} and ${t.tourismLicenseNo} !~ '[[:cntrl:]<>]')`,
+    ),
+    check(
+      "properties_youtube_video_ids",
+      sql`cardinality(${t.youtubeVideoIds}) <= ${sql.raw(String(PROPERTY_LIMITS.youtubeMax))} and array_position(${t.youtubeVideoIds}, null) is null and (cardinality(${t.youtubeVideoIds}) = 0 or array_to_string(${t.youtubeVideoIds}, ',') ~ '^[A-Za-z0-9_-]{11}(,[A-Za-z0-9_-]{11})*$')`,
+    ),
+    check(
+      "properties_pool_swimming",
+      poolCheck(t.poolSwimming, t.poolSwimmingDepth, t.poolSwimmingWidth, t.poolSwimmingLength),
+    ),
+    check(
+      "properties_pool_indoor",
+      poolCheck(t.poolIndoor, t.poolIndoorDepth, t.poolIndoorWidth, t.poolIndoorLength),
+    ),
+    check(
+      "properties_pool_kids",
+      poolCheck(t.poolKids, t.poolKidsDepth, t.poolKidsWidth, t.poolKidsLength),
+    ),
+    check(
+      "properties_pool_swimming_protected",
+      sql`${t.poolSwimming} or not ${t.poolSwimmingProtected}`,
     ),
     check(
       "properties_coordinates",

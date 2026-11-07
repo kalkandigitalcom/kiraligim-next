@@ -48,6 +48,7 @@ describe("propertyInput", () => {
       postalCode: undefined,
       latitude: undefined,
       longitude: undefined,
+      youtubeUrls: [],
     });
   });
 

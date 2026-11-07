@@ -92,6 +92,20 @@
       "when": 1794056871791,
       "tag": "0012_property_photos_security",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794063052778,
+      "tag": "0013_property_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794063060669,
+      "tag": "0014_property_details_grants",
+      "breakpoints": true
     }
   ]
 }
