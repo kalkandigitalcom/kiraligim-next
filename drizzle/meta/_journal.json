@@ -64,6 +64,20 @@
       "when": 1794044336183,
       "tag": "0008_plans_security",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794046281300,
+      "tag": "0009_properties",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794046282116,
+      "tag": "0010_properties_security",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { Tx } from "@/db/tenant";
 import { AppError } from "@/lib/errors";
+import { PROPERTY_STATUSES, PROPERTY_TYPES } from "@/lib/property-meta";
 
 /**
  * Denetim kaydı yazımı. Kurallar:
@@ -17,6 +18,24 @@ import { AppError } from "@/lib/errors";
  */
 
 const role = z.enum(["owner", "manager", "staff"]);
+/** Denetim kaydına yazılabilecek mülk alan adları (değerleri değil). */
+export const PROPERTY_AUDIT_FIELDS = [
+  "name",
+  "property_type",
+  "description",
+  "max_guests",
+  "bedrooms",
+  "bathrooms",
+  "beds_double",
+  "beds_single",
+  "beds_sofa",
+  "province",
+  "district",
+  "neighborhood",
+  "address_line",
+  "postal_code",
+  "coordinates",
+] as const;
 const slug = z.string().max(48);
 
 export const AUDIT_ACTIONS = {
@@ -25,13 +44,21 @@ export const AUDIT_ACTIONS = {
   "workspace.member_added": z.strictObject({ role }),
   "workspace.member_role_changed": z.strictObject({ from: role, to: role }),
   "workspace.member_removed": z.strictObject({ role }),
+  // Mülk: yalnız tür, değişen ALAN ADLARI ve durum geçişi; adres/ad gibi değerler yazılmaz
+  // (bireysel ev sahibinin adresi kişisel veridir).
+  "property.created": z.strictObject({ type: z.enum(PROPERTY_TYPES) }),
+  "property.updated": z.strictObject({ fields: z.array(z.enum(PROPERTY_AUDIT_FIELDS)).min(1) }),
+  "property.status_changed": z.strictObject({
+    from: z.enum(PROPERTY_STATUSES),
+    to: z.enum(PROPERTY_STATUSES),
+  }),
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 
 export type AuditEntry<A extends AuditAction = AuditAction> = {
   action: A;
-  targetType?: "workspace" | "workspace_member" | "user";
+  targetType?: "workspace" | "workspace_member" | "user" | "property";
   targetId?: string;
   metadata: z.input<(typeof AUDIT_ACTIONS)[A]>;
 };

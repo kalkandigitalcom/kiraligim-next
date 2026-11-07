@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getDb } from "@/db/client";
@@ -6,6 +7,7 @@ import { withTenant } from "@/db/tenant";
 import { isAppError } from "@/lib/errors";
 import { requireUser } from "@/server/auth/session";
 import { getEntitlements } from "@/server/billing/entitlements";
+import { getPropertyUsage } from "@/server/properties/service";
 import { resolveActiveWorkspace } from "@/server/workspaces/active";
 import { listWorkspaceMembers } from "@/server/workspaces/service";
 
@@ -21,7 +23,6 @@ const dateTr = new Intl.DateTimeFormat("tr-TR", {
 const ROLE_LABEL = { owner: "Sahip", manager: "Yönetici", staff: "Personel" } as const;
 
 const UPCOMING = [
-  { title: "Villalar", text: "Mülklerinizi ve özelliklerini ekleyin." },
   { title: "Rezervasyonlar", text: "Rezervasyonları tek listede takip edin." },
   { title: "Takvim", text: "Doluluk ve müsaitlik görünümü." },
 ] as const;
@@ -43,6 +44,7 @@ export default async function PanelPage() {
         role: ctx.role,
         memberCount: (await listWorkspaceMembers(tx)).length,
         plan: await getEntitlements(tx),
+        usage: await getPropertyUsage(tx),
       }),
     );
   } catch (err) {
@@ -131,11 +133,26 @@ export default async function PanelPage() {
         ) : null}
       </section>
 
+      <Link
+        href="/villalar"
+        className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-white p-6 shadow-sm transition-colors hover:border-turquoise-500 focus-visible:ring-3 focus-visible:ring-turquoise-500/40 focus-visible:outline-none"
+      >
+        <span>
+          <span className="block text-base font-semibold text-navy-900">Mülkler</span>
+          <span className="mt-1 block text-sm text-muted-foreground">
+            {view.usage.used} / {view.usage.limit} mülk · Mülklerinizi görüntüleyin ve yönetin
+          </span>
+        </span>
+        <span aria-hidden className="text-lg text-turquoise-700">
+          →
+        </span>
+      </Link>
+
       <section aria-labelledby="yakinda-baslik">
         <h2 id="yakinda-baslik" className="text-base font-semibold text-navy-900">
           Yakında
         </h2>
-        <ul className="mt-4 grid gap-4 sm:grid-cols-3">
+        <ul className="mt-4 grid gap-4 sm:grid-cols-2">
           {UPCOMING.map((m) => (
             <li
               key={m.title}

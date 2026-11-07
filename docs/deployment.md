@@ -438,6 +438,36 @@ select relname, relrowsecurity, relforcerowsecurity from pg_class
  where relname in ('workspaces','workspace_subscriptions');                   -- t, t
 ```
 
+## Mülkler (0009, 0010)
+
+`properties`: işletme başına mülkler (villa, apart, bungalow, ev); kapasite (kişi, yatak odası, banyo,
+çift/tek/çekyat yatak), adres (il, ilçe, mahalle, açık adres, posta kodu) ve isteğe bağlı koordinat
+(`numeric(9,6)`, enlem ve boylam birlikte). Arayüz: app.<alan-adı>/villalar (menü adı "Mülkler").
+
+- **RLS:** `ENABLE` + `FORCE`. Okuma: bağlamdaki aktif işletmenin tüm üyeleri (staff dahil). Ekleme ve
+  düzenleme: yalnız owner/manager; ekleme yalnız kendi adına (`created_by = app.user_id`). **DELETE yok**
+  (ne yetki ne politika); yalnız pasife alma. Askıdaki işletmede okuma/yazma kapalı.
+- **Kolon yetkileri:** `id`, `workspace_id`, `created_by`, `created_at`, `updated_at` güncellenemez.
+- **Paket limiti:** `properties_enforce_limit` (BEFORE INSERT, **SECURITY INVOKER**). Aktif + pasif tüm
+  mülkler sayılır; abonelik geçerli değilse (`app_subscription_is_current`) yeni mülk eklenemez, mevcutlar
+  düzenlenir. İşletme başına advisory lock; REPEATABLE READ'de `property_limit_isolation` ile reddedilir.
+  Hata kodları: `property_limit_reached`, `property_subscription_inactive`, `property_subscription_missing`
+  (uygulamada `LIMIT_REACHED`). Tetikleyici ekleyen kullanıcının yetkisiyle çalıştığı için `app_migrator`
+  için yeni RLS istisnası **yoktur**.
+- **Denetim:** `property.created` (tür), `property.updated` (yalnız değişen alan **adları**),
+  `property.status_changed` (önceki/sonraki durum). Adres ve koordinat değerleri yazılmaz.
+- Konum için gömülü harita yok; "Haritada aç" OpenStreetMap'i yeni sekmede açar (CSP değişmedi).
+- Doğrulama: `tests/integration/properties.test.ts`, `tests/unit/properties.test.ts`.
+
+Deploy sonrası salt-okunur kontrol:
+
+```sql
+select count(*) from drizzle.__migrations;                                     -- 11 (0000–0010)
+select relrowsecurity, relforcerowsecurity from pg_class where relname = 'properties'; -- t, t
+select policyname, cmd from pg_policies where tablename = 'properties' order by 1;     -- insert, select, update
+select prosecdef from pg_proc where proname = 'app_properties_enforce_limit';           -- f
+```
+
 ## Veritabanı rolleri ve migration
 
 ### Roller
