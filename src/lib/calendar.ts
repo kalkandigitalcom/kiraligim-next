@@ -16,7 +16,9 @@ import {
   addDays,
   addYears,
   formatDay,
+  isIsoDate,
   nightsBetween,
+  RESERVATION_LIMITS,
   type ReservationKind,
   type ReservationStatus,
 } from "@/lib/reservation-meta";
@@ -299,4 +301,123 @@ export function dayLabel(day: CalendarDay, entries: readonly CalendarEntry[]): s
   ];
   const head = `${formatLongDay(day.date)}${day.isToday ? ", bugün" : ""}`;
   return parts.length ? `${head}; ${parts.join("; ")}` : `${head}; boş`;
+}
+
+/* ── Tarih aralığı seçimi (3.0c-3) ───────────────────────────────────────── */
+
+/**
+ * Takvimden yeni kayıt için aralık seçimi. Birinci tıklama giriş, ikinci tıklama çıkış günüdür.
+ * Buradaki denetimler yalnız kullanıcıya erken geri bildirim içindir; kayıt mevcut formdan geçer
+ * ve form doğrulaması, servis (rol, aktif mülk, çakışma) ve veritabanı (exclusion constraint,
+ * tarih penceresi tetikleyicisi) kuralları aynen geçerlidir.
+ */
+export type RangeSelection = { start: string | null; end: string | null };
+
+export type SelectionRules = {
+  /** Giriş tarihi penceresi (checkInWindow): [min, max]. */
+  min: string;
+  max: string;
+  /** Aktif kayıtlar (seçim aralığını kapsayacak şekilde yüklenmiş). */
+  entries: readonly Pick<CalendarEntry, "id" | "checkIn" | "checkOut">[];
+};
+
+export type SelectionError = "window" | "occupied" | "same-day" | "conflict" | "too-long";
+
+export const SELECTION_ERRORS: Record<SelectionError, string> = {
+  window: "Giriş tarihi en fazla 1 yıl geçmişte ve 3 yıl ileride olabilir.",
+  occupied: "Bu gece dolu; giriş için boş bir gün seçin.",
+  "same-day": "Çıkış tarihi giriş tarihinden sonra olmalı.",
+  conflict: "Seçilen aralıkta dolu gece var; daha erken bir çıkış günü seçin.",
+  "too-long": `Konaklama en fazla ${RESERVATION_LIMITS.maxNights} gece olabilir.`,
+};
+
+export const EMPTY_SELECTION: RangeSelection = { start: null, end: null };
+
+/** [start, end) aralığıyla kesişen kayıtlar (çıkış günü = başka girişin günü serbesttir). */
+export function rangeConflicts<E extends Pick<CalendarEntry, "checkIn" | "checkOut">>(
+  start: string,
+  end: string,
+  entries: readonly E[],
+): E[] {
+  return entries.filter((e) => e.checkIn < end && e.checkOut > start);
+}
+
+/** O günün gecesi boş mu (giriş günü olarak seçilebilir mi)? */
+export const nightIsFree = (
+  date: string,
+  entries: readonly Pick<CalendarEntry, "checkIn" | "checkOut">[],
+) => rangeConflicts(date, addDays(date, 1), entries).length === 0;
+
+function startAt(
+  date: string,
+  rules: SelectionRules,
+): { selection: RangeSelection; error?: SelectionError } {
+  if (date < rules.min || date > rules.max) return { selection: EMPTY_SELECTION, error: "window" };
+  if (!nightIsFree(date, rules.entries)) return { selection: EMPTY_SELECTION, error: "occupied" };
+  return { selection: { start: date, end: null } };
+}
+
+/**
+ * Tıklanan güne göre yeni seçim. Seçim yoksa ya da tamamlanmışsa tıklama yeni giriş günüdür;
+ * giriş seçiliyken daha önceki bir gün girişi değiştirir, aynı gün reddedilir, sonraki bir gün
+ * (aralık boşsa ve en fazla 365 geceyse) çıkış olur. Hatalı tıklamada mevcut giriş korunur.
+ */
+export function selectDay(
+  current: RangeSelection,
+  date: string,
+  rules: SelectionRules,
+): { selection: RangeSelection; error?: SelectionError } {
+  const { start, end } = current;
+  if (!start || end || date < start) {
+    const next = startAt(date, rules);
+    // Erken bir güne tıklanıp geçersizse bekleyen giriş kaybolmasın.
+    return next.error && start && !end ? { selection: current, error: next.error } : next;
+  }
+  if (date === start) return { selection: current, error: "same-day" };
+  if (nightsBetween(start, date) > RESERVATION_LIMITS.maxNights) {
+    return { selection: current, error: "too-long" };
+  }
+  if (rangeConflicts(start, date, rules.entries).length) {
+    return { selection: current, error: "conflict" };
+  }
+  return { selection: { start, end: date } };
+}
+
+/** Gün seçim durumundaki rolü: giriş, çıkış, aralık içi ya da yok. */
+export function selectionRole(date: string, s: RangeSelection): "start" | "end" | "inside" | null {
+  if (!s.start) return null;
+  if (date === s.start) return "start";
+  if (s.end && date === s.end) return "end";
+  if (s.end && date > s.start && date < s.end) return "inside";
+  return null;
+}
+
+/** Seçilen aralıkla mevcut forma bağlantı (yalnız mülk kimliği ve tarihler; kişisel veri yok). */
+export function createHref(
+  kind: "reservation" | "block",
+  propertyId: string,
+  start: string,
+  end: string,
+): string {
+  const p = new URLSearchParams();
+  if (kind === "block") p.set("tur", "blok");
+  p.set("mulk", propertyId);
+  p.set("giris", start);
+  p.set("cikis", end);
+  return `/rezervasyonlar/yeni?${p.toString()}`;
+}
+
+/**
+ * Ay değiştirirken bekleyen giriş günü (?baslangic). Geçerli bir tarih olmalı, giriş penceresinde
+ * kalmalı ve görüntülenen ızgaranın sonundan en fazla 365 gece önce olmalı; aksi halde yok sayılır.
+ */
+export function resolvePendingStart(
+  input: string | undefined,
+  window: { min: string; max: string },
+  gridTo: string,
+): string | null {
+  if (!input || !isIsoDate(input)) return null;
+  if (input < window.min || input > window.max) return null;
+  if (nightsBetween(input, gridTo) > RESERVATION_LIMITS.maxNights + 1) return null;
+  return input;
 }
