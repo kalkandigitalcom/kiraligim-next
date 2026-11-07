@@ -1,16 +1,18 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { SurfacePlaceholder } from "@/components/layout/surface-placeholder";
-import { getBrand } from "@/config/brand";
+import { getSessionUser } from "@/server/auth/session";
+import { resolveActiveWorkspace } from "@/server/workspaces/active";
 
-export const metadata: Metadata = { title: "Ev sahibi paneli" };
-
-export default function HostHomePage() {
-  return (
-    <SurfacePlaceholder
-      brandName={getBrand().name}
-      title="Ev sahibi paneli"
-      description="Rezervasyon, takvim, misafir ve mülk yönetimi burada olacak. Giriş sistemi Faz 2'de eklenecek."
-    />
-  );
+/**
+ * app.<alan-adı>/ — yalnız yönlendirir:
+ *   oturum yok → /giris; işletme yok → /isletme-olustur; birden çok ve seçim yok veya yalnız
+ *   askıdaki işletme → /isletmeler; aksi halde → /panel.
+ */
+export default async function HostIndexPage() {
+  const user = await getSessionUser();
+  if (!user) redirect("/giris");
+  const active = await resolveActiveWorkspace(user.id);
+  if (active.kind === "none") redirect("/isletme-olustur");
+  if (active.kind === "choose" || active.kind === "suspended") redirect("/isletmeler");
+  redirect("/panel");
 }

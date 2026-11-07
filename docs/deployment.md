@@ -183,6 +183,31 @@ kimlik uç noktası açılmadan (Aşama 2.1) şu iki seçenekten biri seçilmeli
 | A (önerilen) | `AUTH_IP_HEADER=cf-connecting-ip`                                                                             | `app.` ve `admin.` DNS kayıtları Cloudflare'de **Proxied**; sunucu 80/443'e yalnız Cloudflare IP'lerinden erişilebilir (aksi halde başlık taklit edilebilir) |
 | B            | `AUTH_IP_HEADER=x-forwarded-for`, `AUTH_TRUSTED_PROXIES=<Traefik/Docker ağı CIDR>,<Cloudflare IP aralıkları>` | Zincirdeki her vekilin adresi biliniyor                                                                                                                      |
 
+### Kimlik arayüzü ve uç nokta (Aşama 2.3)
+
+- Uç nokta `APP_URL/api/auth/*` (`src/app/api/auth/[...all]/route.ts`). `proxy.ts` `/api/*` isteklerini
+  yeniden yazmadığı için route **host'u kendisi denetler**: yalnız `APP_URL` host'u kabul edilir, admin ve
+  public alan adlarında 404. Kimlik ortam değişkenleri eksik/hatalıysa 503 döner ve sayfalar
+  "Giriş geçici olarak kullanılamıyor" gösterir (log: `auth_unavailable`, yalnız değişken adlarıyla).
+- Sayfalar (app.<alan-adı>): `/giris`, `/kayit` (`AUTH_SIGNUP_ENABLED=false` iken "Kayıtlar kapalı"),
+  `/eposta-dogrulama`, `/sifremi-unuttum`, `/sifre-sifirla`; oturum gerektirenler: `/` (yönlendirici),
+  `/isletme-olustur` (yalnız hiç üyeliği olmayan kullanıcı), `/isletmeler` (seçim / askı bilgisi), `/panel`.
+- Formlar tarayıcıdan doğrudan Better Auth'a gider; deneme sınırı ve köken denetimi her istekte uygulanır.
+  Şifreler uygulama kodunda saklanmaz. Formlar `method="post"` ve JS yüklenene kadar gönderilemez
+  (şifre hiçbir durumda adres çubuğuna düşmez).
+- Seçili işletme `kg.isletme` (production'da `__Host-kg.isletme`) çerezinde yalnız **tercih** olarak durur;
+  yetki her istekte `withTenant` ile doğrulanır.
+
+**Production'da kimliği açmadan önce (Coolify, yalnız çalışma zamanı değişkeni):**
+
+| Değişken                                  | Değer                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                      | `openssl rand -base64 32` (production'a özel)                                   |
+| `EMAIL_TRANSPORT`                         | `resend` (production'da başka değer kabul edilmez)                              |
+| `RESEND_API_KEY`, `EMAIL_FROM`            | Resend'de doğrulanmış alan adından (aşağıdaki bölüm)                            |
+| `AUTH_IP_HEADER` / `AUTH_TRUSTED_PROXIES` | yukarıdaki tablo — **zorunlu**; aksi halde tüm kullanıcılar tek kovayı paylaşır |
+| `AUTH_SIGNUP_ENABLED`                     | `false` kalır; KVKK aydınlatma/onay metinleri hazır olunca `true`               |
+
 ### Resend kurulumu (gerçek gönderimden önce)
 
 1. Resend → Domains → `kiraligim.com` (veya `mail.kiraligim.com`) ekleyin.

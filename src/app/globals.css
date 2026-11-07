@@ -74,6 +74,20 @@
   --ring: oklch(0.6 0.07 205);
 }
 
+/*
+ * Marka paleti (Aşama 2.3): lacivert ana renk, turkuaz vurgu. Mercan yalnız logoda.
+ * Turkuaz metin için koyu ton (beyaz üzerinde ≥ 4.5:1), odak halkası için açık ton.
+ */
+@theme {
+  --color-navy-950: #071f26;
+  --color-navy-900: #0b2f38;
+  --color-navy-800: #0e4e5c;
+  --color-turquoise-700: #0b6f74;
+  --color-turquoise-500: #14a3a8;
+  --color-turquoise-50: #e8f6f6;
+  --color-mist: #f4f8f8;
+}
+
 @theme inline {
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);

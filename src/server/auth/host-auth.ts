@@ -18,9 +18,9 @@ import { type AuthEnv, getAuthEnv } from "./env";
 /**
  * Ev sahibi kimlik sistemi (Better Auth) — yalnız app.<alan-adı> için.
  *
- * Aşama 2.0'da bu yapılandırma HİÇBİR ROUTE'A BAĞLANMAMIŞTIR: /api/auth uç noktası yoktur,
- * tablolar da henüz oluşturulmamıştır (migration 0003, Aşama 2.1).
- * Super Admin bu örneği ve tablolarını kullanmaz (ayrı örnek ve tablolar, Aşama 2.3).
+ * Uç nokta: src/app/api/auth/[...all]/route.ts (Aşama 2.3) — yalnız app.<alan-adı> host'unda
+ * yanıt verir (src/server/auth/route-handler.ts). Tablolar: migration 0003/0004.
+ * Super Admin bu örneği ve tablolarını kullanmaz (ayrı örnek ve tablolar, sonraki aşama).
  */
 
 export const AUTH_BASE_PATH = "/api/auth";
