@@ -21,8 +21,8 @@ import { workspaces } from "./tenancy";
 /**
  * Mülk fiyat dönemleri (Aşama 3.1). Tenant tablosu: workspace_id + ENABLE/FORCE RLS.
  *
- * Dönem [start_date, end_date) yarı açık aralıktır (rezervasyonlarla aynı): bitiş günü bir sonraki
- * dönemin başlangıcı olabilir. Gecelik ve/veya haftalık (7 gecelik toplam) fiyat; en az biri dolu.
+ * Dönem [start_date, end_date) yarı açık aralıktır (rezervasyonlarla aynı). Arayüzde bitiş DAHİL
+ * (son fiyatlı gece) girilir; end_date = son gece + 1 olarak saklanır (src/lib/rate-meta.ts). Gecelik ve/veya haftalık (7 gecelik toplam) fiyat; en az biri dolu.
  * Tutarlar proje kuralı gereği kuruş/sent (bigint) + para birimi char(3).
  *
  * Elle yazılan migration'da (drizzle/0018_property_rates_security.sql):

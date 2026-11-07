@@ -99,9 +99,13 @@ const mkExtraProperty = async (ws: string, createdBy: U, name: string) => {
   return id;
 };
 
+/**
+ * Form girdisi. Testte tarihler veritabanı biçiminde [başlangıç, bitiş) düşünülür; arayüz bitişi
+ * DAHİL (son gece) aldığı için forma bitiş − 1 gönderilir.
+ */
 const rate = (startDate: string, endDate: string, over: Record<string, unknown> = {}) => ({
   startDate,
-  endDate,
+  lastNight: addDays(endDate, -1),
   nightlyAmount: "5.000",
   currency: "EUR",
   ...over,
@@ -806,6 +810,100 @@ describe("fiyat hesabı (salt okunur)", () => {
       expect(await quoteForProperty(tx, p, d(12), d(12))).toBeNull();
       expect(await quoteForProperty(tx, p, d(1), d(400))).toBeNull();
     });
+  });
+});
+
+describe("dahil bitiş tarihi (arayüz) → [başlangıç, bitiş) (veritabanı)", () => {
+  it("1–30 Nisan ve 1–31 Mayıs: 30 + 31 gece, bitişik, boşluk ve çift fiyat yok", async () => {
+    const W = await mkUser("fdahil");
+    const ws = await mkWorkspace(W, "fd");
+    const p = await mkProperty(W, ws);
+    // Pencere içinde kalmak için bir sonraki yılın Nisan–Mayıs'ı.
+    const y = Number(T.slice(0, 4)) + 1;
+    const apr = await as(W, ws, (tx, ctx) =>
+      createRate(tx, ctx, p, {
+        startDate: `${y}-04-01`,
+        lastNight: `${y}-04-30`,
+        nightlyAmount: "5.000",
+        currency: "TRY",
+      }),
+    );
+    const may = await as(W, ws, (tx, ctx) =>
+      createRate(tx, ctx, p, {
+        startDate: `${y}-05-01`,
+        lastNight: `${y}-05-31`,
+        nightlyAmount: "6.000",
+        currency: "TRY",
+      }),
+    );
+    expect(await rowOf(apr)).toMatchObject({ s: `${y}-04-01`, e: `${y}-05-01` });
+    expect(await rowOf(may)).toMatchObject({ s: `${y}-05-01`, e: `${y}-06-01` });
+    // 30 Nisan gecesini Mayıs'a eklemeye çalışmak çakışır
+    await expect(
+      as(W, ws, (tx, ctx) =>
+        createRate(tx, ctx, p, {
+          startDate: `${y}-04-30`,
+          lastNight: `${y}-04-30`,
+          nightlyAmount: "1",
+          currency: "TRY",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      fieldErrors: { startDate: [expect.stringContaining(`1–30 Nisan ${y}`)] },
+    });
+    const q = await as(W, ws, (tx) => quoteForProperty(tx, p, `${y}-04-01`, `${y}-06-01`));
+    expect(q).toMatchObject({ ok: true, nights: 61, totalMinor: 30 * 500000 + 31 * 600000 });
+    expect(q!.segments.map((x) => [x.from, x.to, x.nights])).toEqual([
+      [`${y}-04-01`, `${y}-05-01`, 30],
+      [`${y}-05-01`, `${y}-06-01`, 31],
+    ]);
+    // Düzenleme: bitişi değiştirmeden fiyat güncelleme kendisiyle çakışmaz, tarihleri değiştirmez
+    await as(W, ws, (tx, ctx) =>
+      updateRate(tx, ctx, apr, {
+        startDate: `${y}-04-01`,
+        lastNight: `${y}-04-30`,
+        nightlyAmount: "5.500",
+        currency: "TRY",
+      }),
+    );
+    expect(await rowOf(apr)).toMatchObject({ e: `${y}-05-01`, nightly: "550000" });
+    const audits = (await auditOf(ws, "property.rate_updated")).map((a) => a.metadata.fields);
+    expect(audits).toEqual([["nightly_amount"]]);
+  });
+});
+
+describe("iş kuralı: 1–30 Nisan 5.000 TL ve rezervasyon geceleri", () => {
+  it("1 Nis→1 May = 30 gece 150.000 TL; 1 Nis→30 Nis = 29 gece 145.000 TL", async () => {
+    const W = await mkUser("fkural");
+    const ws = await mkWorkspace(W, "fk");
+    const p = await mkProperty(W, ws);
+    const y = Number(T.slice(0, 4)) + 1;
+    await as(W, ws, (tx, ctx) =>
+      createRate(tx, ctx, p, {
+        startDate: `${y}-04-01`,
+        lastNight: `${y}-04-30`,
+        nightlyAmount: "5.000",
+        currency: "TRY",
+      }),
+    );
+    const full = await as(W, ws, (tx) => quoteForProperty(tx, p, `${y}-04-01`, `${y}-05-01`));
+    expect(full).toMatchObject({ ok: true, nights: 30, totalMinor: 150_000_00, issues: [] });
+    const short = await as(W, ws, (tx) => quoteForProperty(tx, p, `${y}-04-01`, `${y}-04-30`));
+    expect(short).toMatchObject({ ok: true, nights: 29, totalMinor: 145_000_00, issues: [] });
+    // Rezervasyon tarih mantığı değişmedi: 1 Nis giriş, 1 May çıkış kaydı 30 gece
+    const rid = await as(W, ws, (tx, ctx) =>
+      createReservation(tx, ctx, {
+        kind: "reservation",
+        propertyId: p,
+        checkIn: `${y}-04-01`,
+        checkOut: `${y}-05-01`,
+        guestName: "Nisan Misafiri",
+        adults: "2",
+        source: "direct",
+      }),
+    );
+    const r = await as(W, ws, (tx) => getReservation(tx, rid));
+    expect([r?.checkIn, r?.checkOut, r?.nights]).toEqual([`${y}-04-01`, `${y}-05-01`, 30]);
   });
 });
 

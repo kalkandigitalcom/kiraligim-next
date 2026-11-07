@@ -547,8 +547,11 @@ select prosecdef from pg_proc where proname = 'app_property_photos_before_insert
 
 ## Fiyat dönemleri (0017, 0018)
 
-`property_rates`: mülk başına fiyat dönemleri. Dönem `[start_date, end_date)` yarı açık aralıktır
-(rezervasyonlarla aynı): bitiş günü dahil değildir ve bir sonraki dönemin başlangıcı olabilir. Her
+`property_rates`: mülk başına fiyat dönemleri. Veritabanında dönem `[start_date, end_date)` yarı açık
+aralıktır (rezervasyonlarla aynı). **Arayüzde başlangıç ve bitiş DAHİL girilir** (bitiş = son fiyatlı gece):
+"1–30 Nisan" → `start_date = 1 Nisan`, `end_date = 1 Mayıs`; gösterimde `end_date − 1` kullanılır. Böylece
+"1–30 Nisan" (30 gece) ve "1–31 Mayıs" (31 gece) bitişiktir. Rezervasyonların giriş/çıkış mantığı aynıdır
+(çıkış günü fiyatlanan bir gece değildir). Her
 dönemde gecelik (`nightly_amount_minor`) ve/veya haftalık (`weekly_amount_minor`: o dönemde geçerli 7
 gecelik toplam) fiyat, para birimi (TRY/EUR/USD/GBP) ve isteğe bağlı minimum konaklama (1–365 gece).
 Tutarlar kuruş/sent `bigint`. Arayüz: app.<alan-adı>/villalar/<id>/fiyatlar (sekme "Fiyatlar").

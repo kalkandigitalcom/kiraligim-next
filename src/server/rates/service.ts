@@ -5,10 +5,9 @@ import { PG, pgErrorInfo } from "@/db/pg-error";
 import type { MemberRole, TenantContext, Tx } from "@/db/tenant";
 import { AppError, forbidden, validationError } from "@/lib/errors";
 import { type Quote, quoteStay } from "@/lib/pricing";
-import { type RatePeriod, sortPeriods } from "@/lib/rate-meta";
+import { formatPeriod, lastNightOf, type RatePeriod, sortPeriods } from "@/lib/rate-meta";
 import {
   type Currency,
-  formatStay,
   isIsoDate,
   istanbulToday,
   nightsBetween,
@@ -111,9 +110,9 @@ export async function findRateConflicts(
 export function rateConflictMessage(conflicts: Pick<RatePeriod, "startDate" | "endDate">[]) {
   if (conflicts.length === 0) return "Bu tarihler başka bir fiyat dönemiyle çakışıyor.";
   const parts = sortPeriods(conflicts.map((c, i) => ({ ...c, id: String(i) }))).map((c) =>
-    formatStay(c.startDate, c.endDate),
+    formatPeriod(c),
   );
-  return `Bu tarihler mevcut fiyat dönemiyle çakışıyor: ${parts.join("; ")}. Bitiş günü bir sonraki dönemin başlangıcı olabilir.`;
+  return `Bu tarihler mevcut fiyat dönemiyle çakışıyor: ${parts.join("; ")}. Yeni dönem, mevcut dönemin son gecesinden sonraki gün başlayabilir.`;
 }
 
 /**
@@ -280,7 +279,8 @@ export async function updateRate(
   const before = (await getRate(tx, id))!;
   const trimmed = (v: unknown) => (typeof v === "string" ? v.trim() : v);
   const datesChanged =
-    trimmed(input.startDate) !== before.startDate || trimmed(input.endDate) !== before.endDate;
+    trimmed(input.startDate) !== before.startDate ||
+    trimmed(input.lastNight) !== lastNightOf(before);
   const v = parseRate(input, { today: istanbulToday(), checkWindow: datesChanged });
 
   const fields = changedFields(before, v);

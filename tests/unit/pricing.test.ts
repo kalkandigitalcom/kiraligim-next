@@ -152,7 +152,7 @@ describe("hesaplanamayan durumlar", () => {
       { kind: "unpriced", from: "2027-08-01", to: "2027-08-03", nights: 2 },
     ]);
     expect(r.segments.map((s) => [s.periodId, s.subtotalMinor])).toEqual([["C", eur(36000)]]);
-    expect(unpricedSummary(r)).toBe("1–3 Ağustos 2027 (2 gece)");
+    expect(unpricedSummary(r)).toBe("1–2 Ağustos 2027 (2 gece)"); // geceler dahil
     expect(quoteMessage(r, "Deniz Villa")).toBeNull();
   });
 
@@ -233,8 +233,8 @@ describe("döküm ve teklif metni", () => {
         "",
         "Deniz Villa için 26 Haziran – 12 Temmuz 2027 (16 gece) konaklama teklifimiz:",
         "",
-        "• 26 Haziran – 1 Temmuz 2027 (5 gece): 5 gece × €5.000,00 = €25.000,00",
-        "• 1–12 Temmuz 2027 (11 gece): 1 hafta × €45.000,00 + 4 gece × €7.000,00 = €73.000,00",
+        "• 26–30 Haziran 2027 (5 gece): 5 gece × €5.000,00 = €25.000,00",
+        "• 1–11 Temmuz 2027 (11 gece): 1 hafta × €45.000,00 + 4 gece × €7.000,00 = €73.000,00",
         "",
         "Toplam: €98.000,00",
         "",
@@ -251,5 +251,118 @@ describe("döküm ve teklif metni", () => {
       totalMinor: 2000001 + 3 * 333333,
       currency: "TRY",
     });
+  });
+});
+
+describe("dahil bitişli dönemlerle hesap (3.1 düzeltmesi)", () => {
+  // Arayüzde "1–30 Nisan" ve "1–31 Mayıs" girilir; veritabanında [1 Nis, 1 May) ve [1 May, 1 Haz).
+  const AM: RatePeriod[] = [
+    {
+      id: "apr",
+      startDate: "2027-04-01",
+      endDate: "2027-05-01",
+      nightlyAmountMinor: eur(5000),
+      weeklyAmountMinor: eur(30000),
+      currency: "TRY",
+      minNights: null,
+    },
+    {
+      id: "may",
+      startDate: "2027-05-01",
+      endDate: "2027-06-01",
+      nightlyAmountMinor: eur(6000),
+      weeklyAmountMinor: null,
+      currency: "TRY",
+      minNights: null,
+    },
+  ];
+
+  it("Nisan'ın tamamı 30 gece; 30 Nisan gecesi fiyatlı (çıkış 1 Mayıs)", () => {
+    const r = quoteStay("2027-04-01", "2027-05-01", AM);
+    expect(r).toMatchObject({ ok: true, nights: 30, issues: [] });
+    expect(r.segments.map((s) => [s.periodId, s.nights, s.weeks, s.extraNights])).toEqual([
+      ["apr", 30, 4, 2],
+    ]);
+    expect(r.totalMinor).toBe(4 * eur(30000) + 2 * eur(5000));
+    expect(quoteStay("2027-04-30", "2027-05-01", AM)).toMatchObject({
+      ok: true,
+      totalMinor: eur(5000),
+      segments: [{ periodId: "apr", nights: 1 }],
+    });
+  });
+
+  it("Mayıs'ın tamamı 31 gece; 1 Mayıs gecesi yalnız Mayıs döneminde", () => {
+    expect(quoteStay("2027-05-01", "2027-06-01", AM)).toMatchObject({
+      ok: true,
+      nights: 31,
+      totalMinor: 31 * eur(6000),
+    });
+    expect(quoteStay("2027-05-01", "2027-05-02", AM).segments).toEqual([
+      expect.objectContaining({ periodId: "may", nights: 1 }),
+    ]);
+  });
+
+  it("sınırı aşan konaklama: eksik ya da çift gece yok", () => {
+    const r = quoteStay("2027-04-28", "2027-05-03", AM); // 28, 29, 30 Nisan + 1, 2 Mayıs
+    expect(r.segments.map((s) => [s.periodId, s.from, s.to, s.nights])).toEqual([
+      ["apr", "2027-04-28", "2027-05-01", 3],
+      ["may", "2027-05-01", "2027-05-03", 2],
+    ]);
+    expect(r.segments.reduce((n, s) => n + s.nights, 0)).toBe(r.nights);
+    expect(r.totalMinor).toBe(3 * eur(5000) + 2 * eur(6000));
+    expect(r.issues).toEqual([]);
+  });
+
+  it("konaklama mantığı değişmedi: 20–25 Haziran girişi/çıkışı = 5 gece (çıkış günü fiyatlanmaz)", () => {
+    expect(quoteStay("2027-06-20", "2027-06-25", P)).toMatchObject({
+      nights: 5,
+      totalMinor: eur(25000),
+    });
+  });
+});
+
+describe("iş kuralı: fiyat günleri dahil, konaklama çıkış günü hariç", () => {
+  // Arayüz: "1–30 Nisan, gecelik 5.000 TL" → rateInput çıktısı [1 Nis, 1 May).
+  const april: RatePeriod[] = [
+    {
+      id: "apr",
+      startDate: "2027-04-01",
+      endDate: "2027-05-01",
+      nightlyAmountMinor: 500000,
+      weeklyAmountMinor: null,
+      currency: "TRY",
+      minNights: null,
+    },
+  ];
+
+  it("1 Nisan giriş, 1 Mayıs çıkış = 30 gece, 150.000 TL, fiyatsız gece yok", () => {
+    expect(quoteStay("2027-04-01", "2027-05-01", april)).toMatchObject({
+      ok: true,
+      nights: 30,
+      totalMinor: 150_000_00,
+      currency: "TRY",
+      issues: [],
+    });
+  });
+
+  it("1 Nisan giriş, 30 Nisan çıkış = 29 gece, 145.000 TL", () => {
+    expect(quoteStay("2027-04-01", "2027-04-30", april)).toMatchObject({
+      ok: true,
+      nights: 29,
+      totalMinor: 145_000_00,
+      issues: [],
+    });
+  });
+
+  it("dönemin son günü (30 Nisan) konaklama gecesi olduğunda fiyatlanır; 1 Mayıs gecesi fiyatsız", () => {
+    expect(quoteStay("2027-04-30", "2027-05-01", april)).toMatchObject({
+      ok: true,
+      totalMinor: 500000,
+    });
+    const r = quoteStay("2027-04-30", "2027-05-02", april);
+    expect(r.ok).toBe(false);
+    expect(r.issues).toEqual([
+      { kind: "unpriced", from: "2027-05-01", to: "2027-05-02", nights: 1 },
+    ]);
   });
 });
