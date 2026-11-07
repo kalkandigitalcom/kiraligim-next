@@ -574,7 +574,7 @@ Tutarlar kuruş/sent `bigint`. Arayüz: app.<alan-adı>/villalar/<id>/fiyatlar (
 Deploy sonrası salt-okunur kontrol:
 
 ```sql
-select count(*) from drizzle.__migrations;                                          -- 20 (0000–0019)
+select count(*) from drizzle.__migrations;                                          -- 22 (0000–0021)
 select relrowsecurity, relforcerowsecurity from pg_class where relname = 'property_rates'; -- t, t
 select policyname, cmd from pg_policies where tablename = 'property_rates' order by 1;     -- delete, insert, select, update
 select conname from pg_constraint where conname = 'property_rates_no_overlap';             -- 1 satır
@@ -593,6 +593,14 @@ varsa toplam yok; minimum konaklama giriş gecesinin dönemine göre uyarı. Rez
 olarak gösterilir ve yalnız "Bu tutarı kullan" ile forma yazılır; kayıtlı rezervasyon tutarları değişmez.
 Geri alma: `DROP TRIGGER property_rates_currency_guard ON public.property_rates; DROP FUNCTION
 public.app_property_rates_currency_guard();`
+
+**Temizlik ücreti (0020, 0021, Aşama 3.3).** `property_rates`'a iki NULL kolon: `cleaning_fee_minor`
+(kuruş, 0 … 999.999.999.999) ve `cleaning_fee_free_nights` (1–365; yalnız ücret varken). Kolonlar varsayılansız
+eklenir (tablo yeniden yazılmaz); mevcut dönemler "ücret yok" kalır. 0021 yalnız bu iki kolona app_user
+INSERT/UPDATE yetkisi verir. Hesap: GİRİŞ gecesinin dönemindeki ücret rezervasyon başına bir kez, ayrı kalem;
+konaklama gece sayısı sınırın ALTINDAYSA uygulanır (7 → 1–6 gece ücretli, 7+ ücretsiz; sınır boşsa her
+konaklama; ücret 0/boşsa yok). Para birimi dönemin (mülkün tek) para birimidir. Denetim kaydında yalnız
+`cleaning_fee` alan adı. Geri alma: 0021 için `REVOKE`, 0020 için `DROP COLUMN` (yorumlarda).
 
 **Geri alma (3.1 fiyat dönemleri).** 0017–0018 yalnız yeni bir tablo ekler; mevcut tablo, fonksiyon ve
 veri değişmez. Uygulama sürümü geri alınırsa tablo kullanılmadan kalabilir (zararsız). Tabloyu da kaldırmak

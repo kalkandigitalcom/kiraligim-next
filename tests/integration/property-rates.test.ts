@@ -132,7 +132,8 @@ const rowOf = async (id: string) =>
     await admin.query(
       `select to_char(start_date, 'YYYY-MM-DD') s, to_char(end_date, 'YYYY-MM-DD') e,
               nightly_amount_minor::text nightly, weekly_amount_minor::text weekly, currency,
-              min_nights, created_by, workspace_id, property_id, created_at, updated_at
+              min_nights, cleaning_fee_minor::text cleaning, cleaning_fee_free_nights free_nights,
+              created_by, workspace_id, property_id, created_at, updated_at
          from property_rates where id = $1`,
       [id],
     )
@@ -907,6 +908,109 @@ describe("iş kuralı: 1–30 Nisan 5.000 TL ve rezervasyon geceleri", () => {
   });
 });
 
+describe("temizlik ücreti (0020, 0021)", () => {
+  let W: U, ws: string, p: string, y: number;
+  beforeAll(async () => {
+    W = await mkUser("ftemiz");
+    ws = await mkWorkspace(W, "ft");
+    p = await mkProperty(W, ws);
+    y = Number(T.slice(0, 4)) + 1;
+  });
+  const apr = (over: Record<string, unknown> = {}) => ({
+    startDate: `${y}-04-01`,
+    lastNight: `${y}-04-30`,
+    nightlyAmount: "5.000",
+    currency: "TRY",
+    ...over,
+  });
+
+  it("kaydedilir (kuruş), denetim kaydında yalnız alan adı; hesapta ayrı kalem", async () => {
+    const id = await as(W, ws, (tx, ctx) =>
+      createRate(tx, ctx, p, apr({ cleaningFee: "2.000", cleaningFeeFreeNights: "7" })),
+    );
+    expect(await rowOf(id)).toMatchObject({ cleaning: "200000", free_nights: 7 });
+    const q6 = await as(W, ws, (tx) => quoteForProperty(tx, p, `${y}-04-01`, `${y}-04-07`));
+    expect(q6).toMatchObject({
+      ok: true,
+      nights: 6,
+      staySubtotalMinor: 30_000_00,
+      cleaningFee: { amountMinor: 2_000_00, freeFromNights: 7 },
+      totalMinor: 32_000_00,
+    });
+    const q7 = await as(W, ws, (tx) => quoteForProperty(tx, p, `${y}-04-01`, `${y}-04-08`));
+    expect(q7).toMatchObject({ nights: 7, cleaningFee: null, totalMinor: 35_000_00 });
+    const q8 = await as(W, ws, (tx) => quoteForProperty(tx, p, `${y}-04-01`, `${y}-04-09`));
+    expect(q8).toMatchObject({ nights: 8, cleaningFee: null, totalMinor: 40_000_00 });
+
+    await as(W, ws, (tx, ctx) =>
+      updateRate(tx, ctx, id, apr({ cleaningFee: "2.500", cleaningFeeFreeNights: "7" })),
+    );
+    const upd = (await auditOf(ws, "property.rate_updated")).filter((a) => a.target_id === id);
+    expect(upd.map((a) => a.metadata)).toEqual([{ property: p, fields: ["cleaning_fee"] }]);
+    expect(JSON.stringify(upd)).not.toMatch(/2500|250000/);
+    // Ücret kaldırılınca (boş) hesaptan çıkar
+    await as(W, ws, (tx, ctx) => updateRate(tx, ctx, id, apr()));
+    expect(await rowOf(id)).toMatchObject({ cleaning: null, free_nights: null });
+    expect(
+      (await as(W, ws, (tx) => quoteForProperty(tx, p, `${y}-04-01`, `${y}-04-03`)))!.cleaningFee,
+    ).toBeNull();
+    await as(W, ws, (tx, ctx) =>
+      updateRate(tx, ctx, id, apr({ cleaningFee: "2.000", cleaningFeeFreeNights: "7" })),
+    );
+  });
+
+  it("eski kayıt (temizlik kolonları olmadan eklenmiş) çalışmaya devam eder", async () => {
+    await as(W, ws, (tx) =>
+      tx.execute(sql`
+        insert into property_rates (id, workspace_id, property_id, start_date, end_date,
+                                    nightly_amount_minor, currency, created_by)
+        values (${uuidv7()}, ${ws}, ${p}, ${`${y}-06-01`}, ${`${y}-07-01`}, 100000, 'TRY',
+                app_current_user_id())`),
+    );
+    const q = await as(W, ws, (tx) => quoteForProperty(tx, p, `${y}-06-10`, `${y}-06-12`));
+    expect(q).toMatchObject({ ok: true, totalMinor: 2_000_00, cleaningFee: null });
+    const legacy = (await as(W, ws, (tx) => listRates(tx, p))).find(
+      (r) => r.startDate === `${y}-06-01`,
+    );
+    expect(legacy).toMatchObject({ cleaningFeeMinor: null, cleaningFeeFreeNights: null });
+  });
+
+  it("veritabanı kısıtları: negatif ücret, ücretsiz sınır, aralık", async () => {
+    const bad = (fee: number | null, free: number | null) =>
+      pgMessage(
+        as(W, ws, (tx) =>
+          tx.execute(sql`
+            insert into property_rates (id, workspace_id, property_id, start_date, end_date,
+                                        nightly_amount_minor, currency, cleaning_fee_minor,
+                                        cleaning_fee_free_nights, created_by)
+            values (${uuidv7()}, ${ws}, ${p}, ${`${y}-08-01`}, ${`${y}-08-02`}, 1, 'TRY',
+                    ${fee}, ${free}, app_current_user_id())`),
+        ),
+      );
+    expect(await bad(-1, null)).toMatch(/constraint "property_rates_cleaning_fee"/);
+    expect(await bad(null, 7)).toMatch(/property_rates_cleaning_fee_free_nights/);
+    expect(await bad(100, 0)).toMatch(/property_rates_cleaning_fee_free_nights/);
+    expect(await bad(1_000_000_000_000, null)).toMatch(/constraint "property_rates_cleaning_fee"/);
+  });
+
+  it("staff değiştiremez; başka işletme göremez ve hesaplayamaz", async () => {
+    const st = await mkUser("ftstaff");
+    await as(W, ws, (tx, ctx) => addWorkspaceMember(tx, ctx, { userId: st.id, role: "staff" }));
+    const [first] = await as(st, ws, (tx) => listRates(tx, p));
+    expect(first!.cleaningFeeMinor).toBe(200000);
+    await expect(
+      as(st, ws, (tx, ctx) => updateRate(tx, ctx, first!.id, apr({ cleaningFee: "1" }))),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const u = await as(st, ws, (tx) =>
+      tx.execute(sql`update property_rates set cleaning_fee_minor = 1 where id = ${first!.id}`),
+    );
+    expect(u.rowCount).toBe(0);
+    const other = await as(B, wsB, (tx) => quoteForProperty(tx, p, `${y}-04-01`, `${y}-04-03`));
+    expect(other).toMatchObject({ ok: false, totalMinor: null, cleaningFee: null });
+    expect(await as(B, wsB, (tx) => getRate(tx, first!.id))).toBeNull();
+  });
+});
+
 describe("yetkiler, politikalar, kısıtlar", () => {
   it("RLS ENABLE + FORCE; dört politika yalnız app_user için", async () => {
     const f = await admin.query(
@@ -943,6 +1047,8 @@ describe("yetkiler, politikalar, kısıtlar", () => {
     expect(new Set(cols.rows.map((r) => r.rol))).toEqual(new Set(["app_user"]));
     expect(byPriv("UPDATE").sort()).toEqual(
       [
+        "cleaning_fee_free_nights",
+        "cleaning_fee_minor",
         "currency",
         "end_date",
         "min_nights",
@@ -950,6 +1056,9 @@ describe("yetkiler, politikalar, kısıtlar", () => {
         "start_date",
         "weekly_amount_minor",
       ].sort(),
+    );
+    expect(byPriv("INSERT")).toEqual(
+      expect.arrayContaining(["cleaning_fee_minor", "cleaning_fee_free_nights"]),
     );
     expect(byPriv("INSERT")).not.toContain("created_at");
     expect(byPriv("INSERT")).not.toContain("updated_at");

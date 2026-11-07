@@ -31,7 +31,7 @@ const isoDate = (label: string) =>
     .refine(isIsoDate, `${label} geçerli bir tarih olmalı.`);
 
 /** Tutar (ana birim metni, ör. "5.000" ya da "12.500,50") → kuruş; boş → undefined. */
-const amount = (label: string) =>
+const amount = (label: string, opts: { allowZero?: boolean } = {}) =>
   z.preprocess(
     (v) => (typeof v === "string" ? parseAmount(v) : v),
     z
@@ -40,7 +40,10 @@ const amount = (label: string) =>
         (n) => !Number.isNaN(n),
         `${label} geçerli bir tutar olmalı (ör. 5.000 veya 5.000,50).`,
       )
-      .refine((n) => n > 0, `${label} sıfırdan büyük olmalı.`)
+      .refine(
+        (n) => (opts.allowZero ? n >= 0 : n > 0),
+        opts.allowZero ? `${label} negatif olamaz.` : `${label} sıfırdan büyük olmalı.`,
+      )
       .transform(toMinor)
       .refine((n) => n <= L.amountMaxMinor, `${label} çok büyük.`)
       .optional(),
@@ -70,6 +73,20 @@ export function rateInput(rules: RateDateRules) {
           .min(L.minNightsMin, `Minimum konaklama en az ${L.minNightsMin} gece olmalı.`)
           .max(L.minNightsMax, `Minimum konaklama en fazla ${L.minNightsMax} gece olabilir.`)
           .optional(),
+      ) /** Temizlik ücreti (3.3): isteğe bağlı; 0 → ücret yok. */,
+      cleaningFee: amount("Temizlik ücreti", { allowZero: true }),
+      cleaningFeeFreeNights: z.preprocess(
+        (v) => {
+          if (typeof v !== "string") return v;
+          const t = v.trim();
+          return t === "" ? undefined : Number(t);
+        },
+        z
+          .number({ error: "Gece sınırı bir sayı olmalı." })
+          .int("Gece sınırı tam sayı olmalı.")
+          .min(L.minNightsMin, `Gece sınırı en az ${L.minNightsMin} olmalı.`)
+          .max(L.minNightsMax, `Gece sınırı en fazla ${L.minNightsMax} olabilir.`)
+          .optional(),
       ),
     })
     .superRefine((v, ctx) => {
@@ -97,6 +114,13 @@ export function rateInput(rules: RateDateRules) {
           });
         }
       }
+      if (v.cleaningFeeFreeNights !== undefined && v.cleaningFee === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["cleaningFee"],
+          message: "Gece sınırı için temizlik ücretini girin.",
+        });
+      }
       if (v.nightlyAmount === undefined && v.weeklyAmount === undefined) {
         ctx.addIssue({
           code: "custom",
@@ -112,6 +136,8 @@ export function rateInput(rules: RateDateRules) {
       weeklyAmountMinor: v.weeklyAmount ?? null,
       currency: v.currency,
       minNights: v.minNights ?? null,
+      cleaningFeeMinor: v.cleaningFee ?? null,
+      cleaningFeeFreeNights: v.cleaningFeeFreeNights ?? null,
     }));
 }
 
@@ -125,6 +151,8 @@ export const RATE_FIELDS = [
   "weeklyAmount",
   "currency",
   "minNights",
+  "cleaningFee",
+  "cleaningFeeFreeNights",
 ] as const;
 export type RateField = (typeof RATE_FIELDS)[number];
 

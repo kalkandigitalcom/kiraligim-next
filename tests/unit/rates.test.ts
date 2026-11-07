@@ -41,6 +41,8 @@ describe("fiyat dönemi formu", () => {
       weeklyAmountMinor: null,
       currency: "EUR",
       minNights: null,
+      cleaningFeeMinor: null,
+      cleaningFeeFreeNights: null,
     });
     expect(rateInput(rules).parse({ ...base, weeklyAmount: "35.000" })).toMatchObject({
       nightlyAmountMinor: null,
@@ -197,6 +199,8 @@ describe("fiyat dönemi formu", () => {
       weeklyAmount: "",
       currency: "",
       minNights: "",
+      cleaningFee: "",
+      cleaningFeeFreeNights: "",
     });
   });
 });
@@ -301,5 +305,56 @@ describe("uyarı yardımcıları (3.2)", () => {
     expect(adjacentSamePrice([base, { ...b, nightlyAmountMinor: 1 }])).toEqual([]);
     expect(adjacentSamePrice([base, { ...b, startDate: "2027-06-16" }])).toEqual([]);
     expect(adjacentSamePrice([base, { ...b, minNights: 2 }])).toEqual([]);
+  });
+});
+
+describe("temizlik ücreti alanları (3.3)", () => {
+  it("ücret ve gece sınırı kuruş/tam sayı; boş bırakılabilir", () => {
+    expect(
+      parse({ nightlyAmount: "100", cleaningFee: "2.000", cleaningFeeFreeNights: " 7 " }).data,
+    ).toMatchObject({ cleaningFeeMinor: 200000, cleaningFeeFreeNights: 7 });
+    expect(parse({ nightlyAmount: "100", cleaningFee: "1.250,50" }).data).toMatchObject({
+      cleaningFeeMinor: 125050,
+      cleaningFeeFreeNights: null,
+    });
+    expect(parse({ nightlyAmount: "100", cleaningFee: "0" }).data?.cleaningFeeMinor).toBe(0);
+    expect(parse({ nightlyAmount: "100" }).data).toMatchObject({
+      cleaningFeeMinor: null,
+      cleaningFeeFreeNights: null,
+    });
+  });
+
+  it("geçersiz değerler", () => {
+    // Eksi işaretli giriş tutar biçimine uymaz (parseAmount) → biçim hatası
+    expect(errorsOf({ nightlyAmount: "100", cleaningFee: "-5" })).toEqual({
+      cleaningFee: "Temizlik ücreti geçerli bir tutar olmalı (ör. 5.000 veya 5.000,50).",
+    });
+    expect(errorsOf({ nightlyAmount: "100", cleaningFee: "abc" })).toHaveProperty("cleaningFee");
+    expect(
+      errorsOf({ nightlyAmount: "100", cleaningFee: "1", cleaningFeeFreeNights: "0" }),
+    ).toHaveProperty("cleaningFeeFreeNights");
+    expect(
+      errorsOf({ nightlyAmount: "100", cleaningFee: "1", cleaningFeeFreeNights: "2.5" }),
+    ).toHaveProperty("cleaningFeeFreeNights");
+    expect(errorsOf({ nightlyAmount: "100", cleaningFeeFreeNights: "7" })).toEqual({
+      cleaningFee: "Gece sınırı için temizlik ücretini girin.",
+    });
+  });
+
+  it("aynı fiyatlı bitişik dönem tespiti temizlik ücretini de karşılaştırır", () => {
+    const a: RatePeriod = {
+      id: "a",
+      startDate: "2027-06-01",
+      endDate: "2027-06-15",
+      nightlyAmountMinor: 1,
+      weeklyAmountMinor: null,
+      currency: "EUR",
+      minNights: null,
+      cleaningFeeMinor: 100,
+      cleaningFeeFreeNights: 7,
+    };
+    const b = { ...a, id: "b", startDate: "2027-06-15", endDate: "2027-07-01" };
+    expect(adjacentSamePrice([a, b])).toEqual(["a"]);
+    expect(adjacentSamePrice([a, { ...b, cleaningFeeMinor: 200 }])).toEqual([]);
   });
 });

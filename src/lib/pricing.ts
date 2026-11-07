@@ -13,6 +13,10 @@
  *  4. Minimum konaklama: GİRİŞ gecesinin dönemindeki değer esas alınır; ihlal yalnız uyarıdır.
  *  5. Bir mülkün dönemleri tek para birimindedir (veritabanı kuralı, 0019); yine de farklı para
  *     birimi görülürse hesaplanmaz.
+ *  6. Temizlik ücreti (3.3): GİRİŞ gecesinin dönemindeki ücret, rezervasyon başına BİR KEZ ve ayrı
+ *     kalem olarak eklenir; konaklama gece sayısı "ücretsiz temizlik" sınırının ALTINDAYSA
+ *     uygulanır (sınır dahil değil: 7 → 1–6 gece ücretli, 7+ ücretsiz; sınır boşsa her konaklama).
+ *     Ücret boş/0 ise eklenmez. Gecelik/haftalık hesap değişmez; toplam = geceler + temizlik.
  * Tutarlar kuruş/sent tam sayıdır; yuvarlama yoktur.
  */
 import { formatNights, type RatePeriod } from "./rate-meta";
@@ -63,6 +67,10 @@ export type Quote = {
   issues: QuoteIssue[];
   /** Giriş gecesinin döneminin minimum konaklaması karşılanmıyorsa (uyarı; engellemez). */
   minNights: { required: number; periodId: string } | null;
+  /** Gecelerin toplamı (temizlik hariç); hesaplanamıyorsa null. */
+  staySubtotalMinor: number | null;
+  /** Uygulanan temizlik ücreti (tek kalem); uygulanmıyorsa null. */
+  cleaningFee: { amountMinor: number; freeFromNights: number | null; periodId: string } | null;
 };
 
 type PeriodInput = Pick<
@@ -74,6 +82,8 @@ type PeriodInput = Pick<
   | "weeklyAmountMinor"
   | "currency"
   | "minNights"
+  | "cleaningFeeMinor"
+  | "cleaningFeeFreeNights"
 >;
 
 export function quoteStay(
@@ -145,11 +155,22 @@ export function quoteStay(
 
   const currencies = new Set(segments.map((s) => s.period.currency));
   if (currencies.size > 1) issues.push({ kind: "currency-mismatch" });
+  const staySubtotal = total;
+
+  // 3. Temizlik ücreti: giriş gecesinin dönemi; konaklama başına tek kalem.
+  const first = periods.find((x) => x.startDate <= checkIn && checkIn < x.endDate);
+  const fee = first?.cleaningFeeMinor ?? null;
+  const freeFrom = first?.cleaningFeeFreeNights ?? null;
+  const cleaningFee =
+    first && fee !== null && fee > 0 && (freeFrom === null || nights < freeFrom)
+      ? { amountMinor: fee, freeFromNights: freeFrom, periodId: first.id }
+      : null;
+  if (cleaningFee) total += cleaningFee.amountMinor;
+
   const priceable = issues.length === 0;
   if (priceable && total > RESERVATION_LIMITS.amountMaxMinor) issues.push({ kind: "too-large" });
 
-  // 3. Minimum konaklama: giriş gecesinin dönemi.
-  const first = periods.find((x) => x.startDate <= checkIn && checkIn < x.endDate);
+  // 4. Minimum konaklama: giriş gecesinin dönemi.
   const minNights =
     first?.minNights != null && nights < first.minNights
       ? { required: first.minNights, periodId: first.id }
@@ -166,6 +187,8 @@ export function quoteStay(
     segments: segments.map(({ period: _p, ...s }) => s),
     issues,
     minNights,
+    staySubtotalMinor: ok ? staySubtotal : null,
+    cleaningFee: ok ? cleaningFee : null,
   };
 }
 
@@ -213,6 +236,7 @@ export function quoteMessage(q: Quote, propertyName: string): string | null {
     `${propertyName} için ${formatStay(q.checkIn, q.checkOut)} (${q.nights} gece) konaklama teklifimiz:`,
     "",
     ...lines,
+    ...(q.cleaningFee ? [`• Temizlik ücreti: ${formatMoney(q.cleaningFee.amountMinor, c)}`] : []),
     "",
     `Toplam: ${formatMoney(q.totalMinor, c)}`,
     "",
