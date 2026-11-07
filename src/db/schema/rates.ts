@@ -48,6 +48,10 @@ export const propertyRates = pgTable(
     weeklyAmountMinor: bigint({ mode: "number" }),
     currency: char({ length: 3, enum: CURRENCIES }).notNull(),
     minNights: smallint(),
+    /** Temizlik ücreti (3.3): rezervasyon başına tek seferlik, dönemin para biriminde. */
+    cleaningFeeMinor: bigint({ mode: "number" }),
+    /** Bu gece sayısı ve üzerindeki konaklamalarda temizlik ücreti alınmaz (boş: her konaklamada). */
+    cleaningFeeFreeNights: smallint(),
     createdBy: uuid().references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp({ withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -71,6 +75,14 @@ export const propertyRates = pgTable(
       sql`(${t.nightlyAmountMinor} is not null or ${t.weeklyAmountMinor} is not null) and (${t.nightlyAmountMinor} is null or ${t.nightlyAmountMinor} between 1 and ${sql.raw(String(L.amountMaxMinor))}) and (${t.weeklyAmountMinor} is null or ${t.weeklyAmountMinor} between 1 and ${sql.raw(String(L.amountMaxMinor))})`,
     ),
     check("property_rates_currency_check", sql`${t.currency} in ('TRY', 'EUR', 'USD', 'GBP')`),
+    check(
+      "property_rates_cleaning_fee",
+      sql`${t.cleaningFeeMinor} is null or ${t.cleaningFeeMinor} between 0 and ${sql.raw(String(L.amountMaxMinor))}`,
+    ),
+    check(
+      "property_rates_cleaning_fee_free_nights",
+      sql`${t.cleaningFeeFreeNights} is null or (${t.cleaningFeeFreeNights} between ${sql.raw(String(L.minNightsMin))} and ${sql.raw(String(L.minNightsMax))} and ${t.cleaningFeeMinor} is not null)`,
+    ),
     check(
       "property_rates_min_nights",
       sql`${t.minNights} is null or ${t.minNights} between ${sql.raw(String(L.minNightsMin))} and ${sql.raw(String(L.minNightsMax))}`,

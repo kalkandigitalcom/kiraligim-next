@@ -37,6 +37,13 @@ export type RatePeriod = {
   weeklyAmountMinor: number | null;
   currency: Currency;
   minNights: number | null;
+  /**
+   * Temizlik ücreti (Aşama 3.3, rezervasyon başına tek seferlik; dönemin para biriminde). Eski
+   * kayıtlarda yok (null/undefined = ücret yok). Konaklamada GİRİŞ gecesinin dönemi esas alınır.
+   */
+  cleaningFeeMinor?: number | null;
+  /** Bu gece sayısı ve üzerindeki konaklamalarda temizlik ücreti alınmaz; boşsa her konaklamada alınır. */
+  cleaningFeeFreeNights?: number | null;
 };
 
 /** Dönemin son gecesi (bitiş − 1 gün). Arayüzde "Bitiş" olarak bu gün gösterilir ve girilir. */
@@ -147,7 +154,9 @@ export function adjacentSamePrice(periods: readonly RatePeriod[]): string[] {
       a.nightlyAmountMinor === b.nightlyAmountMinor &&
       a.weeklyAmountMinor === b.weeklyAmountMinor &&
       a.currency === b.currency &&
-      a.minNights === b.minNights
+      a.minNights === b.minNights &&
+      (a.cleaningFeeMinor ?? null) === (b.cleaningFeeMinor ?? null) &&
+      (a.cleaningFeeFreeNights ?? null) === (b.cleaningFeeFreeNights ?? null)
     ) {
       out.push(a.id);
     }

@@ -48,6 +48,8 @@ const toFormValues = (r: RatePeriod): RateFormValues => ({
   weeklyAmount: r.weeklyAmountMinor === null ? "" : minorToInput(r.weeklyAmountMinor),
   currency: r.currency,
   minNights: r.minNights === null ? "" : String(r.minNights),
+  cleaningFee: r.cleaningFeeMinor == null ? "" : minorToInput(r.cleaningFeeMinor),
+  cleaningFeeFreeNights: r.cleaningFeeFreeNights == null ? "" : String(r.cleaningFeeFreeNights),
 });
 
 /**
@@ -128,6 +130,8 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
                     weeklyAmount: "",
                     currency: lockedCurrency ?? "TRY",
                     minNights: "",
+                    cleaningFee: "",
+                    cleaningFeeFreeNights: "",
                   }
             }
             periods={rates.map((r) => ({ id: r.id, startDate: r.startDate, endDate: r.endDate }))}
@@ -218,6 +222,16 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
                           {r.minNights === null ? "—" : `${r.minNights} gece`}
                         </dd>
                       </div>
+                      <div className="col-span-2 sm:col-span-3">
+                        <dt className="text-muted-foreground">Temizlik ücreti</dt>
+                        <dd className="text-navy-900" data-testid="rate-cleaning">
+                          {!r.cleaningFeeMinor
+                            ? "—"
+                            : r.cleaningFeeFreeNights == null
+                              ? `${formatMoney(r.cleaningFeeMinor, r.currency)} (her konaklamada)`
+                              : `${formatMoney(r.cleaningFeeMinor, r.currency)} (${r.cleaningFeeFreeNights} gecenin altındaki konaklamalarda)`}
+                        </dd>
+                      </div>
                     </dl>
                     {weeklyAboveNightly(r) ? (
                       <p data-testid="rate-weekly-warning" className="text-sm text-amber-900">
@@ -276,6 +290,11 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
             </li>
             <li>Konaklama gecelerinden birinin bile fiyatı tanımlı değilse toplam hesaplanmaz.</li>
             <li>Minimum konaklama, giriş tarihinin dönemine göre uyarı olarak gösterilir.</li>
+            <li>
+              Temizlik ücreti rezervasyon başına bir kez, giriş tarihinin dönemine göre ayrı kalem
+              olarak eklenir; konaklama belirlenen gece sınırının altındaysa uygulanır (ör. sınır 7:
+              1–6 gece ücretli, 7 gece ve üzeri ücretsiz).
+            </li>
             <li>
               Hesaplanan tutar rezervasyon formunda önerilir; yalnız siz onaylarsanız kullanılır.
               Kayıtlı rezervasyonların tutarları değişmez.

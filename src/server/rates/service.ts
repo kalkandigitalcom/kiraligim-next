@@ -42,13 +42,16 @@ type Row = {
   weekly_amount_minor: string | number | null;
   currency: Currency;
   min_nights: number | null;
+  cleaning_fee_minor: string | number | null;
+  cleaning_fee_free_nights: number | null;
 };
 
 const SELECT = sql`
   select r.id, r.property_id,
          to_char(r.start_date, 'YYYY-MM-DD') as start_date,
          to_char(r.end_date, 'YYYY-MM-DD') as end_date,
-         r.nightly_amount_minor, r.weekly_amount_minor, r.currency, r.min_nights
+         r.nightly_amount_minor, r.weekly_amount_minor, r.currency, r.min_nights,
+         r.cleaning_fee_minor, r.cleaning_fee_free_nights
     from property_rates r`;
 
 const num = (v: string | number | null) => (v === null ? null : Number(v));
@@ -62,6 +65,8 @@ const toRate = (r: Row): RatePeriod & { propertyId: string } => ({
   weeklyAmountMinor: num(r.weekly_amount_minor),
   currency: r.currency,
   minNights: r.min_nights,
+  cleaningFeeMinor: num(r.cleaning_fee_minor),
+  cleaningFeeFreeNights: r.cleaning_fee_free_nights,
 });
 
 const notFoundRate = () => new AppError("NOT_FOUND", "Fiyat dönemi bulunamadı.");
@@ -229,11 +234,12 @@ export async function createRate(
     await tx.execute(sql`
       insert into property_rates (
         id, workspace_id, property_id, start_date, end_date,
-        nightly_amount_minor, weekly_amount_minor, currency, min_nights, created_by)
+        nightly_amount_minor, weekly_amount_minor, currency, min_nights,
+        cleaning_fee_minor, cleaning_fee_free_nights, created_by)
       values (
         ${id}, app_current_workspace_id(), ${propertyId}, ${v.startDate}, ${v.endDate},
         ${v.nightlyAmountMinor}, ${v.weeklyAmountMinor}, ${v.currency}, ${v.minNights},
-        app_current_user_id())`);
+        ${v.cleaningFeeMinor}, ${v.cleaningFeeFreeNights}, app_current_user_id())`);
     await tx.execute(sql`release savepoint create_rate`);
   } catch (err) {
     await tx.execute(sql`rollback to savepoint create_rate`);
@@ -257,6 +263,11 @@ function changedFields(before: RatePeriod, v: RateValues): AuditField[] {
   if (before.weeklyAmountMinor !== v.weeklyAmountMinor) out.push("weekly_amount");
   if (before.currency !== v.currency) out.push("currency");
   if (before.minNights !== v.minNights) out.push("min_nights");
+  if (
+    (before.cleaningFeeMinor ?? null) !== v.cleaningFeeMinor ||
+    (before.cleaningFeeFreeNights ?? null) !== v.cleaningFeeFreeNights
+  )
+    out.push("cleaning_fee");
   return out;
 }
 
@@ -301,7 +312,9 @@ export async function updateRate(
          set start_date = ${v.startDate}, end_date = ${v.endDate},
              nightly_amount_minor = ${v.nightlyAmountMinor},
              weekly_amount_minor = ${v.weeklyAmountMinor},
-             currency = ${v.currency}, min_nights = ${v.minNights}
+             currency = ${v.currency}, min_nights = ${v.minNights},
+             cleaning_fee_minor = ${v.cleaningFeeMinor},
+             cleaning_fee_free_nights = ${v.cleaningFeeFreeNights}
        where id = ${id} and workspace_id = app_current_workspace_id()`);
     await tx.execute(sql`release savepoint update_rate`);
   } catch (err) {

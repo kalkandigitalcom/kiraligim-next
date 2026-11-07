@@ -35,6 +35,8 @@ export type RateFormValues = {
   weeklyAmount: string;
   currency: string;
   minNights: string;
+  cleaningFee: string;
+  cleaningFeeFreeNights: string;
 };
 
 type Props = {
@@ -150,6 +152,17 @@ function Fields({
           periods.filter((p) => p.id !== editingId),
         )
       : [];
+  const [cleaning, setCleaning] = useState(values.cleaningFee);
+  const [freeNights, setFreeNights] = useState(values.cleaningFeeFreeNights);
+  const cleaningPreview = amountPreview(cleaning, currency);
+  const free = Number.parseInt(freeNights, 10);
+  const cleaningInfo = !cleaningPreview
+    ? "Ücret girilmezse (veya 0 ise) temizlik ücreti uygulanmaz."
+    : Number.isInteger(free) && free >= 1
+      ? free === 1
+        ? `Temizlik ücreti uygulanmaz (her konaklama en az 1 gece).`
+        : `${free} gecenin altındaki konaklamalarda (1–${free - 1} gece) ${cleaningPreview} temizlik ücreti eklenir; ${free} gece ve üzeri konaklamalarda alınmaz.`
+      : `Gece sınırı boş: her konaklamaya ${cleaningPreview} temizlik ücreti eklenir.`;
   const nightlyPreview = amountPreview(nightly, currency);
   const weeklyPreview = amountPreview(weekly, currency);
   const nightlyN = parseAmount(nightly);
@@ -294,6 +307,40 @@ function Fields({
           error={fe.minNights}
         />
       </div>
+
+      <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
+        <legend className="px-1 text-sm font-semibold text-navy-900">Temizlik ücreti</legend>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field
+            id="cleaningFee"
+            name="cleaningFee"
+            inputMode="decimal"
+            autoComplete="off"
+            label={`Temizlik ücreti (${currency})`}
+            placeholder="2.000"
+            value={cleaning}
+            onChange={(e) => setCleaning(e.target.value)}
+            error={fe.cleaningFee}
+            hint="Rezervasyon başına tek seferlik. İsteğe bağlı."
+          />
+          <Field
+            id="cleaningFeeFreeNights"
+            name="cleaningFeeFreeNights"
+            type="number"
+            inputMode="numeric"
+            min={L.minNightsMin}
+            max={L.minNightsMax}
+            label="Ücretsiz temizlik için minimum konaklama (gece)"
+            placeholder="ör. 7"
+            value={freeNights}
+            onChange={(e) => setFreeNights(e.target.value)}
+            error={fe.cleaningFeeFreeNights}
+          />
+        </div>
+        <p className="text-sm text-muted-foreground" data-testid="cleaning-fee-info">
+          {cleaningInfo}
+        </p>
+      </fieldset>
     </>
   );
 }

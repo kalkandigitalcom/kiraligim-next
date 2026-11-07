@@ -147,6 +147,24 @@ export function PriceQuote({
           </li>
         ))}
       </ul>
+      {quote.cleaningFee ? (
+        <p
+          data-testid="quote-cleaning"
+          className="flex flex-wrap justify-between gap-x-3 text-sm text-navy-900"
+        >
+          <span>
+            Temizlik ücreti
+            <span className="block text-muted-foreground">
+              {quote.cleaningFee.freeFromNights === null
+                ? "Rezervasyon başına bir kez"
+                : `${quote.cleaningFee.freeFromNights} geceden kısa konaklamalarda, bir kez`}
+            </span>
+          </span>
+          <span className="font-medium tabular-nums">
+            {formatMoney(quote.cleaningFee.amountMinor, c)}
+          </span>
+        </p>
+      ) : null}
       <p className="flex justify-between border-t border-border pt-2 text-[15px] font-semibold text-navy-900">
         <span>Toplam · {quote.nights} gece</span>
         <span className="tabular-nums" data-testid="quote-total">

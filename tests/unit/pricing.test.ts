@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { quoteMessage, quoteStay, segmentFormula, unpricedSummary } from "@/lib/pricing";
+import { formatMoney } from "@/lib/reservation-meta";
 import type { RatePeriod } from "@/lib/rate-meta";
 
 const eur = (n: number) => n * 100;
@@ -364,5 +365,116 @@ describe("iş kuralı: fiyat günleri dahil, konaklama çıkış günü hariç",
     expect(r.issues).toEqual([
       { kind: "unpriced", from: "2027-05-01", to: "2027-05-02", nights: 1 },
     ]);
+  });
+});
+
+describe("temizlik ücreti (3.3)", () => {
+  const base: RatePeriod = {
+    id: "T",
+    startDate: "2027-04-01",
+    endDate: "2027-05-01",
+    nightlyAmountMinor: 500000,
+    weeklyAmountMinor: null,
+    currency: "TRY",
+    minNights: null,
+    cleaningFeeMinor: 200000,
+    cleaningFeeFreeNights: 7,
+  };
+  const stay = (nights: number, periods: RatePeriod[] = [base]) => {
+    const out = new Date(Date.parse("2027-04-01T00:00:00Z") + nights * 864e5)
+      .toISOString()
+      .slice(0, 10);
+    return quoteStay("2027-04-01", out, periods);
+  };
+
+  it.each([
+    [1, 200000],
+    [5, 200000],
+    [6, 200000], // sınırın bir gece altı: uygulanır
+    [7, 0], // sınırın kendisi: uygulanmaz
+    [8, 0], // sınırın bir gece üstü: uygulanmaz
+    [10, 0],
+  ])("%i gece → temizlik %i kuruş", (n, fee) => {
+    const q = stay(n);
+    expect(q.ok).toBe(true);
+    expect(q.staySubtotalMinor).toBe(n * 500000);
+    expect(q.cleaningFee?.amountMinor ?? 0).toBe(fee);
+    expect(q.totalMinor).toBe(n * 500000 + fee);
+  });
+
+  it("ayrı kalem; gece parçalarını değiştirmez ve bir kez eklenir", () => {
+    const q = stay(3);
+    expect(q.cleaningFee).toEqual({ amountMinor: 200000, freeFromNights: 7, periodId: "T" });
+    expect(q.segments).toEqual([
+      expect.objectContaining({ nights: 3, extraNights: 3, subtotalMinor: 1500000 }),
+    ]);
+    expect(q.totalMinor).toBe(1500000 + 200000);
+  });
+
+  it("ücret 0 veya boşsa eklenmez; sınır boşsa her konaklamada eklenir", () => {
+    expect(stay(3, [{ ...base, cleaningFeeMinor: 0 }]).cleaningFee).toBeNull();
+    expect(
+      stay(3, [{ ...base, cleaningFeeMinor: null, cleaningFeeFreeNights: null }]).cleaningFee,
+    ).toBeNull();
+    const always = { ...base, cleaningFeeFreeNights: null };
+    expect(stay(30, [always]).cleaningFee?.amountMinor).toBe(200000);
+    expect(stay(30, [always]).totalMinor).toBe(30 * 500000 + 200000);
+  });
+
+  it("eski kayıtlar (alan yok) çalışır: ücret yok", () => {
+    const { cleaningFeeMinor: _a, cleaningFeeFreeNights: _b, ...legacy } = base;
+    const q = stay(3, [legacy]);
+    expect(q).toMatchObject({ ok: true, totalMinor: 1500000, cleaningFee: null });
+  });
+
+  it("haftalık fiyatla birlikte: 6 gece ücretli, 7 gece (1 hafta) ücretsiz", () => {
+    const wk = { ...base, weeklyAmountMinor: 3000000 };
+    expect(stay(6, [wk]).totalMinor).toBe(6 * 500000 + 200000);
+    expect(stay(7, [wk]).totalMinor).toBe(3000000);
+  });
+
+  it("dönem geçişinde GİRİŞ gecesinin döneminin ücreti ve sınırı kullanılır", () => {
+    const a = { ...base, id: "A", endDate: "2027-04-03" }; // 1–2 Nisan: ücret 2.000, sınır 7
+    const b = {
+      ...base,
+      id: "B",
+      startDate: "2027-04-03",
+      cleaningFeeMinor: 500000,
+      cleaningFeeFreeNights: 3,
+    };
+    // 1 Nisan girişli 5 gece: A'nın kuralı (5 < 7) → 2.000; B'nin sınırı (3) dikkate alınmaz
+    expect(stay(5, [a, b]).cleaningFee).toEqual({
+      amountMinor: 200000,
+      freeFromNights: 7,
+      periodId: "A",
+    });
+    // 3 Nisan girişli 2 gece: B'nin kuralı (2 < 3) → 5.000
+    expect(quoteStay("2027-04-03", "2027-04-05", [a, b]).cleaningFee?.amountMinor).toBe(500000);
+    expect(quoteStay("2027-04-03", "2027-04-06", [a, b]).cleaningFee).toBeNull();
+  });
+
+  it.each(["TRY", "EUR", "USD", "GBP"] as const)("para birimi %s: tutar ve metin", (c) => {
+    const q = stay(2, [{ ...base, currency: c }]);
+    expect(q).toMatchObject({ ok: true, currency: c, totalMinor: 1000000 + 200000 });
+    const msg = quoteMessage(q, "Test Villa")!;
+    expect(msg).toContain(`• Temizlik ücreti: ${formatMoney(200000, c)}`);
+    expect(msg).toContain(`Toplam: ${formatMoney(1200000, c)}`);
+  });
+
+  it("fiyatsız gece varsa toplam ve temizlik ücreti yok", () => {
+    const q = quoteStay("2027-04-29", "2027-05-03", [base]);
+    expect(q).toMatchObject({
+      ok: false,
+      totalMinor: null,
+      cleaningFee: null,
+      staySubtotalMinor: null,
+    });
+  });
+
+  it("teklif metni: temizlik satırı bir kez, toplam ile tutarlı", () => {
+    const msg = quoteMessage(stay(3), "Nisan Villa")!;
+    expect(msg.match(/Temizlik ücreti/g)).toHaveLength(1);
+    expect(msg).toContain("• Temizlik ücreti: ₺2.000,00");
+    expect(msg).toContain("Toplam: ₺17.000,00");
   });
 });

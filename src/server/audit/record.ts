@@ -63,6 +63,7 @@ export const RATE_AUDIT_FIELDS = [
   "weekly_amount",
   "currency",
   "min_nights",
+  "cleaning_fee",
 ] as const;
 const slug = z.string().max(48);
 

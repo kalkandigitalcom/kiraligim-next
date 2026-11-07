@@ -141,6 +141,20 @@
       "when": 1794081677675,
       "tag": "0019_property_rates_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794085945263,
+      "tag": "0020_property_rates_cleaning_fee",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794085954338,
+      "tag": "0021_property_rates_cleaning_fee_grants",
+      "breakpoints": true
     }
   ]
 }
