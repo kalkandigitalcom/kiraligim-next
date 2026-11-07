@@ -130,3 +130,13 @@
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* Takvim: blok şeridi ve lejantı için çapraz tarama (yalnız renge dayanmamak için desen). */
+@utility cal-block {
+  background-color: color-mix(in srgb, var(--color-navy-900) 8%, white);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 5px,
+    color-mix(in srgb, var(--color-navy-900) 18%, transparent) 5px 7px
+  );
+}
