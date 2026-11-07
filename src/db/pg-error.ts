@@ -20,5 +20,7 @@ export function pgErrorInfo(err: unknown): PgErrorInfo {
 export const PG = {
   UNIQUE_VIOLATION: "23505",
   CHECK_VIOLATION: "23514",
+  FOREIGN_KEY_VIOLATION: "23503",
+  EXCLUSION_VIOLATION: "23P01",
   INSUFFICIENT_PRIVILEGE: "42501",
 } as const;
