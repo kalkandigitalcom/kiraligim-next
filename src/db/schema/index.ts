@@ -4,4 +4,6 @@
  * her tenant tablosunda workspace_id + ENABLE/FORCE RLS politikası (elle yazılan migration ile),
  * kolonlar TypeScript'te camelCase, veritabanında snake_case (src/db/casing.ts).
  */
+export * from "./audit";
 export * from "./auth";
+export * from "./tenancy";

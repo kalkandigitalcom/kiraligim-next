@@ -36,6 +36,20 @@
       "when": 1794002673800,
       "tag": "0004_auth_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794034654913,
+      "tag": "0005_tenancy_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794034725265,
+      "tag": "0006_tenancy_security",
+      "breakpoints": true
     }
   ]
 }

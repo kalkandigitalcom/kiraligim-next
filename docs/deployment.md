@@ -190,6 +190,90 @@ kimlik uç noktası açılmadan (Aşama 2.1) şu iki seçenekten biri seçilmeli
 3. Resend → API Keys → "Sending access", yalnız bu alan adı. Anahtarı Coolify'a `RESEND_API_KEY` olarak (Build Variable değil) girin.
 4. `EMAIL_FROM` alan adı doğrulanan alan adıyla aynı olmalı.
 
+## İşletme (tenant) yapısı ve denetim kaydı (0005, 0006)
+
+### Tablolar
+
+| Tablo               | İçerik                                                          | `app_user` yetkisi                                                      |
+| ------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `workspaces`        | işletme: ad, adres (slug, benzersiz), durum, oluşturan          | SELECT; INSERT (id, name, slug, created_by); UPDATE (name, slug)        |
+| `workspace_members` | kullanıcı ↔ işletme, rol (`owner`, `manager`, `staff`)          | SELECT, DELETE; INSERT (id, workspace_id, user_id, role); UPDATE (role) |
+| `audit_log`         | yalnız eklenebilir denetim kaydı (işlem, hedef, küçük metadata) | SELECT; INSERT (`occurred_at` hariç)                                    |
+
+- Üç tabloda da `ENABLE` + `FORCE ROW LEVEL SECURITY` vardır; tablo sahibi `app_migrator` da politikalara tabidir.
+- `status` kolonu uygulama tarafından değiştirilemez (askıya alma Super Admin işi, Aşama 2.3).
+- Kullanıcı silinince üyelikleri silinir; denetim kaydı kalır, `actor_user_id` NULL olur (KVKK takma adlandırma).
+  İşletme silme bu aşamada yoktur (`ON DELETE RESTRICT`).
+
+### Güven modeli ve bağlam
+
+- `app.user_id` yalnız doğrulanmış oturumdan, `app.workspace_id` ise `withTenant()` üyelik ve
+  `status = 'active'` doğrulamasından sonra ayarlanır (transaction'a özel, parametre bağlı `set_config`).
+- Üye olunmayan, var olmayan ve askıdaki işletmeler aynı `NOT_FOUND` yanıtını verir (varlık sızdırılmaz).
+- RLS sorgu hatalarına karşı ikinci savunma hattıdır; ele geçirilmiş uygulama koduna karşı koruma değildir.
+- Rol, `app_current_member_role()` ile **veritabanından** okunur; istemciden gelen rol bilgisine güvenilmez.
+  Bu fonksiyon yalnız **aktif** işletmede rol döndürür: askıdaki işletmede bağlam elle kurulsa bile
+  okuma ve yazma kapalıdır (yalnız bağlamsız "işletmelerim" listesinde askıdaki üyelikler görünür).
+- İlk owner istisnası yalnız **hiç üyesi olmayan** işletmede ve yalnız onu oluşturan kullanıcı için
+  geçerlidir; işletmeden çıkarılan kurucu kendini yeniden ekleyemez.
+
+### Rol matrisi
+
+| İşlem                                | owner | manager             | staff |
+| ------------------------------------ | ----- | ------------------- | ----- |
+| İşletme bilgisini güncelleme         | ✓     | –                   | –     |
+| Üye ekleme                           | ✓     | yalnız `staff` rolü | –     |
+| Rol değiştirme / üye çıkarma         | ✓     | –                   | –     |
+| Üye listesi (ad, rol, üyelik tarihi) | ✓     | ✓                   | ✓     |
+| Denetim kaydını okuma                | ✓     | ✓                   | –     |
+
+- Üye listesinde e-posta ve diğer kişisel bilgiler döndürülmez.
+- **Son owner koruması:** işletmenin son sahibi silinemez veya rolü düşürülemez (`workspace_last_owner`);
+  eşzamanlı işlemler işletme başına advisory lock ile sıralanır. Kural tetikleyicidedir, `app_migrator` için de geçerlidir.
+  Owner'ı etkileyen değişiklik yalnız READ COMMITTED (varsayılan) veya SERIALIZABLE transaction'da yapılabilir;
+  REPEATABLE READ'de `workspace_owner_change_isolation` hatasıyla reddedilir (eski snapshot sıfır owner bırakabilir).
+- Rol değişikliğinde satır `FOR UPDATE` ile kilitlenir; UPDATE tam 1 satırı değiştirmezse denetim kaydı yazılmaz.
+- İşletme oluşturma, ilk owner üyeliği ve `workspace.created` kaydı **tek transaction** içindedir; biri başarısız
+  olursa hiçbiri yazılmaz.
+
+### Denetim kaydı değiştirilemez
+
+- `UPDATE`, `DELETE` ve `TRUNCATE` tetikleyiciyle engellenir (tablo sahibi ve süper kullanıcı dahil).
+  Tek istisna: kullanıcı silinirken FK zincirinin (`ON DELETE SET NULL`) yaptığı `actor_user_id` → NULL.
+  Bu yalnız tetikleyici içinden (`pg_trigger_depth() > 1`), yalnız o kolon değişirken ve kullanıcı artık
+  yoksa kabul edilir; doğrudan bir UPDATE ile actor bilgisi silinemez.
+- Kayıt yalnız kendi adına (`actor_user_id = app.user_id`) ve geçerli işletmeye yazılır; zaman damgası sunucu verir.
+- Metadata yalnız işleme özgü sabit şemayı kabul eder; e-posta, telefon, ad, IP, user agent, belirteç, kimlik/kart/IBAN
+  gibi alanlar uygulamada reddedilir; boyut veritabanında 4 KB ile sınırlıdır.
+
+### `app_migrator` istisnası ve SECURITY DEFINER fonksiyonlar
+
+- `SECURITY DEFINER` fonksiyonlar: `app_current_membership_role()` (durumdan bağımsız üyelik rolü),
+  `app_current_workspace_unclaimed()` (bağlamdaki işletmenin hiç üyesi yok mu) ve son-owner tetikleyicisi.
+  Hepsinin sahibi `app_migrator`, `search_path = pg_catalog, pg_temp`, PUBLIC'ten EXECUTE geri alınmış;
+  bağlam fonksiyonları parametre almaz (yalnız o anki kullanıcı/işletme). `app_current_member_role()` ise
+  SECURITY INVOKER'dır ve durumu `app_user` olarak okur. FORCE RLS altında definer fonksiyonların
+  `workspace_members` tablosunu okuyabilmesi için tek dar politika vardır: `members_migrator_lookup`
+  (`FOR SELECT TO app_migrator`). `app_migrator` `workspaces` ve `audit_log` satırlarını göremez.
+- Beş bağlam fonksiyonu (`app_current_user_id`, `app_current_workspace_id`, `app_current_membership_role`,
+  `app_current_workspace_unclaimed`, `app_current_member_role`) yalnız `app_user`'a açıktır;
+  tetikleyici fonksiyonlarının kimseye EXECUTE yetkisi yoktur.
+- Doğrulama: `tests/integration/tenancy.test.ts` (yalıtım, roller, atomiklik, son owner, denetim kaydı),
+  `tests/integration/tenancy-security.test.ts` (fonksiyon sahipliği, search_path, EXECUTE, politika ve yetki listesi).
+
+Deploy sonrası salt-okunur kontrol:
+
+```sql
+select count(*) from drizzle.__migrations;                                   -- 7 (0000–0006)
+select relname, relrowsecurity, relforcerowsecurity, pg_get_userbyid(relowner)
+  from pg_class where relname in ('workspaces','workspace_members','audit_log'); -- t, t, app_migrator
+select tablename, policyname, roles, cmd from pg_policies
+ where tablename in ('workspaces','workspace_members','audit_log') order by 1, 2; -- 10 politika
+select p.proname, p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig, p.proacl
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public' and p.proname like 'app\_%' order by 1;           -- sahip app_migrator, PUBLIC yok
+```
+
 ## Veritabanı rolleri ve migration
 
 ### Roller
