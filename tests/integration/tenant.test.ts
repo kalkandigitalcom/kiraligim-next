@@ -4,7 +4,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { inject } from "vitest";
 
-import { withTenant } from "@/db/tenant";
+import { withTenantContextUnchecked } from "@/db/tenant";
 
 const db = inject("testDb");
 const A = "0190a6e0-0000-7000-8000-00000000000a";
@@ -31,10 +31,10 @@ describe("withTenant + RLS", () => {
         with check (workspace_id = nullif(current_setting('app.workspace_id', true), '')::uuid);
       grant select, insert on public.rls_probe to app_user;
     `);
-    await withTenant(migrator, A, (tx) =>
+    await withTenantContextUnchecked(migrator, A, (tx) =>
       tx.execute(sql`insert into rls_probe values (${A}, 'a1'), (${A}, 'a2')`),
     );
-    await withTenant(migrator, B, (tx) =>
+    await withTenantContextUnchecked(migrator, B, (tx) =>
       tx.execute(sql`insert into rls_probe values (${B}, 'b1')`),
     );
   });
@@ -46,10 +46,10 @@ describe("withTenant + RLS", () => {
   });
 
   it("her workspace yalnız kendi satırlarını görür", async () => {
-    const a = await withTenant(app, A, (tx) =>
+    const a = await withTenantContextUnchecked(app, A, (tx) =>
       tx.execute(sql`select note from rls_probe order by note`),
     );
-    const b = await withTenant(app, B, (tx) =>
+    const b = await withTenantContextUnchecked(app, B, (tx) =>
       tx.execute(sql`select note from rls_probe order by note`),
     );
     expect(a.rows.map((r) => r.note)).toEqual(["a1", "a2"]);
@@ -63,17 +63,21 @@ describe("withTenant + RLS", () => {
 
   it("başka workspace adına satır yazılamaz", async () => {
     await expect(
-      withTenant(app, A, (tx) => tx.execute(sql`insert into rls_probe values (${B}, 'saldırı')`)),
+      withTenantContextUnchecked(app, A, (tx) =>
+        tx.execute(sql`insert into rls_probe values (${B}, 'saldırı')`),
+      ),
     ).rejects.toThrow();
   });
 
   it("ayar transaction bitince bağlantıda kalmaz", async () => {
-    await withTenant(app, A, async (tx) => tx.execute(sql`select 1`));
+    await withTenantContextUnchecked(app, A, async (tx) => tx.execute(sql`select 1`));
     const r = await appPool.query("select current_setting('app.workspace_id', true) as v");
     expect(r.rows[0].v ?? "").toBe("");
   });
 
   it("geçersiz workspace kimliğini reddeder", async () => {
-    await expect(withTenant(app, "1 or 1=1", async () => 1)).rejects.toThrow(/UUID/);
+    await expect(withTenantContextUnchecked(app, "1 or 1=1", async () => 1)).rejects.toThrow(
+      /UUID/,
+    );
   });
 });

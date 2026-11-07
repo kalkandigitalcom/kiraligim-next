@@ -4,7 +4,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 
 import { inspectDbRole } from "@/db/role-check";
-import { withTenant } from "@/db/tenant";
+import { withTenantContextUnchecked } from "@/db/tenant";
 
 const db = inject("testDb");
 const A = "0190a6e0-0000-7000-8000-0000000000a1";
@@ -58,16 +58,20 @@ describe("rol ayrımı, tablo sahipliği ve RLS", () => {
 
   it("app_user FORCE olmadan da RLS'e tabidir", async () => {
     expect(await count(appPool)).toBe(0);
-    const a = await withTenant(app, A, (tx) => tx.execute(sql`select note from sec_probe`));
+    const a = await withTenantContextUnchecked(app, A, (tx) =>
+      tx.execute(sql`select note from sec_probe`),
+    );
     expect(a.rows.map((r) => r.note)).toEqual(["a1"]);
   });
 
   it("FORCE ROW LEVEL SECURITY sonrası tablo sahibi de RLS'e tabidir", async () => {
     await migratorPool.query("alter table public.sec_probe force row level security");
     expect(await count(migratorPool)).toBe(0);
-    const b = await withTenant(migrator, B, (tx) => tx.execute(sql`select note from sec_probe`));
+    const b = await withTenantContextUnchecked(migrator, B, (tx) =>
+      tx.execute(sql`select note from sec_probe`),
+    );
     expect(b.rows.map((r) => r.note)).toEqual(["b1"]);
-    const err = await withTenant(migrator, A, (tx) =>
+    const err = await withTenantContextUnchecked(migrator, A, (tx) =>
       tx.execute(sql`insert into sec_probe values (${B}, 'x')`),
     ).catch((e: unknown) => e);
     expect(String((err as { cause?: unknown }).cause ?? err)).toMatch(/row-level security/);
