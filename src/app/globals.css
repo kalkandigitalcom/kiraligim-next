@@ -122,3 +122,11 @@
     @apply bg-background text-foreground antialiased;
   }
 }
+
+/* Fotoğraf sürükle-bırak sırasında (use-photo-drag.ts): seçim yok, imleç "tutuyor". */
+.photo-dragging,
+.photo-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}

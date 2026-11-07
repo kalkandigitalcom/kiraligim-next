@@ -220,6 +220,32 @@ export async function setCoverPhoto(
   return { changed: true };
 }
 
+/** Verilen tam sırayı (0..n-1) yazar ve denetim kaydı ekler. Kilit ÇAĞIRANDA alınmış olmalı. */
+async function writeOrder(tx: Tx, propertyId: string, ids: string[]): Promise<void> {
+  try {
+    await tx.execute(sql`savepoint photo_order`);
+    await tx.execute(sql`
+      update property_photos p set sort_order = (o.ord - 1)::int
+        from unnest(array[${sql.join(
+          ids.map((id) => sql`${id}`),
+          sql`, `,
+        )}]::uuid[]) with ordinality as o(id, ord)
+       where p.id = o.id and p.property_id = ${propertyId}
+         and p.workspace_id = app_current_workspace_id()
+         and p.sort_order is distinct from (o.ord - 1)::int`);
+    await tx.execute(sql`release savepoint photo_order`);
+  } catch (err) {
+    await tx.execute(sql`rollback to savepoint photo_order`);
+    mapPhotoWriteError(err);
+  }
+  await recordAudit(tx, {
+    action: "property.photos_reordered",
+    targetType: "property",
+    targetId: propertyId,
+    metadata: { property: propertyId },
+  });
+}
+
 /** Fotoğrafı bir adım yukarı/aşağı taşır; sıra 0..n-1 olarak yeniden numaralanır. */
 export async function movePhoto(
   tx: Tx,
@@ -236,28 +262,44 @@ export async function movePhoto(
   const j = direction === "up" ? i - 1 : i + 1;
   if (j < 0 || j >= ids.length) return { changed: false };
   [ids[i], ids[j]] = [ids[j]!, ids[i]!];
-  try {
-    await tx.execute(sql`savepoint photo_move`);
-    await tx.execute(sql`
-      update property_photos p set sort_order = (o.ord - 1)::int
-        from unnest(array[${sql.join(
-          ids.map((id) => sql`${id}`),
-          sql`, `,
-        )}]::uuid[]) with ordinality as o(id, ord)
-       where p.id = o.id and p.property_id = ${propertyId}
-         and p.workspace_id = app_current_workspace_id()
-         and p.sort_order is distinct from (o.ord - 1)::int`);
-    await tx.execute(sql`release savepoint photo_move`);
-  } catch (err) {
-    await tx.execute(sql`rollback to savepoint photo_move`);
-    mapPhotoWriteError(err);
+  await writeOrder(tx, propertyId, ids);
+  return { changed: true };
+}
+
+/**
+ * Sürükle-bırak sonrası tam sıra. İstemcinin gönderdiği liste yalnız bir TERCİHTİR:
+ *  - kilit altında okunan güncel liste esas alınır; listede olmayan (başka işletmeye ait,
+ *    silinmiş, uydurma) kimlikler yok sayılır — varlık sızmaz;
+ *  - bu arada eklenen (listede olmayan) fotoğraflar mevcut sıralarıyla sona eklenir;
+ *  - yinelenen veya geçersiz kimlik ya da 80'den uzun liste reddedilir.
+ * Kapak (is_cover) değişmez; yalnız sort_order yazılır.
+ */
+export async function reorderPhotos(
+  tx: Tx,
+  ctx: TenantContext,
+  propertyId: string,
+  orderedIds: unknown,
+): Promise<{ changed: boolean }> {
+  if (
+    !Array.isArray(orderedIds) ||
+    orderedIds.length > PHOTO_LIMIT ||
+    !orderedIds.every((id): id is string => typeof id === "string" && isUuid(id))
+  ) {
+    throw new AppError("VALIDATION", "Geçersiz fotoğraf sırası.");
   }
-  await recordAudit(tx, {
-    action: "property.photos_reordered",
-    targetType: "property",
-    targetId: propertyId,
-    metadata: { property: propertyId },
-  });
+  const wanted = orderedIds.map((id) => id.toLowerCase());
+  if (new Set(wanted).size !== wanted.length) {
+    throw new AppError("VALIDATION", "Geçersiz fotoğraf sırası.");
+  }
+  await guardWrite(tx, ctx, propertyId);
+  if (!(await propertyExists(tx, propertyId))) throw notFoundProperty();
+  const current = (await listPhotos(tx, propertyId)).map((p) => p.id);
+  const currentSet = new Set(current);
+  const known = wanted.filter((id) => currentSet.has(id));
+  const knownSet = new Set(known);
+  const next = [...known, ...current.filter((id) => !knownSet.has(id))];
+  if (next.every((id, i) => id === current[i])) return { changed: false };
+  await writeOrder(tx, propertyId, next);
   return { changed: true };
 }
 

@@ -13,9 +13,16 @@ import {
   PHOTO_LIMITS,
   PHOTO_MIME_TYPES,
 } from "@/lib/photo-meta";
+import { isPermutationOf } from "@/lib/photo-order";
 import { cn } from "@/lib/utils";
 
-import { deletePhotoAction, movePhotoAction, setCoverPhotoAction } from "./actions";
+import {
+  deletePhotoAction,
+  movePhotoAction,
+  reorderPhotosAction,
+  setCoverPhotoAction,
+} from "./actions";
+import { usePhotoDrag } from "./use-photo-drag";
 
 export type ManagerPhoto = {
   id: string;
@@ -97,6 +104,24 @@ export function PhotoManager({ propertyId, propertyName, photos, canManage, stor
   const [actionError, setActionError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [dragging, setDragging] = useState(false);
+  // Sürükle-bırak sonrası, sunucudan yeni liste gelene kadar gösterilen sıra (iyimser).
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+
+  const propIds = photos.map((p) => p.id);
+  const baseOrder = pendingOrder && isPermutationOf(pendingOrder, propIds) ? pendingOrder : propIds;
+  const byId = new Map(photos.map((p) => [p.id, p]));
+
+  const { drag, listRef, onPointerDown } = usePhotoDrag({
+    ids: baseOrder,
+    enabled:
+      canManage && hydrated && busyPhoto === null && confirmDelete === null && photos.length > 1,
+    onAnnounce: setAnnouncement,
+    onDrop: (order, movedId) => void saveOrder(order, movedId),
+  });
+  const shown = (drag?.order ?? baseOrder)
+    .map((id) => byId.get(id))
+    .filter((p): p is ManagerPhoto => p !== undefined);
 
   const count = photos.length;
   const remaining = Math.max(0, LIMIT - count);
@@ -170,15 +195,39 @@ export function PhotoManager({ propertyId, propertyName, photos, canManage, stor
     if (succeeded > 0) startTransition(() => router.refresh());
   }
 
+  async function saveOrder(order: string[], movedId: string) {
+    setPendingOrder(order);
+    setBusyPhoto(movedId);
+    setActionError(null);
+    try {
+      const r = await reorderPhotosAction(propertyId, order);
+      if (!r.ok) {
+        setPendingOrder(null);
+        setActionError(r.error);
+        setAnnouncement("Sıra kaydedilemedi.");
+      }
+      startTransition(() => router.refresh());
+    } catch {
+      setPendingOrder(null);
+      setActionError("Sıra kaydedilemedi. Lütfen tekrar deneyin.");
+    } finally {
+      setBusyPhoto(null);
+    }
+  }
+
   async function runPhotoAction(
     photoId: string,
     fn: () => Promise<{ ok: boolean; error?: string }>,
+    done?: string,
   ) {
     setBusyPhoto(photoId);
     setActionError(null);
+    // Ok düğmeleri sunucudaki sırayı esas alır; bekleyen sürükleme sırası bırakılır.
+    setPendingOrder(null);
     try {
       const r = await fn();
       if (!r.ok) setActionError(r.error ?? "İşlem yapılamadı.");
+      else if (done) setAnnouncement(done);
       startTransition(() => router.refresh());
     } catch {
       setActionError("İşlem yapılamadı. Lütfen tekrar deneyin.");
@@ -329,6 +378,16 @@ export function PhotoManager({ propertyId, propertyName, photos, canManage, stor
 
       {actionError ? <Alert tone="error">{actionError}</Alert> : null}
 
+      <p aria-live="assertive" className="sr-only" data-testid="photo-announcer">
+        {announcement}
+      </p>
+      {canManage && photos.length > 1 ? (
+        <p id="photo-sort-hint" className="-mb-3 text-sm text-muted-foreground">
+          Sıralamak için fotoğrafı tutup sürükleyin (dokunmatik ekranda kısa süre basılı tutun) ya
+          da ← → düğmelerini kullanın.
+        </p>
+      ) : null}
+
       {photos.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-white/60 px-6 py-12 text-center">
           <p className="font-semibold text-navy-900">Henüz fotoğraf yok</p>
@@ -337,18 +396,46 @@ export function PhotoManager({ propertyId, propertyName, photos, canManage, stor
           </p>
         </div>
       ) : (
-        <ol aria-label="Fotoğraflar" className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          {photos.map((p, i) => {
+        <ol
+          ref={listRef}
+          aria-label="Fotoğraflar"
+          aria-describedby={canManage && photos.length > 1 ? "photo-sort-hint" : undefined}
+          className="grid grid-cols-2 gap-4 sm:grid-cols-3"
+        >
+          {shown.map((p, i) => {
             const busy = busyPhoto === p.id;
-            const disabled = busy || busyPhoto !== null || !hydrated;
+            const disabled = busy || busyPhoto !== null || !hydrated || drag !== null;
+            const isDragged = drag?.id === p.id;
+            const draggable =
+              canManage &&
+              hydrated &&
+              busyPhoto === null &&
+              confirmDelete === null &&
+              shown.length > 1;
             return (
               <li
                 key={p.id}
                 data-testid="photo-item"
+                data-photo-id={p.id}
                 data-cover={p.isCover ? "true" : "false"}
-                className="flex flex-col overflow-hidden rounded-xl border border-border bg-white shadow-sm"
+                data-dragging={isDragged ? "true" : undefined}
+                className={cn(
+                  "flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition-[opacity,box-shadow] duration-150",
+                  isDragged
+                    ? "border-dashed border-turquoise-500 opacity-40 ring-2 ring-turquoise-500/40"
+                    : "border-border",
+                )}
               >
-                <div className="relative aspect-[4/3] overflow-hidden bg-muted">
+                <div
+                  onPointerDown={draggable ? (e) => onPointerDown(e, p.id) : undefined}
+                  onContextMenu={draggable ? (e) => e.preventDefault() : undefined}
+                  data-testid="photo-drag-area"
+                  className={cn(
+                    "relative aspect-[4/3] overflow-hidden bg-muted",
+                    draggable &&
+                      "cursor-grab touch-manipulation select-none [-webkit-touch-callout:none]",
+                  )}
+                >
                   {p.sources ? (
                     // next/image kullanılmıyor: varyantlar zaten üretilmiş, CDN'den doğrudan gelir.
                     // eslint-disable-next-line @next/next/no-img-element
@@ -360,6 +447,7 @@ export function PhotoManager({ propertyId, propertyName, photos, canManage, stor
                       height={p.height}
                       loading="lazy"
                       decoding="async"
+                      draggable={false}
                       alt={`${propertyName} — fotoğraf ${i + 1}${p.isCover ? " (kapak)" : ""}`}
                       className="absolute inset-0 size-full object-cover"
                     />
@@ -373,7 +461,10 @@ export function PhotoManager({ propertyId, propertyName, photos, canManage, stor
                       Kapak
                     </span>
                   ) : null}
-                  <span className="absolute top-2 right-2 rounded-full bg-white/90 px-2 py-0.5 text-xs font-semibold text-navy-900">
+                  <span
+                    data-photo-position
+                    className="absolute top-2 right-2 rounded-full bg-white/90 px-2 py-0.5 text-xs font-semibold text-navy-900"
+                  >
                     {i + 1}
                   </span>
                 </div>
@@ -422,7 +513,11 @@ export function PhotoManager({ propertyId, propertyName, photos, canManage, stor
                           aria-label={`Fotoğraf ${i + 1}: öne al`}
                           disabled={disabled || i === 0}
                           onClick={() =>
-                            runPhotoAction(p.id, () => movePhotoAction(propertyId, p.id, "up"))
+                            runPhotoAction(
+                              p.id,
+                              () => movePhotoAction(propertyId, p.id, "up"),
+                              `Fotoğraf ${i}. sıraya taşındı.`,
+                            )
                           }
                         >
                           ←
@@ -432,9 +527,13 @@ export function PhotoManager({ propertyId, propertyName, photos, canManage, stor
                           variant="ghost"
                           className="px-2.5"
                           aria-label={`Fotoğraf ${i + 1}: geri al`}
-                          disabled={disabled || i === photos.length - 1}
+                          disabled={disabled || i === shown.length - 1}
                           onClick={() =>
-                            runPhotoAction(p.id, () => movePhotoAction(propertyId, p.id, "down"))
+                            runPhotoAction(
+                              p.id,
+                              () => movePhotoAction(propertyId, p.id, "down"),
+                              `Fotoğraf ${i + 2}. sıraya taşındı.`,
+                            )
                           }
                         >
                           →
