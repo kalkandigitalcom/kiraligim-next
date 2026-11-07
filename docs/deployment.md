@@ -109,21 +109,65 @@ Teşhis:
 
 ## Kimlik (Better Auth) ve e-posta
 
-Durum (Aşama 2.1): yapılandırma kodda hazır (`src/server/auth/host-auth.ts`) ve kimlik tabloları
-migration'ları yazıldı (`0003_auth_tables`, `0004_auth_grants`), ancak **hiçbir route'a bağlı değil**:
-`/api/auth` uç noktası yok. Bu yüzden aşağıdaki değişkenler production'da **henüz gerekmez**; uygulama
-onlarsız açılır, tablolar deploy'da oluşur ama kullanılmaz.
+Durum (Aşama 2.3): kimlik sistemi **açık**. Uç nokta `APP_URL/api/auth/*`
+(`src/app/api/auth/[...all]/route.ts`), giriş/kayıt/doğrulama/şifre sayfaları ve ilk işletme sihirbazı
+app.<alan-adı> üzerinde çalışır (ayrıntılar: "Kimlik arayüzü ve uç nokta" bölümü). Kimlik tabloları
+`0003_auth_tables` ve `0004_auth_grants` ile oluşur. Aşağıdaki değişkenler production'da **gereklidir**;
+eksik veya hatalı olduklarında ne olduğu "Yapılandırma hataları" bölümünde anlatılır.
 
-| Değişken               | Örnek / değer                             | Not                                                              |
-| ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`   | `openssl rand -base64 32`                 | Ortam başına farklı, ≥32 karakter. Değişirse tüm oturumlar düşer |
-| `AUTH_SIGNUP_ENABLED`  | `false`                                   | Public kayıt Aşama 2.6'ya kadar kapalı                           |
-| `AUTH_IP_HEADER`       | `x-forwarded-for` veya `cf-connecting-ip` | Aşağıdaki IP bölümüne bakın                                      |
-| `AUTH_TRUSTED_PROXIES` | boş veya `CIDR,CIDR`                      | Güvenilen vekiller                                               |
-| `EMAIL_TRANSPORT`      | production: `resend`                      | `log` yalnız yerelde, `memory` yalnız testte                     |
-| `RESEND_API_KEY`       | `re_…`                                    | Yalnız "Sending access", tek alan adına kısıtlı anahtar          |
-| `EMAIL_FROM`           | `Kiralığım <bildirim@kiraligim.com>`      | Resend'de doğrulanmış alan adı                                   |
-| `EMAIL_REPLY_TO`       | `destek@kiraligim.com`                    | İsteğe bağlı                                                     |
+Değişkenler yalnız **çalışma zamanında** okunur (`src/server/auth/env.ts`); Coolify'da Build Variable
+olarak işaretlenmez. Değer değişikliği yeniden deploy/yeniden başlatma ile etkinleşir.
+
+| Değişken               | Production                | Örnek / değer                             | Kural (kodda doğrulanır)                                                                                                                                                |
+| ---------------------- | ------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`   | **Zorunlu**               | `openssl rand -base64 32`                 | ≥ 32 karakter; `degistir`/`change-me`/`changeme` reddedilir. Ortam başına farklı. Değişirse tüm oturumlar düşer                                                         |
+| `EMAIL_TRANSPORT`      | **Zorunlu**               | `resend`                                  | Production'da yalnız `resend`; boş bırakılamaz. `log` yalnız yerelde, `memory` yalnız testte                                                                            |
+| `RESEND_API_KEY`       | **Zorunlu**               | `re_…`                                    | `re_` ile başlamalı. Yalnız "Sending access", tek alan adına kısıtlı anahtar                                                                                            |
+| `EMAIL_FROM`           | **Zorunlu**               | `Kiralığım <bildirim@kiraligim.com>`      | `Ad <adres@alan.com>` veya `adres@alan.com`. Alan adı Resend'de doğrulanmış olmalı (kod bunu **denetleyemez**)                                                          |
+| `EMAIL_REPLY_TO`       | Opsiyonel                 | `destek@kiraligim.com`                    | Boş bırakılabilir; **doluysa geçerli bir e-posta adresi olmalı**, aksi halde kimlik sistemi tamamen kapanır                                                             |
+| `AUTH_SIGNUP_ENABLED`  | Opsiyonel (vars. `false`) | `false`                                   | Yalnız küçük harfle `true` / `false`. `True`, `TRUE`, `1`, `yes` **geçersizdir** ve kimliği kapatır. KVKK metinleri hazır olana kadar `false`                           |
+| `AUTH_IP_HEADER`       | **Pratikte zorunlu**      | `cf-connecting-ip` veya `x-forwarded-for` | Yalnız küçük harf, rakam, tire (`^[a-z0-9-]+$`). `CF-Connecting-IP` gibi büyük harfli yazım **geçersizdir** ve kimliği kapatır. Seçim: "Deneme sınırı ve istemci IP'si" |
+| `AUTH_TRUSTED_PROXIES` | Senaryoya bağlı           | boş veya `CIDR,CIDR`                      | Virgülle ayrılmış geçerli IP/CIDR; tek bir geçersiz giriş kimliği kapatır                                                                                               |
+
+Kimlik sistemi ayrıca şu temel değişkenlere dayanır: `APP_ENV=production` (Resend zorunluluğu ve `Secure`
+çerezler bununla devreye girer) ve `APP_URL=https://app.kiraligim.com` (Better Auth adresi, güvenilen köken,
+`/api/auth`'un kabul ettiği host ve e-postalardaki bağlantılar; yanlışsa `/api/auth` 404, tarayıcı istekleri 403).
+
+### Yapılandırma hataları ve izleme
+
+**Eksik veya hatalı kimlik değişkeni → kimlik tamamen kapanır (fail-closed):**
+
+- `/giris`, `/kayit`, `/sifremi-unuttum`, `/sifre-sifirla`, `/eposta-dogrulama` "Giriş geçici olarak
+  kullanılamıyor" gösterir; formlar açılmaz. `/api/auth/*` **503** (`AUTH_UNAVAILABLE`) döner; korumalı
+  sayfalar `/giris`'e yönlenir.
+- Log'a süreç başına **bir kez** `auth_unavailable` yazılır; içinde yalnız değişken adı ve kural vardır
+  (değer yazılmaz), ör. `BETTER_AUTH_SECRET: … en az 32 karakter olmalı`.
+- **`/api/health` bu durumu yakalamaz ve 200 döner.** Sağlık kontrolü yalnız uygulama ve veritabanını
+  denetler; Coolify deploy'u başarılı sayar. Bu yüzden her deploy'dan sonra:
+  1. `https://app.kiraligim.com/giris` açılır; giriş formu görünmeli ("geçici olarak kullanılamıyor" değil).
+  2. Coolify → uygulama → Logs'ta `auth_unavailable` aranır; **hiç** olmamalı.
+- Düzeltme: değişken Coolify'da düzeltilir ve yeniden deploy edilir (süreç yeniden başlamadan etkinleşmez).
+
+**Resend anahtarı geçersiz veya gönderen alan adı doğrulanmamış → sessiz gönderim hatası:**
+
+Kod açılışta yalnız biçimi denetler (`re_…`, adres biçimi); Resend'in anahtarı veya alan adını kabul edip
+etmediğini **sınamaz**. Bu durumda sayfalar normal açılır ve kayıt / şifre sıfırlama kullanıcıya başarılı
+görünür (e-posta arka planda gönderilir, hata isteği bozmaz ve hesap varlığını sızdırmaz), ancak **e-posta
+gitmez**: yeni kullanıcı e-postasını doğrulayamaz, şifre sıfırlama çalışmaz.
+
+İzleme:
+
+- Coolify Logs'ta `email_send_failed` aranır. Kayıtta `category` (`auth.verify-email` /
+  `auth.reset-password`), maskelenmiş alıcı (`a***@alan.com`) ve `status` (Resend HTTP kodu) veya
+  `reason` (zaman aşımı/ağ hatası) bulunur. API anahtarı ve ileti içeriği asla log'a yazılmaz.
+  - `401`/`403`: anahtar geçersiz/iptal edilmiş ya da `EMAIL_FROM` alan adı Resend'de doğrulanmamış veya
+    anahtar başka alan adına kısıtlı.
+  - `422`: gönderen/alıcı biçimi Resend tarafından reddedildi.
+  - `429`: Resend gönderim sınırı.
+- Başarılı gönderimde `email_sent` (kategori, maskelenmiş alıcı, Resend `id`) yazılır; Resend panelindeki
+  Emails/Logs ekranıyla `id` üzerinden eşleştirilebilir.
+- Deploy sonrası duman testi: kendi adresinizle `/sifremi-unuttum` → e-posta gelmeli ve log'da
+  `email_sent` görünmeli.
 
 Yapılandırmanın temel kararları:
 
@@ -132,7 +176,7 @@ Yapılandırmanın temel kararları:
 - E-posta doğrulaması zorunlu; doğrulanmadan giriş yapılamaz. Şifre en az 10 karakter (scrypt özeti).
 - Şifre sıfırlama/doğrulama belirteçleri veritabanında özet olarak saklanır; sıfırlamada tüm oturumlar kapanır.
 - Kimlikler UUID v7. Better Auth telemetrisi kapalı. Köken (CSRF) denetimi her ortamda açık.
-- Super Admin bu kimlik sistemini ve tablolarını **kullanmaz** (Aşama 2.3).
+- Super Admin bu kimlik sistemini ve tablolarını **kullanmaz**; ayrı kimlik ve tablolar Super Admin aşamasında eklenecek.
 
 ### Kimlik tabloları ve yetkiler (0003, 0004)
 
@@ -149,7 +193,7 @@ Yapılandırmanın temel kararları:
 - PUBLIC, `app_admin` ve `app_worker`'ın bu tablolarda **hiçbir** yetkisi yoktur.
 - **RLS bilinçli olarak uygulanmaz:** Better Auth bu tabloları tenant bağlamı olmadan sorgular; RLS açık
   olsaydı tüm sorgular boş dönerdi. Koruma en dar GRANT ile sağlanır. Super Admin bu tabloları kullanmaz
-  (ayrı `admin_*` tabloları, Aşama 2.3). Tenant verisi ayrı tablolarda `ENABLE` + `FORCE` RLS altındadır.
+  (ayrı `admin_*` tabloları, Super Admin aşamasında). Tenant verisi ayrı tablolarda `ENABLE` + `FORCE` RLS altındadır.
 - Doğrulama: `tests/integration/auth-tables.test.ts` (şema, kısıt, yetki, migration geçmişi),
   `tests/integration/auth-flow.test.ts` (yalnız `app_user` ile kayıt → doğrulama → giriş → sıfırlama → deneme sınırı).
 
@@ -173,15 +217,76 @@ Better Auth sınırı `rate_limits` tablosunda tutar (`rateLimit.storage: "datab
 `better-auth/dist/api/rate-limiter`): anahtar `<istemci-ip>|<yol>`, giriş/kayıt için 10 sn'de 3,
 sıfırlama/doğrulama e-postası için 60 sn'de 3, diğerleri için 60 sn'de 100 istek.
 
-İstemci IP'si `AUTH_IP_HEADER` başlığından okunur. Better Auth çok değerli `x-forwarded-for`
-zincirini (`istemci, vekil`) `AUTH_TRUSTED_PROXIES` tanımlı değilse **kabul etmez**; o zaman tüm
-istekler tek bir ortak kovaya düşer ve birkaç hatalı giriş herkesi kilitleyebilir. Bu yüzden
-kimlik uç noktası açılmadan (Aşama 2.1) şu iki seçenekten biri seçilmelidir:
+İstemci IP'si `AUTH_IP_HEADER` başlığından okunur (`@better-auth/core/utils/ip`):
 
-| Seçenek      | Ayar                                                                                                          | Ön koşul                                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A (önerilen) | `AUTH_IP_HEADER=cf-connecting-ip`                                                                             | `app.` ve `admin.` DNS kayıtları Cloudflare'de **Proxied**; sunucu 80/443'e yalnız Cloudflare IP'lerinden erişilebilir (aksi halde başlık taklit edilebilir) |
-| B            | `AUTH_IP_HEADER=x-forwarded-for`, `AUTH_TRUSTED_PROXIES=<Traefik/Docker ağı CIDR>,<Cloudflare IP aralıkları>` | Zincirdeki her vekilin adresi biliniyor                                                                                                                      |
+- Başlıkta **tek bir geçerli IP** varsa kabul edilir.
+- `AUTH_TRUSTED_PROXIES` boşken çok değerli zincir (`a, b`) **reddedilir**; istemcinin eklediği sahte bir
+  `x-forwarded-for` değeri tek başına IP taklidine yol açmaz.
+- `AUTH_TRUSTED_PROXIES` doluyken zincir sağdan okunur; güvenilen adresler atlanır, ilk güvenilmeyen adres
+  istemci IP'sidir (istemcinin sola eklediği değerlere hiç ulaşılmaz).
+- IP çözülemezse production'da tüm istekler yol başına **tek ortak kovaya** (`no-trusted-ip`) düşer:
+  giriş için tüm sitede 10 sn'de 3 deneme — birkaç hatalı giriş herkesi kilitler.
+
+Kimlik açılmadan önce `app.kiraligim.com` kaydının Cloudflare durumuna göre **bir** senaryo seçilir.
+Trafik yolu: istemci → (Cloudflare) → Hetzner :443 → Traefik (Coolify) → uygulama.
+
+**Senaryo 1 — Cloudflare Proxied (turuncu bulut), önerilen:**
+
+```env
+AUTH_IP_HEADER=cf-connecting-ip
+AUTH_TRUSTED_PROXIES=
+```
+
+- Cloudflare `CF-Connecting-IP` başlığını her istekte gerçek bağlantı IP'siyle **kendisi yazar**; istemcinin
+  gönderdiği değer geçmez. Tek değerli olduğu için Better Auth doğrudan kabul eder; Traefik bu başlığa dokunmaz.
+- **Ön koşul:** sunucu 80/443'e **yalnız Cloudflare IP aralıklarından** erişilebilir olmalı (Hetzner Cloud
+  Firewall veya Cloudflare Authenticated Origin Pulls). Aksi halde sunucu IP'sini bilen biri Cloudflare'i
+  atlayıp başlığı istediği gibi yazar: deneme sınırını aşabilir veya bir kurbanın IP kovasını doldurabilir.
+- Doğrulama (Cloudflare dışından, salt-okunur):
+  `curl -sk --max-time 5 --resolve app.kiraligim.com:443:<HETZNER_IP> https://app.kiraligim.com/api/health`
+  zaman aşımına uğramalı; `200` dönerse sunucu kilitli değildir.
+- Bu senaryoda `x-forwarded-for` kullanılmaz: Traefik varsayılan olarak başlığı Cloudflare edge IP'siyle
+  değiştirir (aynı edge'den gelen herkes tek kovayı paylaşır) veya zinciri geçirir (çok değerli → ortak kova).
+
+**Senaryo 2 — DNS only (gri bulut):**
+
+```env
+AUTH_IP_HEADER=x-forwarded-for
+AUTH_TRUSTED_PROXIES=
+```
+
+- `cf-connecting-ip` **kullanılmaz**: Cloudflare araya girmediği için başlığı herkes serbestçe yazabilir.
+- İstemci doğrudan Traefik'e bağlanır. Traefik'in varsayılan davranışında (`forwardedHeaders.insecure`
+  kapalı, `trustedIPs` tanımsız) istemciden gelen `X-Forwarded-For` silinir ve yerine bağlantı IP'si yazılır;
+  uygulamaya tek değerli, taklit edilemeyen bir başlık ulaşır.
+- **Ön koşul:** Coolify'ın Traefik yapılandırmasında `entryPoints.<ad>.forwardedHeaders.insecure=true` veya
+  geniş bir `trustedIPs` **olmamalı**. Varsa istemci zinciri geçer; Better Auth çok değerli zinciri reddeder
+  ve istekler ortak kovaya düşer.
+
+**Senaryo 3 — `x-forwarded-for` + güvenilen vekiller (yalnız özel gereksinimde):**
+
+```env
+AUTH_IP_HEADER=x-forwarded-for
+AUTH_TRUSTED_PROXIES=<Cloudflare IPv4/IPv6 aralıkları>,<Traefik/Docker ağı CIDR>
+```
+
+- Zincirin uygulamaya ulaşması için Traefik'in de aynı vekillere güvenmesi **zorunludur**: Coolify proxy
+  yapılandırmasında ilgili entrypoint için `forwardedHeaders.trustedIPs=<Cloudflare aralıkları>` tanımlanmalı.
+  Bu yapılmazsa Traefik zinciri siler ve uygulama yalnız Cloudflare edge IP'sini görür.
+- Cloudflare aralıkları değiştikçe hem `AUTH_TRUSTED_PROXIES` hem Traefik `trustedIPs` güncellenmelidir
+  (https://www.cloudflare.com/ips/). Daha çok parça ve hata riski olduğu için Senaryo 1 tercih edilir.
+
+**Her senaryoda deploy sonrası kontrol** (salt-okunur; birkaç giriş denemesinden sonra):
+
+```sql
+select key from rate_limits order by last_request desc limit 5;
+```
+
+Anahtarlar `<gerçek-istemci-ip>|/yol` biçiminde olmalı; Cloudflare IP'si veya `no-trusted-ip` görünüyorsa
+ayar yanlıştır. Log'da Better Auth'un "could not determine a client IP" uyarısı da aynı sorunu gösterir.
+
+Not: IPv6 istemciler tek adres (/128) üzerinden sayılır (`ipv6Subnet` ayarlı değil); bir /64 bloğu olan
+saldırgan adres değiştirerek sınırı aşabilir. Düşük risk; ileride `ipv6Subnet: 64` değerlendirilecek.
 
 ### Kimlik arayüzü ve uç nokta (Aşama 2.3)
 
@@ -200,13 +305,13 @@ kimlik uç noktası açılmadan (Aşama 2.1) şu iki seçenekten biri seçilmeli
 
 **Production'da kimliği açmadan önce (Coolify, yalnız çalışma zamanı değişkeni):**
 
-| Değişken                                  | Değer                                                                           |
-| ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                      | `openssl rand -base64 32` (production'a özel)                                   |
-| `EMAIL_TRANSPORT`                         | `resend` (production'da başka değer kabul edilmez)                              |
-| `RESEND_API_KEY`, `EMAIL_FROM`            | Resend'de doğrulanmış alan adından (aşağıdaki bölüm)                            |
-| `AUTH_IP_HEADER` / `AUTH_TRUSTED_PROXIES` | yukarıdaki tablo — **zorunlu**; aksi halde tüm kullanıcılar tek kovayı paylaşır |
-| `AUTH_SIGNUP_ENABLED`                     | `false` kalır; KVKK aydınlatma/onay metinleri hazır olunca `true`               |
+| Değişken                                  | Değer                                                                                                                              |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                      | `openssl rand -base64 32` (production'a özel)                                                                                      |
+| `EMAIL_TRANSPORT`                         | `resend` (production'da başka değer kabul edilmez)                                                                                 |
+| `RESEND_API_KEY`, `EMAIL_FROM`            | Resend'de doğrulanmış alan adından (aşağıdaki bölüm); sonra e-posta duman testi                                                    |
+| `AUTH_IP_HEADER` / `AUTH_TRUSTED_PROXIES` | "Deneme sınırı ve istemci IP'si" — Cloudflare durumuna göre **bir senaryo** seçilir; yanlışsa tüm kullanıcılar tek kovayı paylaşır |
+| `AUTH_SIGNUP_ENABLED`                     | `false` kalır; KVKK aydınlatma/onay metinleri hazır olunca `true`                                                                  |
 
 ### Resend kurulumu (gerçek gönderimden önce)
 
@@ -226,7 +331,7 @@ kimlik uç noktası açılmadan (Aşama 2.1) şu iki seçenekten biri seçilmeli
 | `audit_log`         | yalnız eklenebilir denetim kaydı (işlem, hedef, küçük metadata) | SELECT; INSERT (`occurred_at` hariç)                                    |
 
 - Üç tabloda da `ENABLE` + `FORCE ROW LEVEL SECURITY` vardır; tablo sahibi `app_migrator` da politikalara tabidir.
-- `status` kolonu uygulama tarafından değiştirilemez (askıya alma Super Admin işi, Aşama 2.3).
+- `status` kolonu uygulama tarafından değiştirilemez (askıya alma Super Admin işi; Super Admin aşamasında eklenecek).
 - Kullanıcı silinince üyelikleri silinir; denetim kaydı kalır, `actor_user_id` NULL olur (KVKK takma adlandırma).
   İşletme silme bu aşamada yoktur (`ON DELETE RESTRICT`).
 
