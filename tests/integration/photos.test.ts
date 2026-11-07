@@ -21,6 +21,7 @@ import {
   movePhoto,
   photoPrefix,
   precheckPhotoUpload,
+  reorderPhotos,
   setCoverPhoto,
 } from "@/server/properties/photos";
 import { createProperty, listProperties } from "@/server/properties/service";
@@ -244,6 +245,94 @@ describe("ekleme, sıra ve kapak", () => {
     );
     const cover = (await photosOf(propA)).find((r) => r.is_cover)!;
     expect(list.find((p) => p.id === propA)?.coverPrefix).toBe(photoPrefix(wsA, propA, cover.id));
+  });
+});
+
+describe("sürükle-bırak: tam sıra (reorderPhotos)", () => {
+  let R: U, wsR: string, propR: string, ids: string[];
+  const orderOf = async () => (await photosOf(propR)).map((r) => r.id);
+
+  beforeAll(async () => {
+    R = await mkUser("fsira");
+    wsR = await mkWorkspace(R, "fr");
+    propR = await mkProperty(R, wsR);
+    ids = [];
+    for (let i = 0; i < 4; i++) ids.push(await addPhoto(R, wsR, propR));
+  });
+  const run = (order: unknown, user: U = R, ws = wsR, prop = propR) =>
+    withTenant(app, { userId: user.id, workspaceId: ws }, (tx, ctx) =>
+      reorderPhotos(tx, ctx, prop, order),
+    );
+
+  it("tam sıra kaydedilir (0..n-1), kapak değişmez, denetim kaydı yazılır", async () => {
+    const [a, b, c, d] = ids as [string, string, string, string];
+    expect(await run([d, b, a, c])).toEqual({ changed: true });
+    const rows = await photosOf(propR);
+    expect(rows.map((r) => r.id)).toEqual([d, b, a, c]);
+    expect(rows.map((r) => r.sort_order)).toEqual([0, 1, 2, 3]);
+    expect(rows.filter((r) => r.is_cover).map((r) => r.id)).toEqual([a]);
+    expect(await auditOf(wsR, "property.photos_reordered")).toEqual([
+      {
+        actor_user_id: R.id,
+        target_type: "property",
+        target_id: propR,
+        metadata: { property: propR },
+      },
+    ]);
+  });
+
+  it("aynı sıra: değişiklik ve denetim kaydı yok", async () => {
+    const before = await orderOf();
+    expect(await run(before)).toEqual({ changed: false });
+    expect(await auditOf(wsR, "property.photos_reordered")).toHaveLength(1);
+  });
+
+  it("eksik liste: bu arada eklenen fotoğraflar sona eklenir; silinen/yabancı kimlik yok sayılır", async () => {
+    const before = await orderOf();
+    const added = await addPhoto(R, wsR, propR); // istemcinin bilmediği yeni fotoğraf
+    const foreign = (await photosOf(propA))[0]!.id; // başka işletmenin fotoğrafı
+    const gone = uuidv7(); // silinmiş / hiç olmamış
+    const wanted = [before[3]!, gone, foreign, before[0]!, before[1]!, before[2]!];
+    expect(await run(wanted)).toEqual({ changed: true });
+    expect(await orderOf()).toEqual([before[3], before[0], before[1], before[2], added]);
+    // Yabancı fotoğraf etkilenmedi.
+    const f = await admin.query("select property_id from property_photos where id = $1", [foreign]);
+    expect(f.rows[0].property_id).toBe(propA);
+  });
+
+  it("geçersiz liste reddedilir: yinelenen, UUID olmayan, dizi olmayan, 80'den uzun", async () => {
+    const cur = await orderOf();
+    for (const bad of [
+      [cur[0], cur[0]],
+      ["x"],
+      "liste",
+      null,
+      [1, 2],
+      Array.from({ length: 81 }, () => uuidv7()),
+    ]) {
+      await expect(run(bad)).rejects.toMatchObject({ code: "VALIDATION" });
+    }
+    expect(await orderOf()).toEqual(cur);
+  });
+
+  it("staff sıralayamaz; başka işletmenin mülkü bulunamaz", async () => {
+    const cur = await orderOf();
+    await expect(run([...cur].reverse(), S, wsA, propA)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(run([...cur].reverse(), O, wsA, propR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(await orderOf()).toEqual(cur);
+  });
+
+  it("ok düğmeleri (movePhoto) ve sürükleme aynı kalıcı sırayı kullanır", async () => {
+    const cur = await orderOf();
+    await withTenant(app, { userId: R.id, workspaceId: wsR }, (tx, ctx) =>
+      movePhoto(tx, ctx, propR, cur[1]!, "up"),
+    );
+    expect(await orderOf()).toEqual([cur[1], cur[0], ...cur.slice(2)]);
+    expect((await photosOf(propR)).map((r) => r.sort_order)).toEqual([0, 1, 2, 3, 4]);
   });
 });
 

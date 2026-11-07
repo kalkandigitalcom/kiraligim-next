@@ -4,7 +4,13 @@ import { unstable_rethrow } from "next/navigation";
 
 import { logger } from "@/lib/logger";
 import { toActionError } from "@/lib/result";
-import { deletePhoto, movePhoto, setCoverPhoto, variantKeys } from "@/server/properties/photos";
+import {
+  deletePhoto,
+  movePhoto,
+  reorderPhotos,
+  setCoverPhoto,
+  variantKeys,
+} from "@/server/properties/photos";
 import { getStorage } from "@/server/storage";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
@@ -44,6 +50,16 @@ export async function movePhotoAction(
     withPanelTenant((tx, ctx) =>
       movePhoto(tx, ctx, String(propertyId), String(photoId), direction === "up" ? "up" : "down"),
     ),
+  );
+}
+
+/** Sürükle-bırak: tam sıra. Liste serviste doğrulanır (kimlik, yineleme, uzunluk). */
+export async function reorderPhotosAction(
+  propertyId: string,
+  orderedIds: string[],
+): Promise<PhotoActionResult> {
+  return run("property.photo_reorder", () =>
+    withPanelTenant((tx, ctx) => reorderPhotos(tx, ctx, String(propertyId), orderedIds)),
   );
 }
 
