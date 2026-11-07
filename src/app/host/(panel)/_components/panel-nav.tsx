@@ -8,6 +8,11 @@ import { cn } from "@/lib/utils";
 const ITEMS = [
   { href: "/panel", label: "Panel", match: (p: string) => p === "/panel" },
   { href: "/villalar", label: "Mülkler", match: (p: string) => p.startsWith("/villalar") },
+  {
+    href: "/rezervasyonlar",
+    label: "Rezervasyonlar",
+    match: (p: string) => p.startsWith("/rezervasyonlar"),
+  },
 ] as const;
 
 /** Panel menüsü. Etkin bağlantı aria-current ile işaretlenir. */
