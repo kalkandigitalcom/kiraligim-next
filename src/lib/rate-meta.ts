@@ -3,15 +3,18 @@
  * servis ve tarayıcı (form, liste) aynı değerleri kullanır. Veritabanı CHECK'leri aynı sınırlarla
  * yazılmıştır (drizzle/0017, 0018).
  *
- * Dönem, rezervasyonlarla aynı biçimde [başlangıç, bitiş) yarı açık aralıktır ve GECELERİ kapsar:
- * "1 Temmuz – 16 Temmuz" dönemi 1–15 Temmuz gecelerini içerir; 16 Temmuz bir sonraki dönemin
- * başlangıcı olabilir. Aynı mülkte dönemler kesişemez (veritabanı exclusion constraint'i).
+ * Veritabanında dönem, rezervasyonlarla aynı biçimde [start_date, end_date) yarı açık aralıktır ve
+ * GECELERİ kapsar. Arayüzde ise kullanıcı başlangıç ve bitişi DAHİL girer (bitiş = son fiyatlı gece):
+ * "1–30 Nisan" girişi start_date = 1 Nisan, end_date = 1 Mayıs olarak saklanır (endFromLastNight);
+ * gösterimde end_date − 1 kullanılır (lastNightOf, formatPeriod). Böylece "1–30 Nisan" ve "1–31 Mayıs"
+ * bitişik dönemlerdir ve 30 Nisan gecesi Nisan'a, 1 Mayıs gecesi Mayıs'a aittir. Aynı mülkte
+ * dönemler kesişemez (veritabanı exclusion constraint'i).
  *
  * Bir dönemde gecelik fiyat, haftalık fiyat (o dönemde geçerli 7 gecelik toplam) ya da ikisi
  * birlikte bulunur; en az biri zorunludur. Bu aşamada fiyatlardan konaklama tutarı HESAPLANMAZ:
  * haftalık fiyatın kısa/uzun konaklamalara uygulanma kuralları ayrıca tanımlanacaktır.
  */
-import { addDays, type Currency, nightsBetween } from "./reservation-meta";
+import { addDays, type Currency, formatDay, formatStay, nightsBetween } from "./reservation-meta";
 
 export const RATE_LIMITS = {
   /** Bir dönem en fazla bu kadar gece (artık yıl dahil tam bir yıl). */
@@ -36,8 +39,24 @@ export type RatePeriod = {
   minNights: number | null;
 };
 
-/** Dönemin son gecesi (bitiş − 1 gün). */
+/** Dönemin son gecesi (bitiş − 1 gün). Arayüzde "Bitiş" olarak bu gün gösterilir ve girilir. */
 export const lastNightOf = (p: Pick<RatePeriod, "endDate">) => addDays(p.endDate, -1);
+
+/** Arayüzdeki "Bitiş (son gece)" → veritabanındaki hariç bitiş sınırı (ertesi gün). */
+export const endFromLastNight = (lastNight: string) => addDays(lastNight, 1);
+
+/**
+ * [from, to) gecelerinin DAHİL gösterimi (ilk ve son gece): [1 Nis, 1 May) → "1–30 Nisan 2027";
+ * tek gece → "30 Nisan 2027". Fiyat dönemi, boşluk ve fiyat dökümünde kullanılır. (Rezervasyon
+ * giriş–çıkış gösterimi formatStay ile değişmeden kalır.)
+ */
+export function formatNights(from: string, toExclusive: string): string {
+  const last = addDays(toExclusive, -1);
+  return from === last ? formatDay(from) : formatStay(from, last);
+}
+
+export const formatPeriod = (p: Pick<RatePeriod, "startDate" | "endDate">) =>
+  formatNights(p.startDate, p.endDate);
 
 export const periodNights = (p: Pick<RatePeriod, "startDate" | "endDate">) =>
   nightsBetween(p.startDate, p.endDate);

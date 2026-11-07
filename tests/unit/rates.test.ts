@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import { validateAuditEntry } from "@/server/audit/record";
 import {
   adjacentSamePrice,
+  endFromLastNight,
+  formatNights,
+  formatPeriod,
   lastNightOf,
   nightsWithPeriods,
   overlappingPeriods,
@@ -17,7 +20,8 @@ import { rateFormValues, rateInput } from "@/server/rates/schema";
 import { rateConflictMessage } from "@/server/rates/service";
 
 const rules = { today: "2026-11-07", checkWindow: true };
-const base = { startDate: "2027-06-01", endDate: "2027-07-01", currency: "EUR" };
+// Arayüz girişi: başlangıç ve bitiş DAHİL (Haziran'ın 30 gecesi).
+const base = { startDate: "2027-06-01", lastNight: "2027-06-30", currency: "EUR" };
 const parse = (input: Record<string, unknown>, r = rules) =>
   rateInput(r).safeParse({ ...base, ...input });
 const errorsOf = (input: Record<string, unknown>, r = rules) => {
@@ -29,6 +33,7 @@ const errorsOf = (input: Record<string, unknown>, r = rules) => {
 
 describe("fiyat dönemi formu", () => {
   it("yalnız gecelik, yalnız haftalık, ikisi birlikte", () => {
+    // Çıktı veritabanı biçiminde: endDate = son gece + 1 (hariç).
     expect(rateInput(rules).parse({ ...base, nightlyAmount: "5.000" })).toEqual({
       startDate: "2027-06-01",
       endDate: "2027-07-01",
@@ -101,37 +106,80 @@ describe("fiyat dönemi formu", () => {
     expect(errorsOf({ nightlyAmount: "100", minNights: "x" })).toHaveProperty("minNights");
   });
 
-  it("tarihler: bitiş başlangıçtan sonra, en fazla 366 gece, geçerli takvim günü", () => {
-    expect(errorsOf({ nightlyAmount: "1", endDate: "2027-06-01" })).toEqual({
-      endDate: "Bitiş tarihi başlangıç tarihinden sonra olmalı.",
+  it("tarihler: bitiş dahil (son gece), en fazla 366 gece, geçerli takvim günü", () => {
+    // Aynı gün başlangıç ve bitiş: tek gece; veritabanı aralığı [1 Haz, 2 Haz).
+    expect(parse({ nightlyAmount: "1", lastNight: "2027-06-01" }).data).toMatchObject({
+      startDate: "2027-06-01",
+      endDate: "2027-06-02",
     });
-    expect(errorsOf({ nightlyAmount: "1", endDate: "2027-05-31" })).toHaveProperty("endDate");
+    expect(errorsOf({ nightlyAmount: "1", lastNight: "2027-05-31" })).toEqual({
+      lastNight: "Bitiş tarihi başlangıç tarihinden önce olamaz.",
+    });
     expect(
-      errorsOf({ nightlyAmount: "1", startDate: "2027-01-01", endDate: "2028-01-02" }),
+      errorsOf({ nightlyAmount: "1", startDate: "2027-01-01", lastNight: "2028-01-01" }),
     ).toEqual({}); // 366 gece
     expect(
-      errorsOf({ nightlyAmount: "1", startDate: "2027-01-01", endDate: "2028-01-03" }),
-    ).toEqual({ endDate: "Bir fiyat dönemi en fazla 366 gece olabilir." });
+      errorsOf({ nightlyAmount: "1", startDate: "2027-01-01", lastNight: "2028-01-02" }),
+    ).toEqual({ lastNight: "Bir fiyat dönemi en fazla 366 gün olabilir." });
     expect(errorsOf({ nightlyAmount: "1", startDate: "2027-02-30" })).toEqual({
       startDate: "Başlangıç tarihi geçerli bir tarih olmalı.",
     });
-    // Tek gecelik dönem geçerli (3 günlük, 5 günlük… kısa dönemler serbest).
-    expect(errorsOf({ nightlyAmount: "1", endDate: "2027-06-02" })).toEqual({});
+  });
+
+  it("dahil bitiş → hariç sınır: 1–30 Nisan = 30 gece, 1–31 Mayıs = 31 gece, bitişik", () => {
+    const apr = rateInput(rules).parse({
+      startDate: "2027-04-01",
+      lastNight: "2027-04-30",
+      nightlyAmount: "5.000",
+      currency: "TRY",
+    });
+    const may = rateInput(rules).parse({
+      startDate: "2027-05-01",
+      lastNight: "2027-05-31",
+      nightlyAmount: "6.000",
+      currency: "TRY",
+    });
+    expect([apr.startDate, apr.endDate, may.startDate, may.endDate]).toEqual([
+      "2027-04-01",
+      "2027-05-01",
+      "2027-05-01",
+      "2027-06-01",
+    ]);
+    expect(periodNights(apr)).toBe(30);
+    expect(periodNights(may)).toBe(31);
+    const both = [
+      { id: "apr", ...apr },
+      { id: "may", ...may },
+    ];
+    expect(periodGaps(both)).toEqual([]); // 30 Nisan – 1 Mayıs arasında fiyatsız gece yok
+    expect(overlappingPeriods(apr.startDate, apr.endDate, [{ id: "may", ...may }])).toEqual([]);
+    expect(periodForNight("2027-04-30", both)?.id).toBe("apr");
+    expect(periodForNight("2027-05-01", both)?.id).toBe("may");
+    expect(formatPeriod(apr)).toBe("1–30 Nisan 2027");
+    expect(formatPeriod(may)).toBe("1–31 Mayıs 2027");
+    expect(lastNightOf(apr)).toBe("2027-04-30");
+    expect(endFromLastNight("2027-04-30")).toBe("2027-05-01");
+  });
+
+  it("dahil gösterim: tek gece, ay ve yıl geçişi", () => {
+    expect(formatNights("2027-04-30", "2027-05-01")).toBe("30 Nisan 2027");
+    expect(formatNights("2027-06-28", "2027-07-03")).toBe("28 Haziran – 2 Temmuz 2027");
+    expect(formatNights("2027-12-30", "2028-01-02")).toBe("30 Aralık 2027 – 1 Ocak 2028");
   });
 
   it("başlangıç penceresi: 1 yıl geri, 3 yıl ileri (yalnız istenirse)", () => {
     expect(
-      errorsOf({ nightlyAmount: "1", startDate: "2025-11-07", endDate: "2025-11-10" }),
+      errorsOf({ nightlyAmount: "1", startDate: "2025-11-07", lastNight: "2025-11-09" }),
     ).toEqual({});
     expect(
-      errorsOf({ nightlyAmount: "1", startDate: "2025-11-06", endDate: "2025-11-10" }),
+      errorsOf({ nightlyAmount: "1", startDate: "2025-11-06", lastNight: "2025-11-09" }),
     ).toEqual({ startDate: "Başlangıç tarihi en fazla 1 yıl geçmişte ve 3 yıl ileride olabilir." });
     expect(
-      errorsOf({ nightlyAmount: "1", startDate: "2029-11-08", endDate: "2029-11-10" }),
+      errorsOf({ nightlyAmount: "1", startDate: "2029-11-08", lastNight: "2029-11-09" }),
     ).toHaveProperty("startDate");
     expect(
       errorsOf(
-        { nightlyAmount: "1", startDate: "2020-01-01", endDate: "2020-02-01" },
+        { nightlyAmount: "1", startDate: "2020-01-01", lastNight: "2020-01-31" },
         { today: "2026-11-07", checkWindow: false },
       ),
     ).toEqual({});
@@ -144,7 +192,7 @@ describe("fiyat dönemi formu", () => {
     fd.set("propertyId", "x");
     expect(rateFormValues(fd)).toEqual({
       startDate: "2027-06-01",
-      endDate: "",
+      lastNight: "",
       nightlyAmount: "5.000",
       weeklyAmount: "",
       currency: "",
@@ -197,7 +245,7 @@ describe("dönem yardımcıları", () => {
 
   it("çakışma mesajı tarihleri gösterir", () => {
     expect(rateConflictMessage([{ startDate: "2027-07-01", endDate: "2027-07-16" }])).toBe(
-      "Bu tarihler mevcut fiyat dönemiyle çakışıyor: 1–16 Temmuz 2027. Bitiş günü bir sonraki dönemin başlangıcı olabilir.",
+      "Bu tarihler mevcut fiyat dönemiyle çakışıyor: 1–15 Temmuz 2027. Yeni dönem, mevcut dönemin son gecesinden sonraki gün başlayabilir.",
     );
   });
 });

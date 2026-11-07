@@ -5,10 +5,10 @@ import { useEffect, useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { type Quote, quoteMessage, segmentFormula, unpricedSummary } from "@/lib/pricing";
+import { formatNights } from "@/lib/rate-meta";
 import {
   type Currency,
   formatMoney,
-  formatStay,
   isIsoDate,
   minorToInput,
   parseAmount,
@@ -138,7 +138,7 @@ export function PriceQuote({
         {quote.segments.map((s) => (
           <li key={s.from} className="flex flex-wrap justify-between gap-x-3">
             <span className="text-navy-900">
-              {formatStay(s.from, s.to)} · {s.nights} gece
+              {formatNights(s.from, s.to)} · {s.nights} gece
               <span className="block text-muted-foreground">{segmentFormula(s, c)}</span>
             </span>
             <span className="font-medium text-navy-900 tabular-nums">

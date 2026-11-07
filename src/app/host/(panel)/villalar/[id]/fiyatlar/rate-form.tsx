@@ -7,14 +7,18 @@ import { Alert } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, SelectField } from "@/components/ui/field";
 import { useHydrated } from "@/components/ui/use-hydrated";
-import { overlappingPeriods, RATE_LIMITS as L, type RatePeriod } from "@/lib/rate-meta";
 import {
-  addDays,
+  endFromLastNight,
+  formatNights,
+  formatPeriod,
+  overlappingPeriods,
+  RATE_LIMITS as L,
+  type RatePeriod,
+} from "@/lib/rate-meta";
+import {
   CURRENCIES,
   type Currency,
-  formatDay,
   formatMoney,
-  formatStay,
   isIsoDate,
   nightsBetween,
   parseAmount,
@@ -25,7 +29,8 @@ import type { RateFormState } from "./actions";
 
 export type RateFormValues = {
   startDate: string;
-  endDate: string;
+  /** Bitiş günü (DAHİL); saklanırken ertesi gün hariç bitiş sınırına çevrilir. */
+  lastNight: string;
   nightlyAmount: string;
   weeklyAmount: string;
   currency: string;
@@ -56,9 +61,9 @@ const amountPreview = (raw: string, currency: string) => {
 };
 
 /**
- * Fiyat dönemi formu (oluşturma ve düzenleme). Dönem [başlangıç, bitiş) aralığıdır: bitiş günü
- * dahil değildir ve bir sonraki dönemin başlangıcı olabilir. Canlı bilgiler (gece sayısı, son
- * gece, çakışma, tutar önizlemesi) yalnız yardımcıdır; doğrulama sunucuda ve veritabanında.
+ * Fiyat dönemi formu (oluşturma ve düzenleme). Başlangıç ve bitiş günleri DAHİL girilir; kayıtta
+ * bitiş ertesi güne çevrilir ([başlangıç, bitiş + 1)). Canlı bilgiler (kapsanan günler,
+ * çakışma, tutar önizlemesi) yalnız yardımcıdır; doğrulama sunucuda ve veritabanında.
  */
 export function RateForm({
   mode,
@@ -127,13 +132,16 @@ function Fields({
   lockedCurrency: Currency | null;
 }) {
   const [start, setStart] = useState(values.startDate);
-  const [end, setEnd] = useState(values.endDate);
+  const [last, setLast] = useState(values.lastNight);
   const [nightly, setNightly] = useState(values.nightlyAmount);
   const [weekly, setWeekly] = useState(values.weeklyAmount);
   const [currency, setCurrency] = useState(lockedCurrency ?? (values.currency || "TRY"));
 
-  const valid = isIsoDate(start) && isIsoDate(end);
-  const nights = valid ? nightsBetween(start, end) : null;
+  const valid = isIsoDate(start) && isIsoDate(last);
+  // Başlangıç ve bitiş günleri DAHİL (1–30 Nisan: Nisan'ın tüm günleri); veritabanı aralığı
+  // [start, last + 1). Fiyat takvim günlerine tanımlanır: gece sayısı gösterilmez.
+  const nights = valid ? nightsBetween(start, last) + 1 : null;
+  const end = valid ? endFromLastNight(last) : "";
   const conflicts =
     valid && nights !== null && nights > 0
       ? overlappingPeriods(
@@ -161,7 +169,7 @@ function Fields({
           id="startDate"
           name="startDate"
           type="date"
-          label="Başlangıç (ilk gece)"
+          label="Başlangıç"
           min={mode === "create" ? dateWindow.min : undefined}
           max={dateWindow.max}
           value={start}
@@ -170,15 +178,15 @@ function Fields({
           required
         />
         <Field
-          id="endDate"
-          name="endDate"
+          id="lastNight"
+          name="lastNight"
           type="date"
-          label="Bitiş (bu gün dahil değil)"
-          min={isIsoDate(start) ? addDays(start, 1) : undefined}
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-          error={fe.endDate}
-          hint="Bitiş günü bir sonraki dönemin başlangıcı olabilir."
+          label="Bitiş"
+          min={isIsoDate(start) ? start : undefined}
+          value={last}
+          onChange={(e) => setLast(e.target.value)}
+          error={fe.lastNight}
+          hint="Başlangıç ve bitiş günleri dahildir; sonraki dönem ertesi gün başlayabilir."
           required
         />
       </div>
@@ -190,18 +198,15 @@ function Fields({
         {nights !== null && nights > 0 ? (
           nights > L.maxNights ? (
             <p className="text-destructive">
-              Bir fiyat dönemi en fazla {L.maxNights} gece olabilir.
+              Bir fiyat dönemi en fazla {L.maxNights} gün olabilir.
             </p>
           ) : (
-            <p className="text-navy-900">
-              {nights} gece · son gece {formatDay(addDays(end, -1))}
-            </p>
+            <p className="text-navy-900">Kapsanan günler: {formatNights(start, end)}</p>
           )
         ) : null}
         {conflicts.length ? (
           <p className="text-destructive" data-testid="period-conflict">
-            Mevcut dönemle çakışıyor:{" "}
-            {conflicts.map((c) => formatStay(c.startDate, c.endDate)).join("; ")}.
+            Mevcut dönemle çakışıyor: {conflicts.map((c) => formatPeriod(c)).join("; ")}.
           </p>
         ) : null}
       </div>

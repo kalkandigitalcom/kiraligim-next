@@ -6,20 +6,14 @@ import { Alert } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import {
   adjacentSamePrice,
+  formatNights,
+  formatPeriod,
   lastNightOf,
   periodGaps,
-  periodNights,
   type RatePeriod,
   weeklyAboveNightly,
 } from "@/lib/rate-meta";
-import {
-  checkInWindow,
-  formatDay,
-  formatMoney,
-  formatStay,
-  istanbulToday,
-  minorToInput,
-} from "@/lib/reservation-meta";
+import { checkInWindow, formatMoney, istanbulToday, minorToInput } from "@/lib/reservation-meta";
 import { cn } from "@/lib/utils";
 import { getProperty } from "@/server/properties/service";
 import { canManageRates, listRates } from "@/server/rates/service";
@@ -49,7 +43,7 @@ const NOTICES: Record<string, string> = {
 
 const toFormValues = (r: RatePeriod): RateFormValues => ({
   startDate: r.startDate,
-  endDate: r.endDate,
+  lastNight: lastNightOf(r),
   nightlyAmount: r.nightlyAmountMinor === null ? "" : minorToInput(r.nightlyAmountMinor),
   weeklyAmount: r.weeklyAmountMinor === null ? "" : minorToInput(r.weeklyAmountMinor),
   currency: r.currency,
@@ -58,7 +52,9 @@ const toFormValues = (r: RatePeriod): RateFormValues => ({
 
 /**
  * Mülk fiyat dönemleri (Aşama 3.1). Tüm üyeler görür; owner/manager ekler, düzenler (?duzenle=<id>)
- * ve siler. Dönemler başlangıca göre sıralıdır; aradaki fiyatsız geceler gösterilir. Rezervasyon
+ * ve siler. Dönemler başlangıca göre sıralıdır; aradaki fiyatı tanımsız günler gösterilir.
+ * Dönem tarihleri DAHİL gösterilir (gece sayısı gösterilmez: fiyat takvim günlerine tanımlanır).
+ * Rezervasyon
  * tutarları bu fiyatlardan hesaplanmaz (ayrı aşama).
  */
 export default async function PropertyRatesPage({ params, searchParams }: Props) {
@@ -114,9 +110,7 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
           className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6"
         >
           <h2 id="rate-form-title" className="mb-4 font-semibold text-navy-900">
-            {editing
-              ? `Dönemi düzenle: ${formatStay(editing.startDate, editing.endDate)}`
-              : "Yeni fiyat dönemi"}
+            {editing ? `Dönemi düzenle: ${formatPeriod(editing)}` : "Yeni fiyat dönemi"}
           </h2>
           <RateForm
             key={editing?.id ?? `new:${one(sp.kayit) ?? ""}:${one(sp.durum) ?? ""}`}
@@ -129,7 +123,7 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
                 ? toFormValues(editing)
                 : {
                     startDate: "",
-                    endDate: "",
+                    lastNight: "",
                     nightlyAmount: "",
                     weeklyAmount: "",
                     currency: lockedCurrency ?? "TRY",
@@ -167,7 +161,7 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
               const gap = gaps.find((g) => g.afterId === r.id);
               const past = r.endDate <= today;
               const current = r.startDate <= today && today < r.endDate;
-              const label = formatStay(r.startDate, r.endDate);
+              const label = formatPeriod(r);
               return (
                 <li key={r.id} className="flex flex-col gap-3">
                   <article
@@ -184,9 +178,6 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-semibold text-navy-900">{label}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {periodNights(r)} gece · son gece {formatDay(lastNightOf(r))}
-                        </p>
                       </div>
                       {current ? (
                         <span className="rounded-full bg-turquoise-50 px-2.5 py-0.5 text-xs font-semibold text-turquoise-700">
@@ -253,8 +244,8 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
                       data-testid="rate-gap"
                       className="rounded-xl border border-dashed border-amber-500/60 bg-amber-50 px-4 py-2 text-sm text-amber-900"
                     >
-                      Fiyatsız {gap.nights === 1 ? "gece" : "geceler"}:{" "}
-                      {formatStay(gap.from, gap.to)} ({gap.nights} gece)
+                      Fiyatı tanımsız {gap.nights === 1 ? "gün" : "günler"}:{" "}
+                      {formatNights(gap.from, gap.to)}
                     </p>
                   ) : null}
                   {twins.has(r.id) ? (
@@ -275,12 +266,15 @@ export default async function PropertyRatesPage({ params, searchParams }: Props)
         <div className="rounded-xl border border-border bg-white/60 px-4 py-3 text-sm text-muted-foreground">
           <p className="font-medium text-navy-900">Konaklama fiyatı nasıl hesaplanır?</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
-            <li>Her gece, içinde bulunduğu dönemin fiyatıyla hesaplanır.</li>
+            <li>
+              Fiyat dönemlerinin başlangıç ve bitiş günleri dahildir. Konaklamada giriş günü dahil,
+              çıkış günü hariçtir: her konaklama gecesi, o günün fiyat dönemiyle hesaplanır.
+            </li>
             <li>
               Haftalık fiyat, aynı dönem içindeki 7 gecelik bloklara uygulanır; kalan geceler
               gecelik fiyatla hesaplanır. Haftalık bloklar dönem sınırında bölünür.
             </li>
-            <li>Fiyatı tanımlı olmayan tek bir gece bile varsa toplam hesaplanmaz.</li>
+            <li>Konaklama gecelerinden birinin bile fiyatı tanımlı değilse toplam hesaplanmaz.</li>
             <li>Minimum konaklama, giriş tarihinin dönemine göre uyarı olarak gösterilir.</li>
             <li>
               Hesaplanan tutar rezervasyon formunda önerilir; yalnız siz onaylarsanız kullanılır.

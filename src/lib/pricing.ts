@@ -15,7 +15,7 @@
  *     birimi görülürse hesaplanmaz.
  * Tutarlar kuruş/sent tam sayıdır; yuvarlama yoktur.
  */
-import type { RatePeriod } from "./rate-meta";
+import { formatNights, type RatePeriod } from "./rate-meta";
 import {
   addDays,
   type Currency,
@@ -185,12 +185,12 @@ export function segmentFormula(s: QuoteSegment, currency: Currency): string {
   return parts.join(" + ");
 }
 
-/** Fiyatı olmayan gecelerin okunur özeti: "1–3 Ağustos 2027 (2 gece)". */
+/** Fiyatı olmayan gecelerin okunur özeti (geceler dahil): "1–2 Ağustos 2027 (2 gece)". */
 export function unpricedSummary(q: Quote): string {
   return q.issues
     .flatMap((i) =>
       i.kind === "unpriced" || i.kind === "nightly-missing"
-        ? [`${formatStay(i.from, i.to)} (${i.nights} gece)`]
+        ? [`${formatNights(i.from, i.to)} (${i.nights} gece)`]
         : [],
     )
     .join(", ");
@@ -205,7 +205,7 @@ export function quoteMessage(q: Quote, propertyName: string): string | null {
   const c = q.currency;
   const lines = q.segments.map(
     (s) =>
-      `• ${formatStay(s.from, s.to)} (${s.nights} gece): ${segmentFormula(s, c)} = ${formatMoney(s.subtotalMinor ?? 0, c)}`,
+      `• ${formatNights(s.from, s.to)} (${s.nights} gece): ${segmentFormula(s, c)} = ${formatMoney(s.subtotalMinor ?? 0, c)}`,
   );
   return [
     "Merhaba,",

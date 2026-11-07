@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { RATE_LIMITS as L } from "@/lib/rate-meta";
+import { endFromLastNight, RATE_LIMITS as L } from "@/lib/rate-meta";
 import {
   checkInWindow,
   CURRENCIES,
@@ -11,7 +11,9 @@ import {
 } from "@/lib/reservation-meta";
 
 /**
- * Fiyat dönemi formu doğrulaması. Kurallar veritabanı CHECK'leriyle aynıdır (drizzle/0017, 0018);
+ * Fiyat dönemi formu doğrulaması. Kullanıcı başlangıç ve bitişi DAHİL girer (bitiş = son fiyatlı
+ * gece, alan adı lastNight); çıktı veritabanı biçimindedir: endDate = son gece + 1 (hariç sınır).
+ * Kurallar veritabanı CHECK'leriyle aynıdır (drizzle/0017, 0018);
  * veritabanı son savunma hattıdır. Form değerleri metin gelir: boş metin "yok" sayılır.
  *
  * Tarih penceresi (başlangıç [bugün − 1 yıl, bugün + 3 yıl]) rezervasyonlarla aynıdır ve yalnız
@@ -48,7 +50,8 @@ export function rateInput(rules: RateDateRules) {
   return z
     .object({
       startDate: isoDate("Başlangıç tarihi"),
-      endDate: isoDate("Bitiş tarihi"),
+      /** Bitiş günü (DAHİL). Saklanırken ertesi gün hariç bitiş sınırına çevrilir. */
+      lastNight: isoDate("Bitiş tarihi"),
       nightlyAmount: amount("Gecelik fiyat"),
       weeklyAmount: amount("Haftalık fiyat"),
       currency: z.preprocess(
@@ -70,18 +73,18 @@ export function rateInput(rules: RateDateRules) {
       ),
     })
     .superRefine((v, ctx) => {
-      const nights = nightsBetween(v.startDate, v.endDate);
+      const nights = nightsBetween(v.startDate, v.lastNight) + 1;
       if (nights <= 0) {
         ctx.addIssue({
           code: "custom",
-          path: ["endDate"],
-          message: "Bitiş tarihi başlangıç tarihinden sonra olmalı.",
+          path: ["lastNight"],
+          message: "Bitiş tarihi başlangıç tarihinden önce olamaz.",
         });
       } else if (nights > L.maxNights) {
         ctx.addIssue({
           code: "custom",
-          path: ["endDate"],
-          message: `Bir fiyat dönemi en fazla ${L.maxNights} gece olabilir.`,
+          path: ["lastNight"],
+          message: `Bir fiyat dönemi en fazla ${L.maxNights} gün olabilir.`,
         });
       }
       if (rules.checkWindow) {
@@ -104,7 +107,7 @@ export function rateInput(rules: RateDateRules) {
     })
     .transform((v) => ({
       startDate: v.startDate,
-      endDate: v.endDate,
+      endDate: endFromLastNight(v.lastNight),
       nightlyAmountMinor: v.nightlyAmount ?? null,
       weeklyAmountMinor: v.weeklyAmount ?? null,
       currency: v.currency,
@@ -117,7 +120,7 @@ export type RateValues = z.output<ReturnType<typeof rateInput>>;
 /** Formdaki alan adları (FormData → nesne). */
 export const RATE_FIELDS = [
   "startDate",
-  "endDate",
+  "lastNight",
   "nightlyAmount",
   "weeklyAmount",
   "currency",
