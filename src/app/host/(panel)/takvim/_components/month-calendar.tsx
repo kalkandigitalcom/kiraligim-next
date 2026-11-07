@@ -10,16 +10,19 @@ import {
   dayLabel,
   entryTone,
   formatLongDay,
+  selectionRole,
   WEEKDAYS,
 } from "@/lib/calendar";
 import { addDays, formatStay } from "@/lib/reservation-meta";
 import { cn } from "@/lib/utils";
 
 import { ReservationStatusBadge } from "../../rezervasyonlar/_components/reservation-bits";
+import { SELECTION_HINT_ID, SelectionBar, useCalendarSelection } from "./calendar-selection";
 import { DAY_COL, HALF_END, HALF_START, TONE_BAR } from "./calendar-styles";
 
 type Props = {
   monthLabel: string;
+  propertyId: string;
   weeks: CalendarWeek[];
   /** Güvenli DTO: telefon, e-posta ve tutar içermez. */
   entries: CalendarEntry[];
@@ -34,12 +37,28 @@ const KEY_STEP: Record<string, number> = {
   ArrowDown: 7,
 };
 
+const ROLE_LABEL = {
+  start: "seçili giriş günü",
+  end: "seçili çıkış günü",
+  inside: "seçili aralıkta",
+};
+
+/** Seçim rolüne göre hücre zemini: giriş/çıkış yarım gün (şerit modeliyle aynı), ara günler tam. */
+const ROLE_BG = {
+  start: "bg-linear-to-r from-transparent from-50% to-turquoise-500/25 to-50%",
+  end: "bg-linear-to-r from-turquoise-500/25 from-50% to-transparent to-50%",
+  inside: "bg-turquoise-500/25",
+  preview: "bg-turquoise-500/10",
+} as const;
+
 /**
- * Aylık takvim ızgarası (salt okunur). Şeritler kaydın detayına götürür (masaüstü); güne
- * dokunmak/tıklamak gün panelini açar (mobilde asıl yol). Klavye: ok tuşları günler arasında,
- * Home/End hafta başı/sonu, Enter/Boşluk günü seçer. Seçim istemci durumudur; URL'ye yazılmaz.
+ * Aylık takvim ızgarası. Şeritler kaydın detayına götürür (masaüstü); güne dokunmak/tıklamak gün
+ * panelini açar (mobilde asıl yol). Owner/Manager ve aktif mülkte aynı tıklama aralık seçimini de
+ * yürütür: birinci tıklama giriş, ikinci tıklama çıkış (calendar-selection.tsx). Klavye: ok tuşları
+ * günler arasında, Home/End hafta başı/sonu, Enter/Boşluk günü seçer, Esc seçimi temizler.
  */
-export function MonthCalendar({ monthLabel, weeks, entries, children }: Props) {
+export function MonthCalendar({ monthLabel, propertyId, weeks, entries, children }: Props) {
+  const sel = useCalendarSelection();
   const byId = useMemo(() => new Map(entries.map((e) => [e.id, e])), [entries]);
   const days = weeks.flatMap((w) => w.days);
   const first = days[0]!.date;
@@ -58,6 +77,11 @@ export function MonthCalendar({ monthLabel, weeks, entries, children }: Props) {
   }, [focusDate]);
 
   const onKeyDown = (date: string, weekday: number) => (e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && sel.selection.start) {
+      e.preventDefault();
+      sel.clear();
+      return;
+    }
     let step = KEY_STEP[e.key];
     if (e.key === "Home") step = -weekday;
     if (e.key === "End") step = 6 - weekday;
@@ -75,7 +99,11 @@ export function MonthCalendar({ monthLabel, weeks, entries, children }: Props) {
         ref={gridRef}
         role="grid"
         aria-label={`${monthLabel} takvimi`}
+        aria-describedby={sel.enabled ? SELECTION_HINT_ID : undefined}
+        aria-multiselectable={sel.enabled || undefined}
         data-testid="month-grid"
+        data-selecting={sel.selection.start && !sel.selection.end ? "" : undefined}
+        onPointerLeave={() => sel.setPreview(null)}
         className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm"
       >
         <div role="row" className="grid grid-cols-7 bg-mist/70">
@@ -98,11 +126,16 @@ export function MonthCalendar({ monthLabel, weeks, entries, children }: Props) {
           >
             {w.days.map((d, i) => {
               const isSelected = d.date === selected;
+              const role = selectionRole(d.date, sel.selection);
+              const { start, end } = sel.selection;
+              const previewing =
+                !role && start && !end && sel.preview && d.date > start && d.date <= sel.preview;
               return (
                 <div
                   key={d.date}
                   role="gridcell"
-                  aria-selected={isSelected}
+                  aria-selected={sel.enabled ? role !== null : isSelected}
+                  data-selection={role ?? undefined}
                   className={cn(
                     DAY_COL[i],
                     "col-span-2 row-span-2 row-start-1 min-w-0",
@@ -113,16 +146,27 @@ export function MonthCalendar({ monthLabel, weeks, entries, children }: Props) {
                     type="button"
                     data-date={d.date}
                     tabIndex={d.date === focusDate ? 0 : -1}
-                    aria-label={dayLabel(d, entries)}
+                    aria-label={`${dayLabel(d, entries)}${role ? `; ${ROLE_LABEL[role]}` : ""}`}
                     aria-current={d.isToday ? "date" : undefined}
                     onClick={() => {
                       setSelected(d.date);
                       setFocusDate(d.date);
+                      sel.pick(d.date);
+                    }}
+                    onPointerEnter={(e) => {
+                      if (e.pointerType === "mouse") sel.setPreview(d.date);
                     }}
                     onKeyDown={onKeyDown(d.date, i)}
                     className={cn(
                       "flex h-full min-h-14 w-full items-start p-1 text-left transition-colors focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none focus-visible:ring-inset sm:min-h-24 sm:p-1.5",
-                      isSelected ? "bg-turquoise-50" : d.inMonth ? "hover:bg-mist" : "bg-mist/70",
+                      role
+                        ? ROLE_BG[role]
+                        : previewing
+                          ? ROLE_BG.preview
+                          : d.inMonth
+                            ? "hover:bg-mist"
+                            : "bg-mist/70",
+                      (role === "start" || role === "end") && "ring-2 ring-navy-900/70 ring-inset",
                     )}
                   >
                     <span
@@ -139,6 +183,14 @@ export function MonthCalendar({ monthLabel, weeks, entries, children }: Props) {
                     >
                       {d.day}
                     </span>
+                    {role === "start" || role === "end" ? (
+                      <span
+                        aria-hidden
+                        className="ml-auto hidden rounded-full bg-navy-900 px-1.5 py-0.5 text-[10px] font-semibold text-white sm:inline"
+                      >
+                        {role === "start" ? "Giriş" : "Çıkış"}
+                      </span>
+                    ) : null}
                   </button>
                 </div>
               );
@@ -176,6 +228,8 @@ export function MonthCalendar({ monthLabel, weeks, entries, children }: Props) {
           </div>
         ))}
       </div>
+
+      <SelectionBar propertyId={propertyId} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
         <DayPanel date={selected} entries={entries} />

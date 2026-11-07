@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { nightsBetween } from "@/lib/reservation-meta";
+
 import {
   type CalendarEntry,
+  createHref,
   dayActivity,
   dayLabel,
   entriesInMonth,
@@ -14,7 +17,13 @@ import {
   monthEnd,
   monthGrid,
   monthNav,
+  nightIsFree,
+  rangeConflicts,
   resolveMonth,
+  resolvePendingStart,
+  type SelectionRules,
+  selectDay,
+  selectionRole,
   shiftMonth,
   toCalendarEntry,
   viewWindow,
@@ -276,5 +285,120 @@ describe("takvim DTO'su", () => {
     expect(long).toHaveLength(60);
     expect(long.endsWith("…")).toBe(true);
     expect(toCalendarEntry({ ...base, status: "cancelled" })).toBeNull();
+  });
+});
+
+describe("takvimden aralık seçimi (3.0c-3)", () => {
+  // Pencere: bugün − 1 yıl … bugün + 3 yıl (checkInWindow ile aynı).
+  const entries = [
+    entry("a", "2026-11-03", "2026-11-05"),
+    entry("b", "2026-11-05", "2026-11-08", { status: "pending" }),
+    entry("blk", "2026-11-12", "2026-11-14", { kind: "block" }),
+  ];
+  const rules: SelectionRules = { min: "2025-11-07", max: "2029-11-07", entries };
+  const empty = { start: null, end: null };
+  const pick = (dates: string[]) => {
+    let state: { start: string | null; end: string | null } = empty;
+    let error: string | undefined;
+    for (const d of dates) ({ selection: state, error } = selectDay(state, d, rules));
+    return { ...state, error };
+  };
+
+  it("ilk tıklama giriş, ikinci tıklama çıkış; gece sayısı", () => {
+    expect(pick(["2026-11-08"])).toEqual({ start: "2026-11-08", end: null, error: undefined });
+    const r = pick(["2026-11-08", "2026-11-12"]);
+    expect(r).toEqual({ start: "2026-11-08", end: "2026-11-12", error: undefined });
+    expect(nightsBetween(r.start!, r.end!)).toBe(4);
+  });
+
+  it("aynı gün çıkış reddedilir, giriş korunur", () => {
+    expect(pick(["2026-11-08", "2026-11-08"])).toEqual({
+      start: "2026-11-08",
+      end: null,
+      error: "same-day",
+    });
+  });
+
+  it("girişten önceki gün yeni giriş olur; tamamlanmış seçimde tıklama yeniden başlatır", () => {
+    expect(pick(["2026-11-10", "2026-11-09"])).toMatchObject({ start: "2026-11-09", end: null });
+    expect(pick(["2026-11-08", "2026-11-10", "2026-11-20"])).toMatchObject({
+      start: "2026-11-20",
+      end: null,
+    });
+  });
+
+  it("devir günü: başka kaydın çıkış günü giriş, giriş günü çıkış olabilir", () => {
+    // 'b' 8 Kasım'da çıkıyor → 8 Kasım girişi serbest; 'blk' 12'de başlıyor → 12 çıkış olabilir.
+    expect(pick(["2026-11-08", "2026-11-12"]).error).toBeUndefined();
+    expect(nightIsFree("2026-11-08", entries)).toBe(true);
+    expect(nightIsFree("2026-11-07", entries)).toBe(false);
+  });
+
+  it("dolu gece giriş olamaz; dolu geceyi kapsayan çıkış reddedilir (giriş korunur)", () => {
+    expect(pick(["2026-11-06"])).toMatchObject({ start: null, error: "occupied" });
+    expect(pick(["2026-11-09", "2026-11-13"])).toEqual({
+      start: "2026-11-09",
+      end: null,
+      error: "conflict",
+    });
+    expect(rangeConflicts("2026-11-09", "2026-11-13", entries).map((e) => e.id)).toEqual(["blk"]);
+    // Bekleyen giriş varken erken ve dolu bir güne tıklamak girişi silmez.
+    expect(pick(["2026-11-09", "2026-11-06"])).toMatchObject({
+      start: "2026-11-09",
+      error: "occupied",
+    });
+  });
+
+  it("ay sınırını geçen aralık; 365 gece sınırı", () => {
+    expect(pick(["2026-11-28", "2026-12-03"])).toMatchObject({
+      start: "2026-11-28",
+      end: "2026-12-03",
+    });
+    expect(pick(["2026-11-20", "2027-11-20"]).error).toBeUndefined(); // 365 gece
+    expect(pick(["2026-11-20", "2027-11-21"])).toMatchObject({
+      end: null,
+      error: "too-long",
+    });
+  });
+
+  it("geçmiş ve ileri tarih penceresi (giriş için)", () => {
+    expect(pick(["2025-11-07"]).error).toBeUndefined();
+    expect(pick(["2025-11-06"])).toMatchObject({ start: null, error: "window" });
+    expect(pick(["2029-11-07"]).error).toBeUndefined();
+    expect(pick(["2029-11-08"])).toMatchObject({ start: null, error: "window" });
+    // Çıkış pencereye bağlı değil (yalnız 365 gece kuralı).
+    expect(pick(["2029-11-07", "2029-11-20"]).error).toBeUndefined();
+  });
+
+  it("gün rolleri: giriş, çıkış, aralık içi", () => {
+    const s = { start: "2026-11-08", end: "2026-11-11" };
+    expect(
+      ["2026-11-07", "2026-11-08", "2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12"].map(
+        (d) => selectionRole(d, s),
+      ),
+    ).toEqual([null, "start", "inside", "inside", "end", null]);
+    expect(selectionRole("2026-11-08", { start: "2026-11-08", end: null })).toBe("start");
+    expect(selectionRole("2026-11-09", { start: "2026-11-08", end: null })).toBeNull();
+  });
+
+  it("forma bağlantı: yalnız mülk ve tarihler", () => {
+    const p = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+    expect(createHref("reservation", p, "2026-11-28", "2026-12-03")).toBe(
+      `/rezervasyonlar/yeni?mulk=${p}&giris=2026-11-28&cikis=2026-12-03`,
+    );
+    expect(createHref("block", p, "2026-11-28", "2026-12-03")).toBe(
+      `/rezervasyonlar/yeni?tur=blok&mulk=${p}&giris=2026-11-28&cikis=2026-12-03`,
+    );
+  });
+
+  it("ay değiştirirken bekleyen giriş (?baslangic) doğrulaması", () => {
+    const w = { min: "2025-11-07", max: "2029-11-07" };
+    expect(resolvePendingStart("2026-11-28", w, "2027-01-04")).toBe("2026-11-28");
+    for (const bad of [undefined, "", "2026-11-31", "x", "2025-11-06", "2029-11-08"]) {
+      expect(resolvePendingStart(bad, w, "2027-01-04"), String(bad)).toBeNull();
+    }
+    // Izgaranın son günü 2027-01-03: 2026-01-03 → 365 gece (taşınır), bir gün öncesi taşınmaz.
+    expect(resolvePendingStart("2026-01-03", w, "2027-01-04")).toBe("2026-01-03");
+    expect(resolvePendingStart("2026-01-02", w, "2027-01-04")).toBeNull();
   });
 });
