@@ -66,16 +66,11 @@ const valid = (over: Record<string, unknown> = {}) => ({
   maxGuests: "6",
   bedrooms: "3",
   bathrooms: "2",
-  bedsDouble: "2",
-  bedsSingle: "2",
-  bedsSofa: "",
   province: "Antalya",
   district: "Kaş",
   neighborhood: "Kalkan",
-  addressLine: "",
-  postalCode: "07960",
-  latitude: "36.265100",
-  longitude: "29.414300",
+  mapLocation: "https://www.google.com/maps/@36.2651,29.4143,15z",
+  distanceBeachKm: "1,5",
   ...over,
 });
 
@@ -136,7 +131,8 @@ describe("oluşturma", () => {
   it("owner mülk ekler: UUID v7, oluşturan ve işletme bağlamdan, denetim kaydı (değersiz)", async () => {
     const r = (
       await admin.query(
-        "select id, workspace_id, created_by, status, latitude, longitude, country_code from properties where id = $1",
+        `select id, workspace_id, created_by, status, map_embed_url, distance_beach_km::text,
+                distance_market_km, country_code from properties where id = $1`,
         [propA],
       )
     ).rows[0];
@@ -144,8 +140,9 @@ describe("oluşturma", () => {
       workspace_id: wsA,
       created_by: O.id,
       status: "active",
-      latitude: "36.265100",
-      longitude: "29.414300",
+      map_embed_url: "https://www.google.com/maps?q=36.265100,29.414300&z=16&output=embed",
+      distance_beach_km: "1.50",
+      distance_market_km: null,
       country_code: "TR",
     });
     expect(r.id).toMatch(UUID_V7);
@@ -173,7 +170,7 @@ describe("oluşturma", () => {
     ).toEqual({ created_by: Man.id });
   });
 
-  it("geçersiz form: alan hataları; il listede olmalı; enlem/boylam birlikte girilmeli", async () => {
+  it("geçersiz form: alan hataları; il listede olmalı; harita ve mesafe doğrulanır", async () => {
     const C = await mkUser("cem");
     const ws = await mkWorkspace(C, "c");
     const fieldsOf = async (input: Record<string, unknown>) => {
@@ -184,10 +181,16 @@ describe("oluşturma", () => {
       return Object.keys((err as { fieldErrors: object }).fieldErrors).sort();
     };
     expect(
-      await fieldsOf(valid({ name: "A", maxGuests: "0", province: "Atlantis", postalCode: "12" })),
-    ).toEqual(["maxGuests", "name", "postalCode", "province"]);
-    // Alan hataları düzeltildikten sonra: koordinat çifti denetimi.
-    expect(await fieldsOf(valid({ longitude: "" }))).toEqual(["longitude"]);
+      await fieldsOf(
+        valid({ name: "A", maxGuests: "0", province: "Atlantis", distanceBeachKm: "yakın" }),
+      ),
+    ).toEqual(["distanceBeachKm", "maxGuests", "name", "province"]);
+    expect(await fieldsOf(valid({ mapLocation: "https://maps.app.goo.gl/x1" }))).toEqual([
+      "mapLocation",
+    ]);
+    expect(await fieldsOf(valid({ mapLocation: "<script>alert(1)</script>" }))).toEqual([
+      "mapLocation",
+    ]);
     expect(await countIn(ws)).toBe(0);
   });
 });
@@ -500,7 +503,11 @@ describe("düzenleme ve durum", () => {
           tx,
           ctx,
           propA,
-          valid({ maxGuests: "8", latitude: "36.3", longitude: "29.5", addressLine: "Sokak 1" }),
+          valid({
+            maxGuests: "8",
+            mapLocation: "https://www.google.com/maps?q=36.3,29.5",
+            distanceMarketKm: "0,3",
+          }),
         ),
       ).toEqual({ changed: 3 });
       expect(
@@ -508,7 +515,11 @@ describe("düzenleme ve durum", () => {
           tx,
           ctx,
           propA,
-          valid({ maxGuests: "8", latitude: "36.3", longitude: "29.5", addressLine: "Sokak 1" }),
+          valid({
+            maxGuests: "8",
+            mapLocation: "https://www.google.com/maps?q=36.300000,29.500000&z=16&output=embed",
+            distanceMarketKm: "0.30",
+          }),
         ),
       ).toEqual({ changed: 0 });
     });
@@ -516,11 +527,9 @@ describe("düzenleme ve durum", () => {
       "select metadata from audit_log where target_id = $1 and action = 'property.updated'",
       [propA],
     );
-    expect(a.rows).toEqual([
-      { metadata: { fields: ["max_guests", "address_line", "coordinates"] } },
-    ]);
-    // Değerler (adres, koordinat) denetim kaydında yok.
-    expect(JSON.stringify(a.rows)).not.toMatch(/Sokak|36\.3/);
+    expect(a.rows).toEqual([{ metadata: { fields: ["max_guests", "map", "distances"] } }]);
+    // Değerler (harita adresi, mesafe) denetim kaydında yok.
+    expect(JSON.stringify(a.rows)).not.toMatch(/google|36\.3|0\.3/);
   });
 
   it("durum değişikliği denetlenir; aynı duruma geçiş kayıt üretmez", async () => {
@@ -543,16 +552,27 @@ describe("düzenleme ve durum", () => {
     expect(a.rows).toEqual([{ metadata: { from: "active", to: "passive" } }]);
   });
 
-  it("koordinat yalnız tek başına girilemez (veritabanı kısıtı)", async () => {
+  it("harita adresi ve mesafeler veritabanı kısıtıyla da korunur", async () => {
+    const upd = (q: ReturnType<typeof sql>) =>
+      pgMessage(withTenant(app, { userId: O.id, workspaceId: wsA }, (tx) => tx.execute(q)));
+    for (const bad of [
+      "https://evil.example/maps/embed?pb=!1m2",
+      "https://www.google.com/maps/embed?pb=!1m2&x=<script>",
+      "javascript:alert(1)",
+    ]) {
+      expect(
+        await upd(sql`update properties set map_embed_url = ${bad} where id = ${propA}`),
+        bad,
+      ).toMatch(/properties_map_embed_url/);
+    }
+    expect(await upd(sql`update properties set distance_beach_km = 0 where id = ${propA}`)).toMatch(
+      /properties_distances/,
+    );
     expect(
-      await pgMessage(
-        withTenant(app, { userId: O.id, workspaceId: wsA }, (tx) =>
-          tx.execute(
-            sql`update properties set latitude = 36.1, longitude = null where id = ${propA}`,
-          ),
-        ),
+      await upd(
+        sql`update properties set house_rule_keys = '{"Kötü Anahtar"}' where id = ${propA}`,
       ),
-    ).toMatch(/properties_coordinates/);
+    ).toMatch(/properties_house_rule_keys/);
   });
 
   it("kullanıcı silinince mülk kalır, oluşturan NULL olur", async () => {
@@ -611,7 +631,21 @@ describe("yetkiler, politikalar, fonksiyon", () => {
     for (const c of ["id", "workspace_id", "created_by", "created_at", "updated_at"]) {
       expect(byPriv("UPDATE")).not.toContain(c);
     }
-    expect(byPriv("UPDATE")).toEqual(expect.arrayContaining(["name", "status", "latitude"]));
+    expect(byPriv("UPDATE")).toEqual(
+      expect.arrayContaining([
+        "name",
+        "status",
+        "map_embed_url",
+        "distance_beach_km",
+        "house_rule_keys",
+        "price_includes",
+      ]),
+    );
+    expect(byPriv("INSERT")).toEqual(
+      expect.arrayContaining(["map_embed_url", "distance_airport_dlm_km"]),
+    );
+    // Olanaklar gibi: kurallar ve dahil olanlar yeni mülkte yazılmaz (varsayılan boş).
+    expect(byPriv("INSERT")).not.toContain("house_rule_keys");
   });
 
   it("limit tetikleyicisi: SECURITY INVOKER, sabit search_path, EXECUTE kimsede yok", async () => {
@@ -645,7 +679,7 @@ describe("ek alanlar: belge no, biçimlendirilmiş açıklama, YouTube, havuzlar
     tourismLicenseNo: " 07-2024/1234 ",
     description:
       '<p><b>Havuzlu</b> villa <i>denize</i> <u>yakın</u>. <a href="https://ornek.com" onclick="x()">Site</a><script>alert(1)</script></p>',
-    youtubeUrls: ["https://youtu.be/dQw4w9WgXcQ", "", "https://www.youtube.com/shorts/a_b-C1d2E3f"],
+    youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
     poolSwimming: "yes",
     poolSwimmingDepth: "1,50",
     poolSwimmingWidth: "4",
@@ -677,7 +711,7 @@ describe("ek alanlar: belge no, biçimlendirilmiş açıklama, YouTube, havuzlar
       description_html:
         '<p><strong>Havuzlu</strong> villa <em>denize</em> <u>yakın</u>. <a href="https://ornek.com/" target="_blank" rel="noopener noreferrer nofollow">Site</a></p>',
       tourism_license_no: "07-2024/1234",
-      youtube_video_ids: ["dQw4w9WgXcQ", "a_b-C1d2E3f"],
+      youtube_video_ids: ["dQw4w9WgXcQ"],
       pool_swimming: true,
       pool_swimming_depth: "1.50",
       pool_swimming_width: "4.00",
@@ -693,7 +727,7 @@ describe("ek alanlar: belge no, biçimlendirilmiş açıklama, YouTube, havuzlar
     const p = await asX((tx) => getProperty(tx, id));
     expect(p).toMatchObject({
       tourismLicenseNo: "07-2024/1234",
-      youtubeVideoIds: ["dQw4w9WgXcQ", "a_b-C1d2E3f"],
+      youtubeVideoIds: ["dQw4w9WgXcQ"],
       pools: {
         swimming: { present: true, depth: 1.5, width: 4, length: 8.25 },
         indoor: { present: false, depth: null, width: null, length: null },
@@ -713,7 +747,7 @@ describe("ek alanlar: belge no, biçimlendirilmiş açıklama, YouTube, havuzlar
         valid({
           ...full,
           tourismLicenseNo: "",
-          youtubeUrls: ["https://www.youtube.com/watch?v=a_b-C1d2E3f"],
+          youtubeUrl: "https://www.youtube.com/watch?v=a_b-C1d2E3f",
           poolSwimming: "no",
           poolKids: "yes",
         }),
@@ -746,7 +780,7 @@ describe("ek alanlar: belge no, biçimlendirilmiş açıklama, YouTube, havuzlar
         valid({
           ...full,
           tourismLicenseNo: "",
-          youtubeUrls: ["https://youtu.be/a_b-C1d2E3f"],
+          youtubeUrl: "https://youtu.be/a_b-C1d2E3f",
           poolSwimming: "no",
         }),
       ),
@@ -761,13 +795,13 @@ describe("ek alanlar: belge no, biçimlendirilmiş açıklama, YouTube, havuzlar
           tx,
           ctx,
           id,
-          valid({ youtubeUrls: ["https://vimeo.com/1"], poolIndoor: "yes" }),
+          valid({ youtubeUrl: "https://vimeo.com/1", poolIndoor: "yes" }),
         ),
       ),
     ).rejects.toMatchObject({
       code: "VALIDATION",
       fieldErrors: {
-        "youtubeUrls.0": ["Geçerli bir YouTube video bağlantısı girin."],
+        youtubeUrl: ["Geçerli bir YouTube video bağlantısı girin."],
         poolIndoorDepth: ["Derinlik gerekli."],
         poolIndoorWidth: ["Genişlik gerekli."],
         poolIndoorLength: ["Uzunluk gerekli."],

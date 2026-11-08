@@ -28,14 +28,13 @@ export const PROPERTY_LIMITS = {
   guestsMin: 1,
   guestsMax: 50,
   roomsMax: 50,
-  bedsMax: 50,
   placeMax: 60,
   neighborhoodMax: 120,
-  addressMax: 300,
   /** Biçimlendirilmiş açıklama (HTML) en fazla; düz metin hali descriptionMax ile sınırlıdır. */
   descriptionHtmlMax: 20000,
   /** T.C. Kültür ve Turizm Bakanlığı belge numarası. */
   licenseMax: 40,
+  /** Veritabanı üst sınırı (eski kayıtlar); formda tek video girilir, misafire ilki gösterilir. */
   youtubeMax: 10,
   /** Havuz ölçüleri (metre, 2 ondalık). */
   poolDepthMin: 0.1,
@@ -59,10 +58,3 @@ export const POOL_LABELS: Record<PoolKind, string> = {
 /** Havuz ölçüsü: Türkçe gösterim (1,50). */
 export const formatMeters = (n: number) =>
   n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** "Haritada aç" bağlantısı (OpenStreetMap, yeni sekmede). Gömülü harita kullanılmaz. */
-export function mapLink(lat: number, lng: number): string {
-  const la = lat.toFixed(6);
-  const lo = lng.toFixed(6);
-  return `https://www.openstreetmap.org/?mlat=${la}&mlon=${lo}#map=16/${la}/${lo}`;
-}

@@ -74,10 +74,6 @@ const mkProperty = (u: U, ws: string, name: string) =>
       province: "Antalya",
       district: "Kaş",
       neighborhood: "Kalkan",
-      addressLine: SECRETS.address,
-      postalCode: SECRETS.postal,
-      latitude: SECRETS.lat,
-      longitude: SECRETS.lng,
       tourismLicenseNo: SECRETS.license,
       description: "<p>Denize <strong>400 m</strong> mesafede villa.</p>",
       poolSwimming: "yes",
@@ -86,6 +82,20 @@ const mkProperty = (u: U, ws: string, name: string) =>
       poolSwimmingLength: "9",
       poolSwimmingProtected: "yes",
     }),
+  ).then(async (id) => {
+    await writeLegacySecrets(id);
+    return id;
+  });
+/**
+ * Revizyon 1. aşama: eski kolonlar (açık adres, posta kodu, koordinat, yatak) uygulamadan
+ * yazılamaz ama veritabanında durur. Sızıntı denetimi anlamlı kalsın diye gizli değerler doğrudan
+ * yazılır; misafir sayfasına/önizlemeye hiçbiri çıkmamalı. (2. aşamada kolonlar kaldırılır.)
+ */
+const writeLegacySecrets = (id: string) =>
+  admin.query(
+    `update properties set address_line = $2, postal_code = $3, latitude = $4, longitude = $5,
+            beds_double = 3, beds_single = 2 where id = $1`,
+    [id, SECRETS.address, SECRETS.postal, SECRETS.lat, SECRETS.lng],
   );
 const addPhoto = (u: U, ws: string, property: string, cover = false) =>
   as(u, ws, async (tx) => {
@@ -465,8 +475,21 @@ describe("veritabanı güvenliği", () => {
       "cleaning_fee_free_nights",
     ]);
     const villaCols: string[] = cols.app_public_villa;
-    expect(villaCols).toHaveLength(36);
+    // Revizyon (0025): yatak kolonları çıktı; harita, 7 mesafe, kurallar ve dahil olanlar eklendi.
+    expect(villaCols).toHaveLength(43);
+    expect(villaCols).toEqual(
+      expect.arrayContaining([
+        "map_embed_url",
+        "distance_market_km",
+        "distance_health_km",
+        "house_rule_keys",
+        "price_includes",
+      ]),
+    );
     for (const forbidden of [
+      "beds_double",
+      "beds_single",
+      "beds_sofa",
       "workspace_id",
       "address_line",
       "postal_code",

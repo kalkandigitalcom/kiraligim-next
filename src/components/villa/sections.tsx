@@ -1,7 +1,13 @@
 import { POOL_KINDS, POOL_LABELS, formatMeters } from "@/lib/property-meta";
 import type { PublicVilla } from "@/lib/public-villa";
-import { amenityGroups, bedSummary, type RateRow, rateRows } from "@/lib/public-villa-view";
+import { amenityGroups, type RateRow, rateRows } from "@/lib/public-villa-view";
 import { formatNights } from "@/lib/rate-meta";
+import {
+  DISTANCE_LABELS,
+  formatDistance,
+  HOUSE_RULE_LABELS,
+  PRICE_INCLUDE_LABELS,
+} from "@/lib/villa-extras";
 import { youtubeWatchUrl } from "@/lib/youtube";
 
 /** Sayfa bölümü: başlık + içerik; bağlantılı başlık kimlikleri sabittir (testler ve içindekiler). */
@@ -28,9 +34,8 @@ export function Section({
   );
 }
 
-/** Kişi, oda, banyo, yatak: kısa ve taranabilir bilgi şeridi. */
+/** Kişi, oda, banyo: kısa ve taranabilir bilgi şeridi. */
 export function KeyFacts({ v }: { v: PublicVilla }) {
-  const beds = bedSummary(v.beds);
   const facts = [
     { icon: <GuestsIcon />, label: `${v.maxGuests} kişi` },
     { icon: <BedIcon />, label: `${v.bedrooms} yatak odası` },
@@ -39,20 +44,17 @@ export function KeyFacts({ v }: { v: PublicVilla }) {
     ...(v.pools.swimming ? [{ icon: <PoolIcon />, label: "Yüzme havuzu" }] : []),
   ];
   return (
-    <div className="flex flex-col gap-3">
-      <ul className="flex flex-wrap gap-2" aria-label="Öne çıkan bilgiler">
-        {facts.map((f) => (
-          <li
-            key={f.label}
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3.5 py-2 text-[15px] font-medium"
-          >
-            <span className="text-turquoise-700">{f.icon}</span>
-            {f.label}
-          </li>
-        ))}
-      </ul>
-      {beds && <p className="text-[15px] text-navy-900/70">Yataklar: {beds}</p>}
-    </div>
+    <ul className="flex flex-wrap gap-2" aria-label="Öne çıkan bilgiler">
+      {facts.map((f) => (
+        <li
+          key={f.label}
+          className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-3.5 py-2 text-[15px] font-medium"
+        >
+          <span className="text-turquoise-700">{f.icon}</span>
+          {f.label}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -117,13 +119,60 @@ export function Pools({ pools }: { pools: PublicVilla["pools"] }) {
   );
 }
 
-/** Giriş/çıkış saatleri, ev kuralları, iptal ve ödeme koşulları (düz metin, satır sonları korunur). */
+/** Yakın yerlere mesafeler: yalnız girilmiş olanlar (km / m). */
+export function Distances({ items }: { items: PublicVilla["distances"] }) {
+  return (
+    <ul className="grid gap-2.5 sm:grid-cols-2" data-testid="villa-distances">
+      {items.map((d) => (
+        <li
+          key={d.key}
+          className="flex items-center justify-between gap-4 rounded-2xl border border-border px-4 py-3 text-[15px]"
+        >
+          <span className="text-navy-900/75">{DISTANCE_LABELS[d.key]}</span>
+          <span className="font-semibold tabular-nums">{formatDistance(d.km)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Onay işaretli kısa liste (ev kuralları, fiyata dahil olanlar). */
+function CheckList({
+  keys,
+  labels,
+  testId,
+}: {
+  keys: string[];
+  labels: Record<string, string>;
+  testId: string;
+}) {
+  return (
+    <ul className="grid gap-x-8 gap-y-2.5 sm:grid-cols-2" data-testid={testId}>
+      {keys.map((k) => (
+        <li key={k} className="flex items-start gap-2.5 text-[15px]">
+          <CheckIcon />
+          {labels[k]}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Fiyata dahil olanlar (bilgi amaçlı). */
+export function PriceIncludes({ keys }: { keys: string[] }) {
+  return <CheckList keys={keys} labels={PRICE_INCLUDE_LABELS} testId="villa-price-includes" />;
+}
+
+/**
+ * Giriş/çıkış saatleri, ev kuralları (hazır seçenekler + ek not), iptal ve ödeme koşulları (düz
+ * metin, satır sonları korunur).
+ */
 export function Terms({ v }: { v: PublicVilla }) {
   const blocks = [
-    { id: "ev-kurallari", title: "Ev kuralları", text: v.houseRules },
     { id: "iptal", title: "İptal koşulları", text: v.cancellationPolicy },
     { id: "odeme", title: "Ödeme koşulları", text: v.paymentTerms },
   ].filter((b): b is { id: string; title: string; text: string } => !!b.text);
+  const hasRules = v.houseRuleKeys.length > 0 || !!v.houseRules;
   return (
     <div className="flex flex-col gap-6">
       {(v.checkInTime || v.checkOutTime) && (
@@ -142,6 +191,26 @@ export function Terms({ v }: { v: PublicVilla }) {
           )}
         </dl>
       )}
+      {hasRules && (
+        <div data-testid="terms-ev-kurallari">
+          <h3 className="mb-3 font-semibold">Ev kuralları</h3>
+          {v.houseRuleKeys.length > 0 && (
+            <CheckList
+              keys={v.houseRuleKeys}
+              labels={HOUSE_RULE_LABELS}
+              testId="villa-house-rules"
+            />
+          )}
+          {v.houseRules && (
+            <p
+              className={`max-w-prose text-[15px] leading-relaxed whitespace-pre-line text-navy-900/80 ${v.houseRuleKeys.length > 0 ? "mt-4" : ""}`}
+              data-testid="villa-house-rules-extra"
+            >
+              {v.houseRules}
+            </p>
+          )}
+        </div>
+      )}
       {blocks.map((b) => (
         <div key={b.id} data-testid={`terms-${b.id}`}>
           <h3 className="mb-2 font-semibold">{b.title}</h3>
@@ -155,7 +224,14 @@ export function Terms({ v }: { v: PublicVilla }) {
 }
 
 export const hasTerms = (v: PublicVilla) =>
-  !!(v.checkInTime || v.checkOutTime || v.houseRules || v.cancellationPolicy || v.paymentTerms);
+  !!(
+    v.checkInTime ||
+    v.checkOutTime ||
+    v.houseRules ||
+    v.houseRuleKeys.length > 0 ||
+    v.cancellationPolicy ||
+    v.paymentTerms
+  );
 
 /** Sezon fiyatları: yalnız bugünden sonraki geceler; fiyatsız dönem "sorunuz" olarak gösterilir. */
 export function RatesTable({ rates, today }: { rates: PublicVilla["rates"]; today: string }) {
@@ -266,26 +342,21 @@ function RateFacts({ r }: { r: RateRow }) {
   );
 }
 
-/** YouTube videoları: gömülü oynatıcı yok (CSP, KVKK); yalnız dış bağlantı (F2 kararı). */
-export function Videos({ ids, name }: { ids: string[]; name: string }) {
+/** YouTube videosu (tek): gömülü oynatıcı yok (CSP, KVKK); yalnız dış bağlantı (F2 kararı). */
+export function Video({ id, name }: { id: string; name: string }) {
   return (
-    <ul className="flex flex-wrap gap-2">
-      {ids.map((id, i) => (
-        <li key={id}>
-          <a
-            href={youtubeWatchUrl(id)}
-            target="_blank"
-            rel="noopener noreferrer nofollow"
-            className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-[15px] font-semibold hover:bg-mist focus-visible:ring-3 focus-visible:ring-turquoise-500/40 focus-visible:outline-none"
-            aria-label={`${name} videosu ${i + 1} (YouTube, yeni sekmede açılır)`}
-          >
-            <PlayIcon />
-            {ids.length > 1 ? `Video ${i + 1}` : "Videoyu izle"}
-            <span className="text-sm font-normal text-navy-900/55">YouTube</span>
-          </a>
-        </li>
-      ))}
-    </ul>
+    <a
+      href={youtubeWatchUrl(id)}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-[15px] font-semibold hover:bg-mist focus-visible:ring-3 focus-visible:ring-turquoise-500/40 focus-visible:outline-none"
+      aria-label={`${name} videosu (YouTube, yeni sekmede açılır)`}
+      data-testid="villa-video"
+    >
+      <PlayIcon />
+      Videoyu izle
+      <span className="text-sm font-normal text-navy-900/55">YouTube</span>
+    </a>
   );
 }
 

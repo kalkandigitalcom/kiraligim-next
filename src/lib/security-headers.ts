@@ -51,6 +51,9 @@ export function buildCsp(
     ["img-src 'self' blob: data:", ...imgExtra].join(" "),
     "font-src 'self'",
     "connect-src 'self'",
+    // Yalnız villa sayfasındaki Google Haritalar gömmesi (src/lib/map-embed.ts tüm adresleri
+    // https://www.google.com/maps… biçimine çevirir; iframe misafir tıklayınca yüklenir).
+    "frame-src https://www.google.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

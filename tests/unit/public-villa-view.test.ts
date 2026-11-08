@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { RatePeriod } from "@/lib/rate-meta";
 import {
   amenityGroups,
-  bedSummary,
   coverFirst,
   locationLabel,
   metaDescription,
@@ -36,12 +35,6 @@ describe("villa sayfası gösterimi", () => {
     );
     expect(propertyTypeLabel("apart")).toBe("Apart");
     expect(propertyTypeLabel("bilinmeyen")).toBe("Villa");
-  });
-
-  it("yatak özeti; hiç yatak yoksa null", () => {
-    expect(bedSummary({ double: 2, single: 1, sofa: 0 })).toBe("2 çift kişilik, 1 tek kişilik");
-    expect(bedSummary({ double: 0, single: 0, sofa: 1 })).toBe("1 çekyat");
-    expect(bedSummary({ double: 0, single: 0, sofa: 0 })).toBeNull();
   });
 
   it("olanaklar katalog grup sırasıyla; boş grup ve katalog dışı anahtar yok", () => {

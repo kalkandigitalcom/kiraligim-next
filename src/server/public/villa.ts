@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 
 import { type PublicDb, withPublicRead } from "@/db/public";
 import type { Tx } from "@/db/tenant";
+import { safeMapEmbedUrl } from "@/lib/map-embed";
 import { slugProblem } from "@/lib/public-profile-meta";
 import {
   busyQueryWindow,
@@ -17,6 +18,12 @@ import { normalizeBusy } from "@/lib/availability";
 import type { RatePeriod } from "@/lib/rate-meta";
 import { CURRENCIES, type Currency, istanbulToday } from "@/lib/reservation-meta";
 import { plainTextToHtml } from "@/lib/rich-text";
+import {
+  DISTANCE_COLUMNS,
+  DISTANCE_KEYS,
+  orderHouseRules,
+  orderPriceIncludes,
+} from "@/lib/villa-extras";
 import { descriptionText, sanitizeDescription } from "@/server/properties/description";
 import { photoSources } from "@/server/properties/photo-urls";
 import type { ObjectStorage } from "@/server/storage";
@@ -38,12 +45,17 @@ export type VillaRow = {
   max_guests: number;
   bedrooms: number;
   bathrooms: number;
-  beds_double: number;
-  beds_single: number;
-  beds_sofa: number;
   province: string;
   district: string;
   neighborhood: string | null;
+  map_embed_url: string | null;
+  distance_market_km: string | null;
+  distance_restaurant_km: string | null;
+  distance_center_km: string | null;
+  distance_beach_km: string | null;
+  distance_airport_ayt_km: string | null;
+  distance_airport_dlm_km: string | null;
+  distance_health_km: string | null;
   pool_swimming: boolean;
   pool_swimming_depth: string | null;
   pool_swimming_width: string | null;
@@ -61,6 +73,8 @@ export type VillaRow = {
   check_in_time: string | null;
   check_out_time: string | null;
   house_rules: string | null;
+  house_rule_keys: string[] | null;
+  price_includes: string[] | null;
   cancellation_policy: string | null;
   payment_terms: string | null;
   contact_whatsapp: string;
@@ -108,6 +122,17 @@ function description(r: VillaRow): { html: string | null; text: string | null } 
   return clean
     ? { html: clean.html, text: descriptionText(clean.html) }
     : { html: null, text: null };
+}
+
+/** Girilmiş mesafeler (katalog sırasıyla); boş olanlar listede yer almaz. */
+function rowDistances(r: VillaRow): PublicVilla["distances"] {
+  const out: PublicVilla["distances"] = [];
+  for (const key of DISTANCE_KEYS) {
+    const v = r[DISTANCE_COLUMNS[key] as keyof VillaRow] as string | null;
+    const km = v === null ? null : Number(v);
+    if (km !== null && Number.isFinite(km) && km > 0) out.push({ key, km });
+  }
+  return out;
 }
 
 export const toRatePeriods = (rows: RateRow[]): RatePeriod[] =>
@@ -190,12 +215,15 @@ export function buildPublicVilla(
     propertyType: r.property_type,
     descriptionHtml: desc.html,
     descriptionText: desc.text,
-    youtubeVideoIds: r.youtube_video_ids ?? [],
+    // Tek video: kayıtta birden çok kimlik kalmış olsa da (eski kayıt) yalnız ilki gösterilir.
+    youtubeVideoId: r.youtube_video_ids?.[0] ?? null,
     maxGuests: r.max_guests,
     bedrooms: r.bedrooms,
     bathrooms: r.bathrooms,
-    beds: { double: r.beds_double, single: r.beds_single, sofa: r.beds_sofa },
     location: { province: r.province, district: r.district, neighborhood: r.neighborhood },
+    // Gösterimden önce yeniden doğrulanır: kalıba uymayan adres hiç gösterilmez.
+    mapEmbedUrl: safeMapEmbedUrl(r.map_embed_url),
+    distances: rowDistances(r),
     pools: {
       swimming: pool(
         r.pool_swimming,
@@ -210,7 +238,9 @@ export function buildPublicVilla(
     amenities: r.amenities ?? [],
     checkInTime: r.check_in_time,
     checkOutTime: r.check_out_time,
+    houseRuleKeys: orderHouseRules(r.house_rule_keys ?? []).map((x) => x.key),
     houseRules: r.house_rules,
+    priceIncludes: orderPriceIncludes(r.price_includes ?? []).map((x) => x.key),
     cancellationPolicy: r.cancellation_policy,
     paymentTerms: r.payment_terms,
     whatsapp: r.contact_whatsapp,
@@ -230,17 +260,20 @@ export const PUBLIC_VILLA_KEYS = [
   "propertyType",
   "descriptionHtml",
   "descriptionText",
-  "youtubeVideoIds",
+  "youtubeVideoId",
   "maxGuests",
   "bedrooms",
   "bathrooms",
-  "beds",
   "location",
+  "mapEmbedUrl",
+  "distances",
   "pools",
   "amenities",
   "checkInTime",
   "checkOutTime",
+  "houseRuleKeys",
   "houseRules",
+  "priceIncludes",
   "cancellationPolicy",
   "paymentTerms",
   "whatsapp",

@@ -3,17 +3,20 @@ import { coverFirst, locationLabel, propertyTypeLabel } from "@/lib/public-villa
 
 import { AvailabilityCalendar } from "./availability-calendar";
 import { Gallery } from "./gallery";
+import { MapEmbed } from "./map-embed";
 import {
   Amenities,
   Description,
+  Distances,
   hasPools,
   hasTerms,
   KeyFacts,
   Pools,
+  PriceIncludes,
   RatesTable,
   Section,
   Terms,
-  Videos,
+  Video,
 } from "./sections";
 import { type StayData, StayProvider } from "./stay-context";
 import { MobileStayBar, StayCard, StayQuote } from "./stay-summary";
@@ -111,17 +114,30 @@ export function VillaView({
                   <Pools pools={v.pools} />
                 </Section>
               )}
+              {(v.mapEmbedUrl || v.distances.length > 0) && (
+                <Section id="konum" title="Konum ve yakın yerler">
+                  <div className="flex flex-col gap-6">
+                    {v.mapEmbedUrl && <MapEmbed src={v.mapEmbedUrl} name={v.name} />}
+                    {v.distances.length > 0 && <Distances items={v.distances} />}
+                  </div>
+                </Section>
+              )}
               <Section id="fiyatlar" title="Sezon fiyatları">
                 <RatesTable rates={v.rates} today={v.window.today} />
               </Section>
+              {v.priceIncludes.length > 0 && (
+                <Section id="fiyata-dahil" title="Fiyata dahil olanlar">
+                  <PriceIncludes keys={v.priceIncludes} />
+                </Section>
+              )}
               {hasTerms(v) && (
                 <Section id="kosullar" title="Konaklama bilgileri">
                   <Terms v={v} />
                 </Section>
               )}
-              {v.youtubeVideoIds.length > 0 && (
+              {v.youtubeVideoId && (
                 <Section id="video" title="Video">
-                  <Videos ids={v.youtubeVideoIds} name={v.name} />
+                  <Video id={v.youtubeVideoId} name={v.name} />
                 </Section>
               )}
             </div>

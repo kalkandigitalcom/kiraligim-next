@@ -4,10 +4,15 @@ import type { TenantContext, Tx } from "@/db/tenant";
 import { AppError, forbidden } from "@/lib/errors";
 import { formatMeters, POOL_KINDS } from "@/lib/property-meta";
 import { type EditStep, STEP_PROPERTY_FIELDS, STEP_STAY_FIELDS } from "@/lib/property-wizard";
+import { DISTANCE_KEYS, distanceToInput } from "@/lib/villa-extras";
 import { youtubeWatchUrl } from "@/lib/youtube";
 
 import { getPublicProfile, type PublicProfile, updateStayDetails } from "./public-profile";
-import { STAY_TEXT_FIELDS, type StayDetailsFormRaw } from "./public-profile-schema";
+import {
+  STAY_LIST_FIELDS,
+  STAY_TEXT_FIELDS,
+  type StayDetailsFormRaw,
+} from "./public-profile-schema";
 import { PROPERTY_FIELDS, type PropertyField, type PropertyFormRaw } from "./schema";
 import { canManageProperties, getProperty, isUuid, type Property, updateProperty } from "./service";
 
@@ -23,37 +28,33 @@ import { canManageProperties, getProperty, isUuid, type Property, updateProperty
 
 const KEY = { swimming: "Swimming", indoor: "Indoor", kids: "Kids" } as const;
 const meters = (n: number | null) => (n === null ? "" : formatMeters(n));
-const coord = (n: number | null) => (n === null ? "" : n.toFixed(6));
 
 /**
  * Kayıt → form değerleri (düzenleme formu ve parça kayıt aynı çeviriyi kullanır).
  * Açıklama: kayıtlı temiz HTML; yalnız düz metin olarak kaydedilmiş ESKİ açıklamalar için düz
  * metinden üretilmiş HTML (`Property.descriptionHtml`). Böylece eski açıklama, başka bir alan
- * kaydedilirken boşalmaz. Koordinat (6 hane) ve havuz ölçüleri (2 hane) veritabanı ölçeğiyle aynı
- * hassasiyette yazılır: gidiş-dönüş değer değiştirmez.
+ * kaydedilirken boşalmaz. Havuz ölçüleri (2 hane) ve mesafeler veritabanı ölçeğiyle aynı
+ * hassasiyette yazılır: gidiş-dönüş değer değiştirmez. Harita: kayıtlı gömme adresi (yeniden
+ * ayrıştırıldığında aynı adresi verir). YouTube: tek video (ilk kimlik).
  */
 export function propertyToRaw(p: Property): PropertyFormRaw {
+  const first = p.youtubeVideoIds[0];
   const out = {
     name: p.name,
     propertyType: p.propertyType,
     description: p.descriptionHtml ?? "",
     tourismLicenseNo: p.tourismLicenseNo ?? "",
-    youtubeUrls: p.youtubeVideoIds.map(youtubeWatchUrl),
+    youtubeUrl: first ? youtubeWatchUrl(first) : "",
     maxGuests: String(p.maxGuests),
     bedrooms: String(p.bedrooms),
     bathrooms: String(p.bathrooms),
-    bedsDouble: String(p.bedsDouble),
-    bedsSingle: String(p.bedsSingle),
-    bedsSofa: String(p.bedsSofa),
     province: p.province,
     district: p.district,
     neighborhood: p.neighborhood ?? "",
-    addressLine: p.addressLine ?? "",
-    postalCode: p.postalCode ?? "",
-    latitude: coord(p.latitude),
-    longitude: coord(p.longitude),
+    mapLocation: p.mapEmbedUrl ?? "",
     poolSwimmingProtected: p.pools.swimmingProtected ? "yes" : "no",
   } as Record<string, unknown>;
+  for (const k of DISTANCE_KEYS) out[k] = distanceToInput(p.distances[k]);
   for (const k of POOL_KINDS) {
     const pool = p.pools[k];
     out[`pool${KEY[k]}`] = pool.present ? "yes" : "no";
@@ -64,16 +65,13 @@ export function propertyToRaw(p: Property): PropertyFormRaw {
   return out as PropertyFormRaw;
 }
 
-/** Gelen nesneden yalnız bilinen mülk alanları (metin) ve YouTube listesi alınır. */
+/** Gelen nesneden yalnız bilinen mülk alanları (metin) alınır. */
 export function pickPropertyFields(input: unknown): Partial<PropertyFormRaw> {
   const out: Partial<PropertyFormRaw> = {};
   if (typeof input !== "object" || input === null) return out;
   const src = input as Record<string, unknown>;
   for (const k of PROPERTY_FIELDS as readonly PropertyField[]) {
     if (typeof src[k] === "string") out[k] = src[k];
-  }
-  if (Array.isArray(src.youtubeUrls)) {
-    out.youtubeUrls = src.youtubeUrls.filter((v): v is string => typeof v === "string");
   }
   return out;
 }
@@ -110,6 +108,8 @@ async function lockForWrite(tx: Tx, ctx: TenantContext, id: string): Promise<voi
 export function stayToRaw(p: PublicProfile): StayDetailsFormRaw {
   return {
     amenities: [...p.amenities],
+    houseRuleKeys: [...p.houseRuleKeys],
+    priceIncludes: [...p.priceIncludes],
     checkInTime: p.checkInTime ?? "",
     checkOutTime: p.checkOutTime ?? "",
     houseRules: p.houseRules ?? "",
@@ -118,7 +118,7 @@ export function stayToRaw(p: PublicProfile): StayDetailsFormRaw {
   };
 }
 
-/** Gelen nesneden yalnız olanak listesi ve konaklama metin alanları alınır. */
+/** Gelen nesneden yalnız seçim listeleri ve konaklama metin alanları alınır. */
 export function pickStayFields(input: unknown): Partial<StayDetailsFormRaw> {
   const out: Partial<StayDetailsFormRaw> = {};
   if (typeof input !== "object" || input === null) return out;
@@ -126,8 +126,9 @@ export function pickStayFields(input: unknown): Partial<StayDetailsFormRaw> {
   for (const k of STAY_TEXT_FIELDS) {
     if (typeof src[k] === "string") out[k] = src[k];
   }
-  if (Array.isArray(src.amenities)) {
-    out.amenities = src.amenities.filter((v): v is string => typeof v === "string");
+  for (const k of STAY_LIST_FIELDS) {
+    const list = src[k];
+    if (Array.isArray(list)) out[k] = list.filter((v): v is string => typeof v === "string");
   }
   return out;
 }
@@ -167,10 +168,7 @@ export async function saveWizardStep(
   const src = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
   const only = (keys: readonly string[]) =>
     Object.fromEntries(keys.filter((k) => k in src).map((k) => [k, src[k]]));
-  const propertyKeys = [
-    ...STEP_PROPERTY_FIELDS[step],
-    ...(step === "aciklama" ? ["youtubeUrls"] : []),
-  ];
+  const propertyKeys = STEP_PROPERTY_FIELDS[step];
   const stayKeys = STEP_STAY_FIELDS[step];
   let changed = 0;
   if (propertyKeys.length > 0) {

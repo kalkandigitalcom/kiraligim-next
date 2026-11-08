@@ -64,6 +64,18 @@ let O: U, M: U, S: U, X: U;
 let ws: string, wsX: string, prop: string, propX: string;
 const slug = `onizleme-${tag}`;
 
+/**
+ * Revizyon 1. aşama: eski kolonlar (açık adres, posta kodu, koordinat, yatak) uygulamadan
+ * yazılamaz ama veritabanında durur. Sızıntı denetimi anlamlı kalsın diye gizli değerler doğrudan
+ * yazılır; misafir sayfasına/önizlemeye hiçbiri çıkmamalı. (2. aşamada kolonlar kaldırılır.)
+ */
+const writeLegacySecrets = (id: string) =>
+  admin.query(
+    `update properties set address_line = $2, postal_code = $3, latitude = $4, longitude = $5,
+            beds_double = 3, beds_single = 2 where id = $1`,
+    [id, SECRETS.address, SECRETS.postal, SECRETS.lat, SECRETS.lng],
+  );
+
 beforeAll(async () => {
   await admin.connect();
   O = await mkUser("onowner");
@@ -87,14 +99,13 @@ beforeAll(async () => {
         province: "Antalya",
         district: "Kaş",
         neighborhood: "Kalkan",
-        addressLine: SECRETS.address,
-        postalCode: SECRETS.postal,
-        latitude: SECRETS.lat,
-        longitude: SECRETS.lng,
         tourismLicenseNo: SECRETS.license,
         description: "<p>Taslak açıklama.</p>",
       }),
-    );
+    ).then(async (id) => {
+      await writeLegacySecrets(id);
+      return id;
+    });
   prop = await mk(O, ws, "Taslak Villa");
   propX = await mk(X, wsX, "Başka Villa");
   await admin.query(
