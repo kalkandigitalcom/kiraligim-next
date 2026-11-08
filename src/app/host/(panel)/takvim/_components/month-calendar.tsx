@@ -5,27 +5,42 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type CalendarEntry,
+  type CalendarExternal,
   type CalendarWeek,
   dayActivity,
+  type ExternalSpan,
   dayLabel,
   entryTone,
   formatLongDay,
   selectionRole,
   WEEKDAYS,
 } from "@/lib/calendar";
-import { addDays, formatStay } from "@/lib/reservation-meta";
+import { formatSyncTime, ICAL_SOURCE_STATUS_LABELS } from "@/lib/ical-meta";
+import { addDays, formatStay, nightsBetween } from "@/lib/reservation-meta";
 import { cn } from "@/lib/utils";
 
 import { ReservationStatusBadge } from "../../rezervasyonlar/_components/reservation-bits";
 import { SELECTION_HINT_ID, SelectionBar, useCalendarSelection } from "./calendar-selection";
-import { DAY_COL, HALF_END, HALF_START, TONE_BAR } from "./calendar-styles";
+import {
+  DAY_COL,
+  EXTERNAL_BAR,
+  EXTERNAL_LABEL,
+  HALF_END,
+  HALF_START,
+  TONE_BAR,
+} from "./calendar-styles";
 
 type Props = {
   monthLabel: string;
   propertyId: string;
   weeks: CalendarWeek[];
+  /** Harici takvim (iCal) şeritleri: birleşik aralıklar, rezervasyon hattının altında (3.1). */
+  externalWeeks: CalendarWeek[];
   /** Güvenli DTO: telefon, e-posta ve tutar içermez. */
   entries: CalendarEntry[];
+  /** Harici dolulukların kendisi (gün paneli ayrıntısı için) ve birleşik şeritleri. */
+  externals: CalendarExternal[];
+  spans: ExternalSpan[];
   /** Ayın kayıt listesi (sunucuda üretilir), gün panelinin yanında gösterilir. */
   children?: React.ReactNode;
 };
@@ -57,9 +72,23 @@ const ROLE_BG = {
  * yürütür: birinci tıklama giriş, ikinci tıklama çıkış (calendar-selection.tsx). Klavye: ok tuşları
  * günler arasında, Home/End hafta başı/sonu, Enter/Boşluk günü seçer, Esc seçimi temizler.
  */
-export function MonthCalendar({ monthLabel, propertyId, weeks, entries, children }: Props) {
+export function MonthCalendar({
+  monthLabel,
+  propertyId,
+  weeks,
+  externalWeeks,
+  entries,
+  externals,
+  spans,
+  children,
+}: Props) {
   const sel = useCalendarSelection();
   const byId = useMemo(() => new Map(entries.map((e) => [e.id, e])), [entries]);
+  const spanById = useMemo(() => new Map(spans.map((x) => [x.id, x])), [spans]);
+  const extSegments = useMemo(
+    () => new Map(externalWeeks.map((w) => [w.start, w.segments])),
+    [externalWeeks],
+  );
   const days = weeks.flatMap((w) => w.days);
   const first = days[0]!.date;
   const end = addDays(days.at(-1)!.date, 1);
@@ -146,7 +175,7 @@ export function MonthCalendar({ monthLabel, propertyId, weeks, entries, children
                     type="button"
                     data-date={d.date}
                     tabIndex={d.date === focusDate ? 0 : -1}
-                    aria-label={`${dayLabel(d, entries)}${role ? `; ${ROLE_LABEL[role]}` : ""}`}
+                    aria-label={`${dayLabel(d, entries, externals)}${role ? `; ${ROLE_LABEL[role]}` : ""}`}
                     aria-current={d.isToday ? "date" : undefined}
                     onClick={() => {
                       setSelected(d.date);
@@ -225,6 +254,33 @@ export function MonthCalendar({ monthLabel, propertyId, weeks, entries, children
                 </Link>
               );
             })}
+            {(extSegments.get(w.start) ?? []).map((s) => {
+              const x = spanById.get(s.entryId);
+              if (!x) return null;
+              const names = [...new Set(x.items.map((i) => i.sourceName))].join(", ");
+              return (
+                // Harici doluluk bağlantı değildir: tıklama alttaki güne geçer, gün paneli ayrıntıyı gösterir.
+                <div
+                  key={`${w.start}:${s.entryId}`}
+                  aria-hidden
+                  title={`${EXTERNAL_LABEL}: ${names} · ${formatStay(x.checkIn, x.checkOut)}`}
+                  data-external={x.id}
+                  data-tone="external"
+                  className={cn(
+                    HALF_START[s.startHalf],
+                    HALF_END[s.endHalf],
+                    "pointer-events-none z-10 row-start-2 mx-px mt-3 flex h-2 min-w-0 items-center self-start overflow-hidden text-[11px] font-semibold sm:mt-7 sm:h-5 sm:px-1.5",
+                    EXTERNAL_BAR,
+                    s.startsHere && "rounded-l-full sm:rounded-l-md",
+                    s.endsHere && "rounded-r-full sm:rounded-r-md",
+                  )}
+                >
+                  {s.endHalf - s.startHalf >= 2 ? (
+                    <span className="hidden truncate sm:inline">{names}</span>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -232,15 +288,25 @@ export function MonthCalendar({ monthLabel, propertyId, weeks, entries, children
       <SelectionBar propertyId={propertyId} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
-        <DayPanel date={selected} entries={entries} />
+        <DayPanel date={selected} entries={entries} externals={externals} />
         {children}
       </div>
     </div>
   );
 }
 
-function DayPanel({ date, entries }: { date: string | null; entries: CalendarEntry[] }) {
+function DayPanel({
+  date,
+  entries,
+  externals,
+}: {
+  date: string | null;
+  entries: CalendarEntry[];
+  externals: CalendarExternal[];
+}) {
   const act = date ? dayActivity(date, entries) : null;
+  const ext = date ? dayActivity(date, externals) : null;
+  const extList = ext ? [...ext.checkOuts, ...ext.checkIns, ...ext.stays] : [];
   const groups = act
     ? ([
         ["Çıkış", act.checkOuts],
@@ -248,7 +314,7 @@ function DayPanel({ date, entries }: { date: string | null; entries: CalendarEnt
         ["Konaklama", act.stays],
       ] as const)
     : [];
-  const empty = act && groups.every(([, list]) => list.length === 0);
+  const empty = act && groups.every(([, list]) => list.length === 0) && extList.length === 0;
   return (
     <section
       aria-labelledby="day-panel-title"
@@ -298,6 +364,47 @@ function DayPanel({ date, entries }: { date: string | null; entries: CalendarEnt
                 </div>
               ) : null,
             )}
+            {extList.length ? (
+              <div data-testid="day-external">
+                <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  {EXTERNAL_LABEL}
+                </h3>
+                <ul className="mt-1.5 flex flex-col gap-2">
+                  {extList.map((e) => (
+                    <li
+                      key={e.id}
+                      data-testid="day-external-entry"
+                      className="flex items-start gap-2.5 rounded-xl border border-violet-200 bg-violet-50/60 px-3 py-2.5"
+                    >
+                      <span
+                        aria-hidden
+                        className={cn("mt-1.5 h-2.5 w-4 shrink-0 rounded-sm", EXTERNAL_BAR)}
+                      />
+                      <span className="min-w-0 text-sm">
+                        <span className="block truncate font-medium text-navy-900">
+                          {e.sourceName}
+                        </span>
+                        <span className="block text-muted-foreground">
+                          {formatStay(e.checkIn, e.checkOut)} ·{" "}
+                          {nightsBetween(e.checkIn, e.checkOut)} gece
+                        </span>
+                        <span className="block text-muted-foreground">
+                          Son başarılı senkron: {formatSyncTime(e.lastSuccessAt)}
+                        </span>
+                        <span
+                          className={cn(
+                            "block",
+                            e.sourceStatus === "error" ? "text-red-700" : "text-muted-foreground",
+                          )}
+                        >
+                          Kaynak durumu: {ICAL_SOURCE_STATUS_LABELS[e.sourceStatus]}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

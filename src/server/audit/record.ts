@@ -71,6 +71,8 @@ export const PUBLIC_PROFILE_AUDIT_FIELDS = [
   "house_rule_keys",
   "price_includes",
 ] as const;
+/** Denetim kaydına yazılabilecek harici takvim alan adları (değerleri değil). */
+export const ICAL_SOURCE_AUDIT_FIELDS = ["name", "url", "is_active"] as const;
 const slug = z.string().max(48);
 
 export const AUDIT_ACTIONS = {
@@ -107,6 +109,15 @@ export const AUDIT_ACTIONS = {
   }),
   "property.published": z.strictObject({}),
   "property.unpublished": z.strictObject({}),
+  // Harici takvim (iCal, 3.1): yalnız mülk kimliği ve değişen ALAN ADLARI; adres (erişim anahtarı
+  // içerebilir), kaynak adı ve dışa aktarma belirteci yazılmaz.
+  "property.ical_source_added": z.strictObject({ property: z.uuid() }),
+  "property.ical_source_updated": z.strictObject({
+    property: z.uuid(),
+    fields: z.array(z.enum(ICAL_SOURCE_AUDIT_FIELDS)).min(1),
+  }),
+  "property.ical_source_removed": z.strictObject({ property: z.uuid() }),
+  "property.ical_export_rotated": z.strictObject({ property: z.uuid() }),
   // Rezervasyon: misafir adı/telefonu/e-postası ve tutar DEĞERLERİ yazılmaz (kişisel/ticari veri).
   "reservation.created": z.strictObject({
     property: z.uuid(),
@@ -136,6 +147,7 @@ export type AuditEntry<A extends AuditAction = AuditAction> = {
     | "property"
     | "property_photo"
     | "property_rate"
+    | "external_calendar_source"
     | "reservation";
   targetId?: string;
   metadata: z.input<(typeof AUDIT_ACTIONS)[A]>;

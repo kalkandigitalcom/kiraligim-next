@@ -68,3 +68,11 @@ export const TONE_LABEL: Record<CalendarTone, string> = {
   pending: "Beklemede",
   block: "Blok",
 };
+
+/**
+ * Harici takvim (iCal) doluluğu (3.1): Kiraligim kayıtlarından ayrı, mor renk ve kendi şerit
+ * hattı (rezervasyon şeridinin altında). Rezervasyon gibi bağlantı vermez; gün paneli ayrıntıyı
+ * (kaynak, tarih, son senkron, durum) gösterir.
+ */
+export const EXTERNAL_BAR = "bg-violet-600 text-white";
+export const EXTERNAL_LABEL = "Harici takvim (iCal)";

@@ -522,6 +522,14 @@ describe("veritabanı güvenliği", () => {
                            'property_rates', 'reservations')
        order by c.relname, p.polname`);
     const list = r.rows.map((x) => `${x.relname}:${x.polname}:${x.polcmd}:${x.roles}`);
+    // 0029 (3.1): iCal dışa aktarma/senkron için dar app_migrator SELECT politikaları ayrı denetlenir.
+    expect(list.filter((x) => x.includes("_ical_"))).toEqual([
+      "properties:properties_ical_export_read:r:app_migrator",
+      "reservations:reservations_ical_export_read:r:app_migrator",
+      "reservations:reservations_ical_sync_read:r:app_migrator",
+      "workspaces:workspaces_ical_export_read:r:app_migrator",
+      "workspaces:workspaces_ical_sync_read:r:app_migrator",
+    ]);
     const added = list.filter((x) => x.includes("_public_read"));
     expect(added).toEqual([
       "properties:properties_public_read:r:app_migrator",
@@ -532,7 +540,7 @@ describe("veritabanı güvenliği", () => {
       "workspaces:workspaces_public_read:r:app_migrator",
     ]);
     // Mevcut politikalar (0006–0018) aynen duruyor.
-    expect(list.filter((x) => !x.includes("_public_read"))).toEqual([
+    expect(list.filter((x) => !x.includes("_public_read") && !x.includes("_ical_"))).toEqual([
       "properties:properties_insert:a:app_user",
       "properties:properties_select:r:app_user",
       "properties:properties_update:w:app_user",
@@ -836,12 +844,17 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
     expect(defs.map((x) => x.name).sort()).toEqual([
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
+      // 0029 (3.1): iCal senkron/dışa aktarma ve harici doluluk tetikleyicisi
+      "app_ical_apply_sync",
+      "app_ical_claim_sources",
+      "app_ical_export",
       "app_public_reservation_request",
       "app_public_villa",
       "app_public_villa_busy",
       "app_public_villa_photos",
       "app_public_villa_rates",
       "app_public_villa_visible",
+      "app_reservations_external_guard",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -852,6 +865,9 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_property uuid": `'${propA}'::uuid`,
         "p_property uuid, p_from date, p_to date": `'${propA}'::uuid, current_date, current_date + 5`,
         "p_id uuid, p_slug text, p_check_in date, p_check_out date, p_guests integer, p_name text, p_phone text, p_email text, p_note text, p_total_minor bigint, p_currency text": `gen_random_uuid(), '${slugA}', current_date + 400, current_date + 403, 1, 'Yetkisiz', '+905320000000', null, null, null, null`,
+        "p_source uuid, p_trigger text, p_limit integer": `null, 'cron', 1`,
+        "p_source uuid, p_lock_token uuid, p_trigger text, p_started_at timestamp with time zone, p_events jsonb, p_error_code text": `gen_random_uuid(), gen_random_uuid(), 'cron', now(), '[]'::jsonb, null`,
+        "p_token text": `'${"x".repeat(43)}'`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;
@@ -876,6 +892,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         expect([x.name, await tryAs(nobody, call(x))]).toEqual([x.name, "42501"]);
       for (const name of [
         "app_public_villa_visible",
+        "app_reservations_external_guard",
         "app_workspace_members_keep_owner",
         "app_workspace_start_trial",
       ]) {

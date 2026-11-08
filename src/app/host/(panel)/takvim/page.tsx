@@ -4,9 +4,11 @@ import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
+  type CalendarExternal,
   entriesInMonth,
   formatMonth,
   layoutMonth,
+  mergeExternal,
   monthGrid,
   monthNav,
   resolveMonth,
@@ -14,6 +16,7 @@ import {
   toCalendarEntry,
 } from "@/lib/calendar";
 import { checkInWindow, istanbulToday } from "@/lib/reservation-meta";
+import { listExternalBlocks } from "@/server/ical/service";
 import { listProperties } from "@/server/properties/service";
 import { canManageReservations, listCalendarEntries } from "@/server/reservations/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
@@ -60,7 +63,12 @@ export default async function CalendarPage({ searchParams }: Props) {
       : null;
     const from = pendingStart && pendingStart < grid.from ? pendingStart : grid.from;
     const rows = property ? await listCalendarEntries(tx, property.id, from, grid.to) : [];
+    // Harici takvim (iCal) dolulukları ayrı DTO ile gelir; rezervasyon olarak sayılmaz (3.1).
+    const externals: CalendarExternal[] = property
+      ? await listExternalBlocks(tx, property.id, from, grid.to)
+      : [];
     return {
+      externals,
       canCreate,
       pendingStart,
       properties: properties.map((p) => ({ id: p.id, name: p.name, status: p.status })),
@@ -69,7 +77,8 @@ export default async function CalendarPage({ searchParams }: Props) {
       canManage: canManageReservations(ctx.role),
     };
   });
-  const { properties, property, entries, canManage, canCreate, pendingStart } = data;
+  const { properties, property, entries, externals, canManage, canCreate, pendingStart } = data;
+  const spans = mergeExternal(externals);
   const nav = monthNav(month, today);
   const monthLabel = formatMonth(month);
 
@@ -142,7 +151,7 @@ export default async function CalendarPage({ searchParams }: Props) {
             enabled={canCreate}
             min={dateWindow.min}
             max={dateWindow.max}
-            entries={entries}
+            entries={[...entries, ...spans]}
             initialStart={pendingStart}
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -195,11 +204,16 @@ export default async function CalendarPage({ searchParams }: Props) {
               monthLabel={monthLabel}
               propertyId={property.id}
               weeks={layoutMonth(grid, entries)}
+              externalWeeks={layoutMonth(grid, spans)}
               entries={entries}
+              externals={externals}
+              spans={spans}
             >
               <MonthList
                 title={`${monthLabel} kayıtları`}
                 entries={entriesInMonth(month, entries)}
+                externals={entriesInMonth(month, externals)}
+                propertyId={property.id}
               />
             </MonthCalendar>
           </CalendarSelectionProvider>

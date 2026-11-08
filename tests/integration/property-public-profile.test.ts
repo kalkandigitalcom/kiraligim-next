@@ -175,10 +175,13 @@ describe("varsayılanlar ve yetkiler (0022, 0023)", () => {
       `select polname from pg_policy where polrelid in ('public.properties'::regclass, 'public.workspaces'::regclass) order by polname`,
     );
     expect(pol.rows.map((r) => r.polname)).toEqual([
+      "properties_ical_export_read", // 0029 (3.1): app_migrator, yalnız SELECT (iCal akışı)
       "properties_insert",
       "properties_public_read", // 0024 (F2a): app_migrator, yalnız SELECT
       "properties_select",
       "properties_update",
+      "workspaces_ical_export_read", // 0029 (3.1): app_migrator, yalnız SELECT
+      "workspaces_ical_sync_read", // 0029 (3.1): app_migrator, yalnız SELECT (cron)
       "workspaces_insert",
       "workspaces_public_read", // 0024 (F2a): app_migrator, yalnız SELECT
       "workspaces_select",

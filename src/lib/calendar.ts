@@ -79,6 +79,56 @@ export function toCalendarEntry(r: {
 export const entryTone = (e: Pick<CalendarEntry, "kind" | "status">): CalendarTone =>
   e.kind === "block" ? "block" : e.status;
 
+/* ── Harici takvim (iCal) dolulukları (3.1) ──────────────────────────────── */
+
+/**
+ * Takvime giden harici doluluk: yalnız kaynak adı, tarihler ve kaynak durumu (UID, akış içeriği
+ * yok). Kiraligim kayıtlarından AYRI çizilir (kendi şerit hattı ve rengi); rezervasyon sayılmaz.
+ * Farklı kaynaklar aynı tarihi kapatabilir ve harici olay Kiraligim kaydıyla çakışabilir; bu
+ * yüzden ayrı hatta, birleşik aralıklar halinde gösterilir.
+ */
+export type CalendarExternal = {
+  id: string;
+  sourceId: string;
+  sourceName: string;
+  checkIn: string;
+  checkOut: string;
+  sourceStatus: "pending" | "ok" | "error";
+  /** ISO zaman damgası (istemcide yerel biçimlenir). */
+  lastSuccessAt: string | null;
+  lastSyncedAt: string | null;
+};
+
+/** Birleşik harici doluluk şeridi: üst üste binen/bitişik olaylar tek aralık. */
+export type ExternalSpan = {
+  id: string;
+  checkIn: string;
+  checkOut: string;
+  items: CalendarExternal[];
+};
+
+export function mergeExternal(items: readonly CalendarExternal[]): ExternalSpan[] {
+  const sorted = [...items].sort((a, b) =>
+    a.checkIn === b.checkIn ? a.checkOut.localeCompare(b.checkOut) : a.checkIn < b.checkIn ? -1 : 1,
+  );
+  const out: ExternalSpan[] = [];
+  for (const it of sorted) {
+    const last = out.at(-1);
+    if (last && it.checkIn <= last.checkOut) {
+      if (it.checkOut > last.checkOut) last.checkOut = it.checkOut;
+      last.items.push(it);
+    } else {
+      out.push({
+        id: `ext:${it.checkIn}`,
+        checkIn: it.checkIn,
+        checkOut: it.checkOut,
+        items: [it],
+      });
+    }
+  }
+  return out;
+}
+
 /* ── Ay anahtarı ("YYYY-MM") ─────────────────────────────────────────────── */
 
 const MONTH_KEY = /^(\d{4})-(0[1-9]|1[0-2])$/;
@@ -290,14 +340,24 @@ const TONE_WORDS: Record<CalendarTone, string> = {
 export const formatLongDay = (iso: string) => `${formatDay(iso)} ${WEEKDAY_FMT.format(utc(iso))}`;
 
 /** Gün hücresinin erişilebilir adı: tarih, bugün ve o günün giriş/çıkış/konaklama özeti. */
-export function dayLabel(day: CalendarDay, entries: readonly CalendarEntry[]): string {
+export function dayLabel(
+  day: CalendarDay,
+  entries: readonly CalendarEntry[],
+  externals: readonly CalendarExternal[] = [],
+): string {
   const act = dayActivity(day.date, entries);
   const part = (word: string, list: CalendarEntry[]) =>
     list.map((e) => `${word}: ${e.label} (${TONE_WORDS[entryTone(e)]})`);
+  const ext = dayActivity(day.date, externals);
+  const extPart = (word: string, list: CalendarExternal[]) =>
+    list.map((e) => `${word}: harici takvim ${e.sourceName}`);
   const parts = [
     ...part("çıkış", act.checkOuts),
     ...part("giriş", act.checkIns),
     ...part("dolu", act.stays),
+    ...extPart("çıkış", ext.checkOuts),
+    ...extPart("giriş", ext.checkIns),
+    ...extPart("dolu", ext.stays),
   ];
   const head = `${formatLongDay(day.date)}${day.isToday ? ", bugün" : ""}`;
   return parts.length ? `${head}; ${parts.join("; ")}` : `${head}; boş`;

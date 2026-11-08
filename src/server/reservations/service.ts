@@ -16,6 +16,7 @@ import {
 } from "@/lib/reservation-meta";
 import { zodFieldErrors } from "@/lib/result";
 import { recordAudit, type RESERVATION_AUDIT_FIELDS } from "@/server/audit/record";
+import { type ExternalConflict, findExternalConflicts } from "@/server/ical/service";
 import { isUuid } from "@/server/properties/service";
 
 import {
@@ -289,9 +290,14 @@ export async function findConflicts(
   }));
 }
 
-/** "Seçilen tarihler dolu: 12–15 Temmuz 2026 (onaylı rezervasyon)." */
-export function conflictMessage(conflicts: Conflict[]): string {
-  if (conflicts.length === 0) return "Seçilen tarihler başka bir kayıtla çakışıyor.";
+/**
+ * "Seçilen tarihler dolu: 12–15 Temmuz 2026 (onaylı rezervasyon)." Harici takvim (iCal)
+ * dolulukları kaynak adıyla eklenir: "… (harici takvim: Airbnb)".
+ */
+export function conflictMessage(conflicts: Conflict[], external: ExternalConflict[] = []): string {
+  if (conflicts.length === 0 && external.length === 0) {
+    return "Seçilen tarihler başka bir kayıtla çakışıyor.";
+  }
   const parts = conflicts.map((c) => {
     const what =
       c.kind === "block"
@@ -299,6 +305,9 @@ export function conflictMessage(conflicts: Conflict[]): string {
         : `${RESERVATION_STATUS_LABELS[c.status].toLocaleLowerCase("tr-TR")} ${RESERVATION_KIND_LABELS.reservation.toLocaleLowerCase("tr-TR")}`;
     return `${formatStay(c.checkIn, c.checkOut)} (${what})`;
   });
+  for (const e of external) {
+    parts.push(`${formatStay(e.checkIn, e.checkOut)} (harici takvim: ${e.sourceName})`);
+  }
   return `Seçilen tarihler dolu: ${parts.join("; ")}.`;
 }
 
@@ -345,7 +354,9 @@ async function mapWriteError(
       ctx.checkOut,
       ctx.excludeId,
     );
-    throw new AppError("CONFLICT", conflictMessage(conflicts));
+    // Harici takvim (iCal) doluluğu da 23P01 ile gelir (reservations_guard_external, 0029).
+    const external = await findExternalConflicts(tx, ctx.propertyId, ctx.checkIn, ctx.checkOut);
+    throw new AppError("CONFLICT", conflictMessage(conflicts, external));
   }
   if (pg.code === PG.INSUFFICIENT_PRIVILEGE) throw forbidden();
   switch (pg.message) {

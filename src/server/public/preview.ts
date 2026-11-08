@@ -117,22 +117,34 @@ export async function getVillaPreview(
          and start_date < (${today}::date + interval '18 months')::date + 61
        order by start_date`)
   ).rows;
-  // Dolu geceler: beklemede + onaylı + bloklar ayrımsız, birleşik ve pencereye kırpılmış
-  // (app_public_villa_busy ile aynı kural). Ad, durum, tür, not, tutar okunmaz.
+  // Dolu geceler: beklemede + onaylı + bloklar ve etkin harici takvim (iCal) dolulukları
+  // ayrımsız, birleşik ve pencereye kırpılmış (app_public_villa_busy ile aynı kural, 0029).
+  // Ad, durum, tür, not, tutar okunmaz.
   const w = busyQueryWindow(today);
   const busy = (
     await tx.execute<BusyRow>(sql`
       with win as (
         select greatest(${w.from}::date, ${today}::date - 1) as f,
                least(${w.to}::date, (${today}::date + interval '18 months')::date + 61) as t
-      ), merged as (
-        select unnest(range_agg(daterange(r.check_in, r.check_out, '[)')
-                                * daterange(win.f, win.t, '[)'))) as b
+      ), spans as (
+        select daterange(r.check_in, r.check_out, '[)') as d
           from reservations r, win
          where r.property_id = ${propertyId}
            and r.status in ('pending', 'confirmed')
            and r.check_in < win.t and r.check_out > win.f
            and win.f < win.t
+        union all
+        select daterange(e.start_date, e.end_date, '[)')
+          from external_calendar_events e
+          join external_calendar_sources s on s.id = e.source_id and s.workspace_id = e.workspace_id,
+               win
+         where e.property_id = ${propertyId}
+           and e.is_active and s.is_active
+           and e.start_date < win.t and e.end_date > win.f
+           and win.f < win.t
+      ), merged as (
+        select unnest(range_agg(sp.d * daterange(win.f, win.t, '[)'))) as b
+          from spans sp, win
       )
       select to_char(lower(b), 'YYYY-MM-DD') as start_date, to_char(upper(b), 'YYYY-MM-DD') as end_date
         from merged where not isempty(b) order by lower(b)`)
