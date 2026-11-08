@@ -11,8 +11,10 @@ import { hostMapFromUrls, resolveSurface } from "@/lib/hosts";
  * (src/config/marketing.ts → INDEXING_ENABLED).
  */
 export default async function robots(): Promise<MetadataRoute.Robots> {
+  // Önce istek başlığı: rota istek anında üretilir; build sırasında getEnv() çalışmaz.
+  const host = (await headers()).get("host");
   const env = getEnv();
-  const surface = resolveSurface((await headers()).get("host"), hostMapFromUrls(env));
+  const surface = resolveSurface(host, hostMapFromUrls(env));
   return robotsPolicy({
     indexingEnabled: INDEXING_ENABLED,
     isProduction: env.APP_ENV === "production",

@@ -7,8 +7,10 @@ import { hostMapFromUrls, resolveSurface } from "@/lib/hosts";
 
 /** sitemap.xml: yalnız indeksleme açıkken ve kök alan adında dolu; aksi hâlde boş liste. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // Önce istek başlığı: rota istek anında üretilir; build sırasında getEnv() çalışmaz.
+  const host = (await headers()).get("host");
   const env = getEnv();
-  const surface = resolveSurface((await headers()).get("host"), hostMapFromUrls(env));
+  const surface = resolveSurface(host, hostMapFromUrls(env));
   return sitemapUrls({
     indexingEnabled: INDEXING_ENABLED,
     isProduction: env.APP_ENV === "production",
