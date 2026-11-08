@@ -5,7 +5,6 @@ import {
   EMPTY_PROPERTY_VALUES,
   nextStep,
   parseWizardStep,
-  PRIVATE_FIELDS,
   prevStep,
   STEP_PROPERTY_FIELDS,
   STEP_STAY_FIELDS,
@@ -15,7 +14,8 @@ import {
   WIZARD_STEPS,
   wizardFormValues,
 } from "@/lib/property-wizard";
-import { STAY_TEXT_FIELDS } from "@/server/properties/public-profile-schema";
+import { DISTANCE_KEYS } from "@/lib/villa-extras";
+import { STAY_LIST_FIELDS, STAY_TEXT_FIELDS } from "@/server/properties/public-profile-schema";
 import { PROPERTY_FIELDS } from "@/server/properties/schema";
 
 /** Aşama 3: sihirbaz adımları ve adım alanları (saf). */
@@ -51,21 +51,28 @@ describe("adım alanları", () => {
 
   it("olanak/konaklama alanlarının her biri tam olarak bir adımda", () => {
     const all = EDIT.flatMap((s) => STEP_STAY_FIELDS[s]);
-    expect([...all].sort()).toEqual(["amenities", ...STAY_TEXT_FIELDS].sort());
+    expect([...all].sort()).toEqual([...STAY_LIST_FIELDS, ...STAY_TEXT_FIELDS].sort());
   });
 
-  it("'Yalnız sizin için' alanları 1. adımda; boş mülk değerleri tüm alanları kapsar", () => {
-    for (const k of PRIVATE_FIELDS) expect(BASICS_FIELDS).toContain(k);
-    expect(Object.keys(EMPTY_PROPERTY_VALUES).sort()).toEqual(
-      [...PROPERTY_FIELDS, "youtubeUrls"].sort(),
-    );
+  it("harita ve mesafeler 1. adımda, video 2. adımda; eski gizli alanlar hiçbir adımda yok", () => {
+    for (const k of ["mapLocation", ...DISTANCE_KEYS]) expect(BASICS_FIELDS).toContain(k);
+    expect(STEP_PROPERTY_FIELDS.aciklama).toEqual(["description", "youtubeUrl"]);
+    const all = Object.values(STEP_PROPERTY_FIELDS).flat();
+    for (const k of ["addressLine", "postalCode", "latitude", "longitude", "bedsDouble"]) {
+      expect(all, k).not.toContain(k);
+    }
+    expect(Object.keys(EMPTY_PROPERTY_VALUES).sort()).toEqual([...PROPERTY_FIELDS].sort());
     expect(EMPTY_PROPERTY_VALUES).toMatchObject({ poolSwimming: "no", description: "" });
   });
 
   it("hata alanı → adım", () => {
     expect(stepOfField("name")).toBe("temel");
-    expect(stepOfField("latitude")).toBe("temel");
-    expect(stepOfField("youtubeUrls.2")).toBe("aciklama");
+    expect(stepOfField("latitude")).toBeNull(); // kaldırılan alan
+    expect(stepOfField("youtubeUrl")).toBe("aciklama");
+    expect(stepOfField("mapLocation")).toBe("temel");
+    expect(stepOfField("distanceBeachKm")).toBe("temel");
+    expect(stepOfField("houseRuleKeys")).toBe("konaklama");
+    expect(stepOfField("priceIncludes")).toBe("konaklama");
     expect(stepOfField("description")).toBe("aciklama");
     expect(stepOfField("poolKidsDepth")).toBe("olanaklar");
     expect(stepOfField("amenities")).toBe("olanaklar");
@@ -79,7 +86,10 @@ describe("form çözümleme: her adım yalnız kendi alanlarını okur", () => {
     const f = new FormData();
     f.append("name", "Villa");
     f.append("description", "<p>x</p>");
-    f.append("youtubeUrls", "https://youtu.be/aBcDeFgHiJ0");
+    f.append("youtubeUrl", "https://youtu.be/aBcDeFgHiJ0");
+    f.append("houseRuleKeys", "sigara-icilmez");
+    f.append("houseRuleKeys", "parti-yok");
+    f.append("priceIncludes", "elektrik");
     f.append("poolSwimming", "yes");
     f.append("amenities", "wifi");
     f.append("amenities", "klima");
@@ -97,7 +107,7 @@ describe("form çözümleme: her adım yalnız kendi alanlarını okur", () => {
   it("açıklama: açıklama + video listesi", () => {
     expect(wizardFormValues("aciklama", fd())).toEqual({
       description: "<p>x</p>",
-      youtubeUrls: ["https://youtu.be/aBcDeFgHiJ0"],
+      youtubeUrl: "https://youtu.be/aBcDeFgHiJ0",
     });
   });
 
@@ -112,7 +122,12 @@ describe("form çözümleme: her adım yalnız kendi alanlarını okur", () => {
 
   it("konaklama: yalnız saatler ve metinler; olanak listesi yok", () => {
     const v = wizardFormValues("konaklama", fd());
-    expect(Object.keys(v).sort()).toEqual([...STAY_TEXT_FIELDS].sort());
+    expect(Object.keys(v).sort()).toEqual(
+      [...STAY_TEXT_FIELDS, "houseRuleKeys", "priceIncludes"].sort(),
+    );
+    expect(v.houseRuleKeys).toEqual(["sigara-icilmez", "parti-yok"]);
+    expect(v.priceIncludes).toEqual(["elektrik"]);
+    expect(wizardFormValues("konaklama", new FormData()).houseRuleKeys).toEqual([]);
     expect(v.houseRules).toBe("Kural");
   });
 });

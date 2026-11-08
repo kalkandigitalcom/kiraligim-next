@@ -196,8 +196,39 @@ describe("veritabanı satırlarından public biçime", () => {
   });
 
   it("sayfa nesnesi anahtar listesi sabit (yeni alan eklemek bilinçli bir değişiklik olmalı)", () => {
-    expect(PUBLIC_VILLA_KEYS).toHaveLength(25);
+    // Revizyon: yataklar çıktı; harita, mesafeler, hazır kurallar ve fiyata dahil olanlar eklendi;
+    // çoklu video tek videoya indi.
+    expect([...PUBLIC_VILLA_KEYS]).toEqual([
+      "slug",
+      "name",
+      "propertyType",
+      "descriptionHtml",
+      "descriptionText",
+      "youtubeVideoId",
+      "maxGuests",
+      "bedrooms",
+      "bathrooms",
+      "location",
+      "mapEmbedUrl",
+      "distances",
+      "pools",
+      "amenities",
+      "checkInTime",
+      "checkOutTime",
+      "houseRuleKeys",
+      "houseRules",
+      "priceIncludes",
+      "cancellationPolicy",
+      "paymentTerms",
+      "whatsapp",
+      "photos",
+      "rates",
+      "currency",
+      "busy",
+      "window",
+      "updatedAt",
+    ]);
     for (const k of PUBLIC_VILLA_KEYS)
-      expect(k).not.toMatch(/^guest|address|postal|^lat|^lng|license|workspace|status/i);
+      expect(k).not.toMatch(/^guest|address|postal|^lat|^lng|beds|license|workspace|status/i);
   });
 });

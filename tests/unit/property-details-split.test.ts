@@ -9,7 +9,7 @@ import {
   stayDetailsFormValues,
   stayDetailsInput,
 } from "@/server/properties/public-profile-schema";
-import { PROPERTY_FIELDS } from "@/server/properties/schema";
+import { PROPERTY_FIELDS, propertyInput } from "@/server/properties/schema";
 import type { Property } from "@/server/properties/service";
 
 /** Aşama 2: ayrık şemalar, form çözümleme ve kayıt → form çevirisi (saf). */
@@ -82,6 +82,8 @@ describe("ayrık şemalar aynı kuralları kullanır", () => {
     fd.append("houseRules", "K");
     expect(stayDetailsFormValues(fd)).toEqual({
       amenities: ["wifi", "klima"],
+      houseRuleKeys: [],
+      priceIncludes: [],
       checkInTime: "16:00",
       checkOutTime: "",
       houseRules: "K",
@@ -113,26 +115,33 @@ describe("kayıt → form değerleri (parça kayıt için)", () => {
       kids: { present: false, depth: null, width: null, length: null },
       swimmingProtected: true,
     },
-    bedsDouble: 2,
-    bedsSingle: 1,
-    bedsSofa: 0,
     countryCode: "TR",
     neighborhood: null,
-    addressLine: null,
-    postalCode: null,
-    latitude: 36.5,
-    longitude: 29.123456,
+    mapEmbedUrl: "https://www.google.com/maps?q=36.500000,29.123456&z=16&output=embed",
+    distances: {
+      distanceMarketKm: 0.4,
+      distanceRestaurantKm: null,
+      distanceCenterKm: 2.5,
+      distanceBeachKm: null,
+      distanceAirportAytKm: 190,
+      distanceAirportDlmKm: 112.25,
+      distanceHealthKm: null,
+    },
     createdAt: new Date(),
     updatedAt: new Date(),
   } as Property;
 
   it("tüm form alanları üretilir; eski açıklama HTML'e çevrilmiş hâliyle; ölçek korunur", () => {
     const raw = propertyToRaw(base);
-    expect(Object.keys(raw).sort()).toEqual([...PROPERTY_FIELDS, "youtubeUrls"].sort());
+    expect(Object.keys(raw).sort()).toEqual([...PROPERTY_FIELDS].sort());
     expect(raw).toMatchObject({
       description: "<p>Eski metin.<br />İkinci satır.</p>",
-      latitude: "36.500000",
-      longitude: "29.123456",
+      mapLocation: "https://www.google.com/maps?q=36.500000,29.123456&z=16&output=embed",
+      distanceMarketKm: "0,4",
+      distanceCenterKm: "2,5",
+      distanceAirportAytKm: "190",
+      distanceAirportDlmKm: "112,25",
+      distanceBeachKm: "",
       poolSwimming: "yes",
       poolSwimmingDepth: "1,50",
       poolSwimmingLength: "9,25",
@@ -140,20 +149,29 @@ describe("kayıt → form değerleri (parça kayıt için)", () => {
       poolIndoor: "no",
       poolIndoorDepth: "",
       neighborhood: "",
-      youtubeUrls: ["https://www.youtube.com/watch?v=aBcDeFgHiJ0"],
+      youtubeUrl: "https://www.youtube.com/watch?v=aBcDeFgHiJ0",
     });
   });
 
-  it("parça seçici yalnız bilinen metin alanlarını ve video listesini alır", () => {
+  it("kayıt → form → doğrulama gidiş-dönüşü değer değiştirmez (harita, mesafeler)", () => {
+    const parsed = propertyInput.parse(propertyToRaw(base));
+    expect(parsed.mapLocation).toBe(base.mapEmbedUrl);
+    expect(parsed).toMatchObject(base.distances);
+  });
+
+  it("parça seçici yalnız bilinen metin alanlarını alır (eski alanlar dahil değil)", () => {
     expect(
       pickPropertyFields({
         name: "Yeni",
         maxGuests: 5,
         is_public: true,
         publicSlug: "x",
-        youtubeUrls: ["a", 1],
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        youtubeUrls: ["a"],
+        latitude: "36.1",
+        bedsDouble: "2",
       }),
-    ).toEqual({ name: "Yeni", youtubeUrls: ["a"] });
+    ).toEqual({ name: "Yeni", youtubeUrl: "https://youtu.be/dQw4w9WgXcQ" });
     expect(pickPropertyFields(null)).toEqual({});
   });
 });

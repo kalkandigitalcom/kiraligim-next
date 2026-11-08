@@ -10,6 +10,7 @@ import {
   SLUG_PROBLEM_MESSAGES,
   slugProblem,
 } from "@/lib/public-profile-meta";
+import { EXTRA_LIST_MAX, HOUSE_RULES, PRICE_INCLUDES } from "@/lib/villa-extras";
 
 /**
  * Villa sayfası formu (F1). Kurallar veritabanı CHECK'leriyle aynıdır (drizzle/0022); veritabanı son
@@ -61,11 +62,36 @@ const amenitiesField = z
     `En fazla ${L.amenitiesMax} olanak seçilebilir.`,
   );
 
+/**
+ * Hazır seçim listesi (ev kuralları, fiyata dahil olanlar). Katalog dışı anahtar reddedilir;
+ * tekrarsız ve katalog sırasıyla saklanır. Gönderilmezse (undefined) kayıttaki değer korunur.
+ */
+const keyListField = (catalog: readonly (readonly [string, string])[], label: string) =>
+  z
+    .array(z.string())
+    .superRefine((list, ctx) => {
+      const keys = new Set(catalog.map(([k]) => k));
+      if (list.some((k) => !keys.has(k))) {
+        ctx.addIssue({ code: "custom", message: `Geçersiz ${label} seçimi.` });
+      }
+    })
+    .transform((list) => {
+      const set = new Set(list);
+      return catalog.map(([k]) => k).filter((k) => set.has(k));
+    })
+    .refine(
+      (list) => list.length <= EXTRA_LIST_MAX,
+      `En fazla ${EXTRA_LIST_MAX} seçim yapılabilir.`,
+    )
+    .optional();
+
 const stayShape = {
   amenities: amenitiesField,
+  houseRuleKeys: keyListField(HOUSE_RULES, "kural"),
+  priceIncludes: keyListField(PRICE_INCLUDES, "fiyata dahil"),
   checkInTime: timeField("Giriş saati"),
   checkOutTime: timeField("Çıkış saati"),
-  houseRules: textField("Ev kuralları", L.houseRulesMax),
+  houseRules: textField("Ek not", L.houseRulesMax),
   cancellationPolicy: textField("İptal koşulları", L.cancellationPolicyMax),
   paymentTerms: textField("Ön ödeme ve ödeme koşulları", L.paymentTermsMax),
 };
@@ -78,6 +104,8 @@ const slugShape = {
 
 const stayOut = (v: {
   amenities: string[];
+  houseRuleKeys?: string[] | undefined;
+  priceIncludes?: string[] | undefined;
   checkInTime?: string;
   checkOutTime?: string;
   houseRules?: string;
@@ -85,6 +113,9 @@ const stayOut = (v: {
   paymentTerms?: string;
 }) => ({
   amenities: v.amenities,
+  // Gönderilmeyen liste çıktıda hiç yer almaz: birleştirmede kayıttaki değer korunur.
+  ...(v.houseRuleKeys === undefined ? {} : { houseRuleKeys: v.houseRuleKeys }),
+  ...(v.priceIncludes === undefined ? {} : { priceIncludes: v.priceIncludes }),
   checkInTime: v.checkInTime ?? null,
   checkOutTime: v.checkOutTime ?? null,
   houseRules: v.houseRules ?? null,
@@ -136,7 +167,11 @@ export const STAY_TEXT_FIELDS = [
 ] as const;
 export type StayDetailsFormRaw = Record<(typeof STAY_TEXT_FIELDS)[number], string> & {
   amenities: string[];
+  houseRuleKeys: string[];
+  priceIncludes: string[];
 };
+/** Liste (çoklu seçim) alanları. */
+export const STAY_LIST_FIELDS = ["amenities", "houseRuleKeys", "priceIncludes"] as const;
 export type PublicSlugFormRaw = { publicSlug: string; confirmSlugChange: boolean };
 
 const text = (data: FormData, k: string) => {
@@ -148,7 +183,9 @@ const text = (data: FormData, k: string) => {
 export function stayDetailsFormValues(data: FormData): StayDetailsFormRaw {
   const out = {} as StayDetailsFormRaw;
   for (const k of STAY_TEXT_FIELDS) out[k] = text(data, k);
-  out.amenities = data.getAll("amenities").filter((v): v is string => typeof v === "string");
+  for (const k of STAY_LIST_FIELDS) {
+    out[k] = data.getAll(k).filter((v): v is string => typeof v === "string");
+  }
   return out;
 }
 

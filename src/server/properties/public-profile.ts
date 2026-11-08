@@ -5,6 +5,7 @@ import type { TenantContext, Tx } from "@/db/tenant";
 import { AppError, forbidden, validationError } from "@/lib/errors";
 import type { PropertyStatus } from "@/lib/property-meta";
 import {
+  AMENITY_LABELS,
   orderAmenities,
   type PageVisibility,
   pageVisibility,
@@ -14,6 +15,13 @@ import {
   unmetRequirements,
 } from "@/lib/public-profile-meta";
 import { zodFieldErrors } from "@/lib/result";
+import {
+  HOUSE_RULE_LABELS,
+  NO_PETS_RULE,
+  orderHouseRules,
+  orderPriceIncludes,
+  PET_AMENITY,
+} from "@/lib/villa-extras";
 import { type PUBLIC_PROFILE_AUDIT_FIELDS, recordAudit } from "@/server/audit/record";
 import { getEntitlements } from "@/server/billing/entitlements";
 
@@ -47,6 +55,8 @@ export type PublicProfile = {
   checkInTime: string | null;
   checkOutTime: string | null;
   houseRules: string | null;
+  houseRuleKeys: string[];
+  priceIncludes: string[];
   cancellationPolicy: string | null;
   paymentTerms: string | null;
   photoCount: number;
@@ -68,6 +78,8 @@ type Row = {
   check_in_time: string | null;
   check_out_time: string | null;
   house_rules: string | null;
+  house_rule_keys: string[] | null;
+  price_includes: string[] | null;
   cancellation_policy: string | null;
   payment_terms: string | null;
   photo_count: number;
@@ -77,7 +89,7 @@ type Row = {
 const SELECT = sql`
   select p.id, p.name, p.status, p.district, p.public_slug, p.is_public, p.public_published_at,
          p.amenities, p.check_in_time::text as check_in_time, p.check_out_time::text as check_out_time,
-         p.house_rules, p.cancellation_policy, p.payment_terms,
+         p.house_rules, p.house_rule_keys, p.price_includes, p.cancellation_policy, p.payment_terms,
          (select count(*)::int from property_photos f
            where f.property_id = p.id and f.workspace_id = p.workspace_id) as photo_count,
          (select w.contact_whatsapp from workspaces w where w.id = p.workspace_id) as contact_whatsapp
@@ -108,6 +120,8 @@ function toProfile(r: Row, subCurrent: boolean): PublicProfile {
     checkInTime: toHhMm(r.check_in_time),
     checkOutTime: toHhMm(r.check_out_time),
     houseRules: r.house_rules,
+    houseRuleKeys: orderHouseRules(r.house_rule_keys ?? []).map((x) => x.key),
+    priceIncludes: orderPriceIncludes(r.price_includes ?? []).map((x) => x.key),
     cancellationPolicy: r.cancellation_policy,
     paymentTerms: r.payment_terms,
     photoCount: r.photo_count,
@@ -157,12 +171,18 @@ function mapWriteError(err: unknown): never {
 
 type AuditField = (typeof PUBLIC_PROFILE_AUDIT_FIELDS)[number];
 
-function changedFields(before: Row, v: PublicProfileValues): AuditField[] {
+/** Birleştirilmiş değerler: listeler her zaman tanımlı. */
+type MergedValues = PublicProfileValues & { houseRuleKeys: string[]; priceIncludes: string[] };
+
+const sameSet = (a: readonly string[] | null, b: readonly string[]) =>
+  [...(a ?? [])].sort().join(",") === [...b].sort().join(",");
+
+function changedFields(before: Row, v: MergedValues): AuditField[] {
   const out: AuditField[] = [];
   if (before.public_slug !== v.publicSlug) out.push("public_slug");
-  const a = [...(before.amenities ?? [])].sort().join(",");
-  const b = [...v.amenities].sort().join(",");
-  if (a !== b) out.push("amenities");
+  if (!sameSet(before.amenities, v.amenities)) out.push("amenities");
+  if (!sameSet(before.house_rule_keys, v.houseRuleKeys)) out.push("house_rule_keys");
+  if (!sameSet(before.price_includes, v.priceIncludes)) out.push("price_includes");
   if (toHhMm(before.check_in_time) !== v.checkInTime) out.push("check_in_time");
   if (toHhMm(before.check_out_time) !== v.checkOutTime) out.push("check_out_time");
   if (before.house_rules !== v.houseRules) out.push("house_rules");
@@ -181,11 +201,13 @@ async function lockRow(tx: Tx, id: string): Promise<Row> {
 }
 
 /** Kilitli satırdaki mevcut değerler (birleşik ayar biçiminde). */
-function currentValues(r: Row): PublicProfileValues {
+function currentValues(r: Row): MergedValues {
   return {
     publicSlug: r.public_slug,
     // Kayıttaki dizi olduğu gibi korunur (yeniden sıralama/süzme "değişiklik" sayılmasın).
     amenities: [...(r.amenities ?? [])],
+    houseRuleKeys: [...(r.house_rule_keys ?? [])],
+    priceIncludes: [...(r.price_includes ?? [])],
     checkInTime: toHhMm(r.check_in_time),
     checkOutTime: toHhMm(r.check_out_time),
     houseRules: r.house_rules,
@@ -209,7 +231,12 @@ async function applyProfileUpdate(
   try {
     await tx.execute(sql`savepoint public_profile`);
     const before = await lockRow(tx, id);
-    const v = next(before);
+    // Gönderilmeyen listeler (kurallar, dahil olanlar) kayıttaki değerle tamamlanır.
+    const v: MergedValues = { ...currentValues(before), ...next(before) };
+    if (v.amenities.includes(PET_AMENITY) && v.houseRuleKeys.includes(NO_PETS_RULE)) {
+      const message = `"${HOUSE_RULE_LABELS[NO_PETS_RULE]}" kuralı, Olanaklar'daki "${AMENITY_LABELS[PET_AMENITY]}" seçimiyle çelişiyor; birini kaldırın.`;
+      throw validationError({ houseRuleKeys: [message], amenities: [message] });
+    }
     const slugChanged = before.public_slug !== v.publicSlug;
     if (before.is_public && slugChanged) {
       if (v.publicSlug === null) {
@@ -231,6 +258,8 @@ async function applyProfileUpdate(
         update properties set
           public_slug = ${v.publicSlug},
           amenities = ${sql.param(v.amenities)}::text[],
+          house_rule_keys = ${sql.param(v.houseRuleKeys)}::text[],
+          price_includes = ${sql.param(v.priceIncludes)}::text[],
           check_in_time = ${v.checkInTime}::time,
           check_out_time = ${v.checkOutTime}::time,
           house_rules = ${v.houseRules},
@@ -270,6 +299,7 @@ export async function updatePublicProfile(
   if (!canManageProperties(ctx.role)) throw forbidden();
   const v = parse(input);
   if (!isUuid(id)) throw notFoundProperty();
+  // Birleşik form kurallar/dahil olanlar listesini göndermez: kayıttaki değer korunur.
   return applyProfileUpdate(tx, id, () => v);
 }
 

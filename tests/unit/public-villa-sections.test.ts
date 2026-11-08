@@ -27,7 +27,6 @@ const villa = (p: PublicVilla["pools"]) =>
     maxGuests: 8,
     bedrooms: 4,
     bathrooms: 3,
-    beds: { double: 3, single: 2, sofa: 0 },
     pools: p,
   }) as PublicVilla;
 

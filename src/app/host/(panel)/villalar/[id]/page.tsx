@@ -97,7 +97,7 @@ export default async function PropertyPage({ params, searchParams }: Props) {
     body = (
       <DescriptionStep
         {...common}
-        initial={{ description: raw.description, youtubeUrls: raw.youtubeUrls }}
+        initial={{ description: raw.description, youtubeUrl: raw.youtubeUrl }}
         photos={
           <PhotoManager
             propertyId={p.id}

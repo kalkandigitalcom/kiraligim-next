@@ -16,12 +16,14 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { PROPERTY_LIMITS, PROPERTY_STATUSES, PROPERTY_TYPES } from "../../lib/property-meta";
+import { MAP_EMBED_DB_PATTERN } from "../../lib/map-embed";
 import {
   AMENITY_KEY_PATTERN,
   PUBLIC_PROFILE_LIMITS as PL,
   PUBLIC_SLUG_PATTERN,
   RESERVED_PUBLIC_SLUGS,
 } from "../../lib/public-profile-meta";
+import { DISTANCE_LIMITS, EXTRA_KEY_PATTERN, EXTRA_LIST_MAX } from "../../lib/villa-extras";
 
 import { users } from "./auth";
 import { workspaces } from "./tenancy";
@@ -43,6 +45,14 @@ export {
 } from "../../lib/property-meta";
 
 /** Havuz yoksa ölçüler NULL; varsa üç ölçü dolu ve aralıkta (property-meta PROPERTY_LIMITS). */
+/** Anahtar listesi: en fazla `max` öğe, NULL öğe yok, her öğe biçime uygun. */
+const keyListCheck = (col: AnyColumn, max: number, pattern: string) => {
+  const p = sql.raw(pattern.slice(1, -1));
+  return sql`cardinality(${col}) <= ${sql.raw(String(max))} and array_position(${col}, null) is null and (cardinality(${col}) = 0 or array_to_string(${col}, ',') ~ '^${p}(,${p})*$')`;
+};
+const distanceCheck = (col: AnyColumn) =>
+  sql`${col} is null or (${col} > ${sql.raw(String(DISTANCE_LIMITS.min))} and ${col} <= ${sql.raw(String(DISTANCE_LIMITS.max))})`;
+
 const poolCheck = (has: AnyColumn, depth: AnyColumn, width: AnyColumn, length: AnyColumn) => {
   const L = PROPERTY_LIMITS;
   const n = (v: number) => sql.raw(String(v));
@@ -74,17 +84,34 @@ export const properties = pgTable(
     maxGuests: smallint().notNull(),
     bedrooms: smallint().notNull(),
     bathrooms: smallint().notNull(),
+    /** @deprecated Aşama 2 migration'ında kaldırılacak; uygulama okumaz/yazmaz. */
     bedsDouble: smallint().notNull().default(0),
+    /** @deprecated Aşama 2 migration'ında kaldırılacak. */
     bedsSingle: smallint().notNull().default(0),
+    /** @deprecated Aşama 2 migration'ında kaldırılacak. */
     bedsSofa: smallint().notNull().default(0),
     countryCode: char({ length: 2 }).notNull().default("TR"),
     province: text().notNull(),
     district: text().notNull(),
     neighborhood: text(),
+    /** @deprecated Aşama 2 migration'ında kaldırılacak; uygulama okumaz/yazmaz. */
     addressLine: text(),
+    /** @deprecated Aşama 2 migration'ında kaldırılacak. */
     postalCode: text(),
+    /** @deprecated Aşama 2 migration'ında kaldırılacak. */
     latitude: numeric({ precision: 9, scale: 6 }),
+    /** @deprecated Aşama 2 migration'ında kaldırılacak. */
     longitude: numeric({ precision: 9, scale: 6 }),
+    /** Google Haritalar gömme adresi (src/lib/map-embed.ts ile üretilmiş; misafire gösterilir). */
+    mapEmbedUrl: text(),
+    /** Yakın yerlere mesafeler (km, isteğe bağlı). */
+    distanceMarketKm: numeric({ precision: 6, scale: 2 }),
+    distanceRestaurantKm: numeric({ precision: 6, scale: 2 }),
+    distanceCenterKm: numeric({ precision: 6, scale: 2 }),
+    distanceBeachKm: numeric({ precision: 6, scale: 2 }),
+    distanceAirportAytKm: numeric({ precision: 6, scale: 2 }),
+    distanceAirportDlmKm: numeric({ precision: 6, scale: 2 }),
+    distanceHealthKm: numeric({ precision: 6, scale: 2 }),
     // Havuzlar: var/yok + ölçüler (metre). Yoksa ölçüler NULL; varsa üçü de dolu.
     poolSwimming: boolean().notNull().default(false),
     poolSwimmingDepth: numeric({ precision: 5, scale: 2 }),
@@ -112,7 +139,18 @@ export const properties = pgTable(
       .default(sql`'{}'::text[]`),
     checkInTime: time(),
     checkOutTime: time(),
+    /** Ek not (isteğe bağlı); hazır kurallar house_rule_keys'te. */
     houseRules: text(),
+    /** Hazır ev kuralları (src/lib/villa-extras.ts HOUSE_RULES anahtarları). */
+    houseRuleKeys: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** Fiyata dahil olanlar (bilgi amaçlı; fiyat hesabını değiştirmez). */
+    priceIncludes: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     cancellationPolicy: text(),
     paymentTerms: text(),
     // Kullanıcı silinince mülk kalır, oluşturan bilgisi NULL olur (KVKK silme akışını engellemez).
@@ -205,6 +243,22 @@ export const properties = pgTable(
     check(
       "properties_pool_swimming_protected",
       sql`${t.poolSwimming} or not ${t.poolSwimmingProtected}`,
+    ),
+    check(
+      "properties_map_embed_url",
+      sql`${t.mapEmbedUrl} is null or (length(${t.mapEmbedUrl}) <= 2000 and ${t.mapEmbedUrl} ~ '${sql.raw(MAP_EMBED_DB_PATTERN)}')`,
+    ),
+    check(
+      "properties_distances",
+      sql`(${distanceCheck(t.distanceMarketKm)}) and (${distanceCheck(t.distanceRestaurantKm)}) and (${distanceCheck(t.distanceCenterKm)}) and (${distanceCheck(t.distanceBeachKm)}) and (${distanceCheck(t.distanceAirportAytKm)}) and (${distanceCheck(t.distanceAirportDlmKm)}) and (${distanceCheck(t.distanceHealthKm)})`,
+    ),
+    check(
+      "properties_house_rule_keys",
+      keyListCheck(t.houseRuleKeys, EXTRA_LIST_MAX, EXTRA_KEY_PATTERN),
+    ),
+    check(
+      "properties_price_includes",
+      keyListCheck(t.priceIncludes, EXTRA_LIST_MAX, EXTRA_KEY_PATTERN),
     ),
     check(
       "properties_coordinates",

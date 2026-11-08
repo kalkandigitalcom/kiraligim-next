@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mapLink, PROPERTY_TYPE_LABELS, PROPERTY_TYPES } from "@/lib/property-meta";
+import { PROPERTY_TYPE_LABELS, PROPERTY_TYPES } from "@/lib/property-meta";
 import { TR_PROVINCES, TR_PROVINCES_SORTED } from "@/lib/tr-provinces";
 import { propertyFormValues, propertyInput } from "@/server/properties/schema";
 
@@ -11,16 +11,11 @@ const base = {
   maxGuests: "6",
   bedrooms: "3",
   bathrooms: "2",
-  bedsDouble: "",
-  bedsSingle: "2",
-  bedsSofa: "",
   province: "Antalya",
   district: "Kaş",
   neighborhood: "",
-  addressLine: "",
-  postalCode: "",
-  latitude: "",
-  longitude: "",
+  mapLocation: "",
+  distanceMarketKm: "",
 };
 
 const errorsOf = (input: Record<string, unknown>) => {
@@ -28,8 +23,18 @@ const errorsOf = (input: Record<string, unknown>) => {
   return r.success ? {} : Object.fromEntries(r.error.issues.map((i) => [i.path[0], i.message]));
 };
 
+const NO_DISTANCES = {
+  distanceMarketKm: null,
+  distanceRestaurantKm: null,
+  distanceCenterKm: null,
+  distanceBeachKm: null,
+  distanceAirportAytKm: null,
+  distanceAirportDlmKm: null,
+  distanceHealthKm: null,
+};
+
 describe("propertyInput", () => {
-  it("form metinlerini dönüştürür: boşluk kırpma, sayılar, boş isteğe bağlılar, yatak varsayılanı 0", () => {
+  it("form metinlerini dönüştürür: boşluk kırpma, sayılar, boş isteğe bağlılar", () => {
     const r = propertyInput.parse(base);
     expect(r).toEqual({
       name: "Deniz Villa",
@@ -38,35 +43,68 @@ describe("propertyInput", () => {
       maxGuests: 6,
       bedrooms: 3,
       bathrooms: 2,
-      bedsDouble: 0,
-      bedsSingle: 2,
-      bedsSofa: 0,
       province: "Antalya",
       district: "Kaş",
       neighborhood: undefined,
-      addressLine: undefined,
-      postalCode: undefined,
-      latitude: undefined,
-      longitude: undefined,
-      youtubeUrls: [],
+      mapLocation: null,
+      ...NO_DISTANCES,
+      youtubeUrl: [],
     });
   });
 
-  it("koordinat: virgül kabul edilir, 6 ondalığa yuvarlanır, aralık denetlenir", () => {
-    const r = propertyInput.parse({ ...base, latitude: "36,2651234", longitude: "29.4143" });
-    expect(r.latitude).toBe(36.265123);
-    expect(r.longitude).toBe(29.4143);
-    expect(errorsOf({ ...base, latitude: "91", longitude: "0" })).toHaveProperty("latitude");
-    expect(errorsOf({ ...base, latitude: "0", longitude: "-181" })).toHaveProperty("longitude");
-    expect(errorsOf({ ...base, latitude: "abc", longitude: "1" })).toHaveProperty("latitude");
+  it("eski alanlar (yatak, açık adres, posta kodu, koordinat) artık okunmaz", () => {
+    const r = propertyInput.parse({
+      ...base,
+      bedsDouble: "3",
+      addressLine: "Gizli adres",
+      postalCode: "07960",
+      latitude: "36.2",
+      longitude: "29.4",
+    });
+    for (const k of ["bedsDouble", "addressLine", "postalCode", "latitude", "longitude"]) {
+      expect(r, k).not.toHaveProperty(k);
+    }
   });
 
-  it("enlem ve boylam birlikte girilmeli", () => {
-    expect(errorsOf({ ...base, latitude: "36.2" })).toEqual({
-      longitude: "Enlem ve boylam birlikte girilmeli.",
+  it("mesafeler: virgül/nokta, en fazla 2 ondalık, 0'dan büyük, en fazla 9999,99", () => {
+    const r = propertyInput.parse({
+      ...base,
+      distanceMarketKm: "0,4",
+      distanceAirportDlmKm: "112.25",
+      distanceBeachKm: " 2 ",
     });
-    expect(errorsOf({ ...base, longitude: "29.4" })).toEqual({
-      latitude: "Enlem ve boylam birlikte girilmeli.",
+    expect(r).toMatchObject({
+      distanceMarketKm: 0.4,
+      distanceAirportDlmKm: 112.25,
+      distanceBeachKm: 2,
+    });
+    for (const bad of ["0", "-1", "1,234", "abc", "10000", "1e3", "2 km"]) {
+      expect(errorsOf({ ...base, distanceCenterKm: bad }), bad).toHaveProperty("distanceCenterKm");
+    }
+    expect(errorsOf({ ...base, distanceCenterKm: "9999,99" })).toEqual({});
+  });
+
+  it("harita: iframe kodundan güvenli adres; kısa bağlantı ve başka site anlaşılır hata", () => {
+    const iframe =
+      '<iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3200!2d29.41!3d36.26!2m3!1f0!2f0!3f0" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy"></iframe>';
+    expect(propertyInput.parse({ ...base, mapLocation: iframe }).mapLocation).toBe(
+      "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3200!2d29.41!3d36.26!2m3!1f0!2f0!3f0",
+    );
+    expect(
+      errorsOf({ ...base, mapLocation: "https://maps.app.goo.gl/abc123" }).mapLocation,
+    ).toMatch(/Kısa paylaşım bağlantıları desteklenmiyor/);
+    expect(
+      errorsOf({ ...base, mapLocation: "https://evil.example/maps/embed?pb=!1" }),
+    ).toHaveProperty("mapLocation");
+  });
+
+  it("YouTube: tek bağlantı; boş → video yok; geçersiz → hata", () => {
+    expect(
+      propertyInput.parse({ ...base, youtubeUrl: "https://youtu.be/dQw4w9WgXcQ" }).youtubeUrl,
+    ).toEqual(["dQw4w9WgXcQ"]);
+    expect(propertyInput.parse({ ...base, youtubeUrl: "  " }).youtubeUrl).toEqual([]);
+    expect(errorsOf({ ...base, youtubeUrl: "https://vimeo.com/1" })).toEqual({
+      youtubeUrl: "Geçerli bir YouTube video bağlantısı girin.",
     });
   });
 
@@ -75,12 +113,9 @@ describe("propertyInput", () => {
     expect(errorsOf({ ...base, maxGuests: "51" })).toHaveProperty("maxGuests");
     expect(errorsOf({ ...base, maxGuests: "2.5" })).toHaveProperty("maxGuests");
     expect(errorsOf({ ...base, bedrooms: "-1" })).toHaveProperty("bedrooms");
-    expect(errorsOf({ ...base, bedsSofa: "51" })).toHaveProperty("bedsSofa");
     expect(errorsOf({ ...base, name: "A" })).toHaveProperty("name");
     expect(errorsOf({ ...base, name: "x".repeat(121) })).toHaveProperty("name");
     expect(errorsOf({ ...base, description: "x".repeat(5001) })).toHaveProperty("description");
-    expect(errorsOf({ ...base, postalCode: "0796" })).toHaveProperty("postalCode");
-    expect(errorsOf({ ...base, postalCode: "07960" })).toEqual({});
   });
 
   it("mülk türü ve il yalnız listeden", () => {
@@ -117,12 +152,6 @@ describe("sabitler", () => {
       "Bungalow",
       "Ev",
     ]);
-  });
-
-  it("Haritada aç bağlantısı OpenStreetMap, 6 ondalık", () => {
-    expect(mapLink(36.2651, 29.4143)).toBe(
-      "https://www.openstreetmap.org/?mlat=36.265100&mlon=29.414300#map=16/36.265100/29.414300",
-    );
   });
 });
 

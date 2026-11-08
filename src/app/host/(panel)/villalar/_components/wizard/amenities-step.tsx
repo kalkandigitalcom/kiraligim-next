@@ -7,6 +7,7 @@ import { AMENITY_GROUPS } from "@/lib/public-profile-meta";
 
 import type { WizardFormState, WizardValues } from "../../actions";
 import { type PoolFormValues, PoolFields } from "../pool-fields";
+import { ChoiceCards } from "./choice-cards";
 import { StepCard } from "./step-card";
 import { type WizardAction, WizardFooter, WizardForm, useWizardForm } from "./wizard-form";
 
@@ -79,28 +80,13 @@ export function AmenitiesStep({ action, initial, readOnly, prevHref, nextHref }:
                 </span>
               }
             >
-              <div
-                role="group"
-                aria-labelledby={`grp-${g.key}`}
-                data-group={g.key}
-                className="grid gap-2 sm:grid-cols-2"
-              >
-                {g.items.map(([key, label]) => (
-                  <label
-                    key={key}
-                    className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2 text-sm text-navy-900 transition-colors hover:bg-mist has-checked:border-turquoise-500 has-checked:bg-turquoise-50 has-disabled:cursor-default has-disabled:hover:bg-transparent has-disabled:has-checked:bg-turquoise-50"
-                  >
-                    <input
-                      type="checkbox"
-                      name="amenities"
-                      value={key}
-                      defaultChecked={v.amenities.includes(key)}
-                      className="size-4 shrink-0 accent-navy-900"
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
+              <ChoiceCards
+                name="amenities"
+                options={g.items}
+                selected={v.amenities}
+                labelledBy={`grp-${g.key}`}
+                group={g.key}
+              />
             </StepCard>
           ))}
           {fe.amenities ? <p className="text-sm text-destructive">{fe.amenities}</p> : null}

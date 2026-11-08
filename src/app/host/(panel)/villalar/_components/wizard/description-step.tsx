@@ -1,14 +1,14 @@
 "use client";
 
+import { Field } from "@/components/ui/field";
 import { PROPERTY_LIMITS as L } from "@/lib/property-meta";
 
 import type { WizardValues } from "../../actions";
 import { RichTextEditor } from "../rich-text-editor";
-import { YoutubeField } from "../youtube-field";
 import { StepCard } from "./step-card";
 import { type WizardAction, WizardFooter, WizardForm, useWizardForm } from "./wizard-form";
 
-export type DescriptionValues = Pick<WizardValues, "description" | "youtubeUrls">;
+export type DescriptionValues = Pick<WizardValues, "description" | "youtubeUrl">;
 
 type Props = {
   action: WizardAction;
@@ -51,10 +51,21 @@ export function DescriptionStep({ action, initial, readOnly, prevHref, nextHref,
         </StepCard>
         <StepCard
           id="video-baslik"
-          title="Videolar (isteğe bağlı)"
-          description="YouTube'a yüklediğiniz videoların bağlantısını yapıştırın."
+          title="Video (isteğe bağlı)"
+          description="YouTube'a yüklediğiniz tanıtım videosunun bağlantısını yapıştırın. Bir video eklenebilir."
         >
-          <YoutubeField initial={v.youtubeUrls} errors={fe} readOnly={readOnly} />
+          <Field
+            id="youtubeUrl"
+            name="youtubeUrl"
+            label="YouTube bağlantısı"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={500}
+            placeholder="https://www.youtube.com/watch?v=…"
+            defaultValue={v.youtubeUrl}
+            error={fe.youtubeUrl}
+          />
         </StepCard>
       </WizardForm>
       <section

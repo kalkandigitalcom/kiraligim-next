@@ -18,16 +18,6 @@ export function locationLabel(l: PublicVilla["location"]): string {
   return `${area} / ${l.province}`;
 }
 
-/** "2 çift kişilik, 2 tek kişilik, 1 çekyat"; hiç yatak girilmemişse null. */
-export function bedSummary(b: PublicVilla["beds"]): string | null {
-  const parts = [
-    b.double > 0 ? `${b.double} çift kişilik` : null,
-    b.single > 0 ? `${b.single} tek kişilik` : null,
-    b.sofa > 0 ? `${b.sofa} çekyat` : null,
-  ].filter((x): x is string => x !== null);
-  return parts.length ? parts.join(", ") : null;
-}
-
 /** Olanaklar katalog grup sırasıyla; boş gruplar atlanır. Katalog dışı anahtar gösterilmez. */
 export function amenityGroups(keys: readonly string[]) {
   const set = new Set<string>(orderAmenities(keys));

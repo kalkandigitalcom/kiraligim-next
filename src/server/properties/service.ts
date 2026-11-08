@@ -7,6 +7,7 @@ import { AppError, forbidden, validationError } from "@/lib/errors";
 import { POOL_KINDS, type PropertyStatus, type PropertyType } from "@/lib/property-meta";
 import { plainTextToHtml } from "@/lib/rich-text";
 import { zodFieldErrors } from "@/lib/result";
+import { DISTANCE_COLUMNS, DISTANCE_KEYS, type DistanceKey } from "@/lib/villa-extras";
 import { type PROPERTY_AUDIT_FIELDS, recordAudit } from "@/server/audit/record";
 import {
   ALLOWANCE_MESSAGES,
@@ -69,15 +70,12 @@ export type Property = PropertySummary & {
   tourismLicenseNo: string | null;
   youtubeVideoIds: string[];
   pools: PropertyPools;
-  bedsDouble: number;
-  bedsSingle: number;
-  bedsSofa: number;
   countryCode: string;
   neighborhood: string | null;
-  addressLine: string | null;
-  postalCode: string | null;
-  latitude: number | null;
-  longitude: number | null;
+  /** Doğrulanmış Google Haritalar gömme adresi (misafire gösterilir); yoksa null. */
+  mapEmbedUrl: string | null;
+  /** Yakın yerlere mesafeler (km); girilmemişse null. */
+  distances: Record<DistanceKey, number | null>;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -93,15 +91,16 @@ type Row = {
   province: string;
   district: string;
   description: string | null;
-  beds_double: number;
-  beds_single: number;
-  beds_sofa: number;
   country_code: string;
   neighborhood: string | null;
-  address_line: string | null;
-  postal_code: string | null;
-  latitude: string | null;
-  longitude: string | null;
+  map_embed_url: string | null;
+  distance_market_km: string | null;
+  distance_restaurant_km: string | null;
+  distance_center_km: string | null;
+  distance_beach_km: string | null;
+  distance_airport_ayt_km: string | null;
+  distance_airport_dlm_km: string | null;
+  distance_health_km: string | null;
   description_html: string | null;
   tourism_license_no: string | null;
   youtube_video_ids: string[] | null;
@@ -158,6 +157,12 @@ function rowPools(r: Row): PropertyPools {
   };
 }
 
+function rowDistances(r: Row): Record<DistanceKey, number | null> {
+  const out = {} as Record<DistanceKey, number | null>;
+  for (const k of DISTANCE_KEYS) out[k] = num(r[DISTANCE_COLUMNS[k] as keyof Row] as string | null);
+  return out;
+}
+
 const toProperty = (r: Row): Property => ({
   ...toSummary(r),
   description: r.description,
@@ -165,15 +170,10 @@ const toProperty = (r: Row): Property => ({
   tourismLicenseNo: r.tourism_license_no,
   youtubeVideoIds: r.youtube_video_ids ?? [],
   pools: rowPools(r),
-  bedsDouble: r.beds_double,
-  bedsSingle: r.beds_single,
-  bedsSofa: r.beds_sofa,
   countryCode: r.country_code,
   neighborhood: r.neighborhood,
-  addressLine: r.address_line,
-  postalCode: r.postal_code,
-  latitude: r.latitude === null ? null : Number(r.latitude),
-  longitude: r.longitude === null ? null : Number(r.longitude),
+  mapEmbedUrl: r.map_embed_url,
+  distances: rowDistances(r),
   createdAt: new Date(r.created_at),
   updatedAt: new Date(r.updated_at),
 });
@@ -246,22 +246,27 @@ const columnsOf = (v: PropertyInput) => ({
   description: v.description?.text ?? null,
   description_html: v.description?.html ?? null,
   tourism_license_no: v.tourismLicenseNo ?? null,
-  youtube_video_ids: v.youtubeUrls,
+  youtube_video_ids: v.youtubeUrl,
   pools: poolsFromRaw(v),
   max_guests: v.maxGuests,
   bedrooms: v.bedrooms,
   bathrooms: v.bathrooms,
-  beds_double: v.bedsDouble,
-  beds_single: v.bedsSingle,
-  beds_sofa: v.bedsSofa,
   province: v.province,
   district: v.district,
   neighborhood: v.neighborhood ?? null,
-  address_line: v.addressLine ?? null,
-  postal_code: v.postalCode ?? null,
-  latitude: v.latitude ?? null,
-  longitude: v.longitude ?? null,
+  map_embed_url: v.mapLocation,
+  distances: Object.fromEntries(DISTANCE_KEYS.map((k) => [k, v[k]])) as Record<
+    DistanceKey,
+    number | null
+  >,
 });
+
+/** Mesafe kolonlarının değerleri, DISTANCE_KEYS sırasıyla. */
+const distanceValues = (d: Record<DistanceKey, number | null>) =>
+  sql.join(
+    DISTANCE_KEYS.map((k) => sql`${d[k]}`),
+    sql`, `,
+  );
 
 /** Yeni mülk (owner/manager). Limit ve abonelik, eklemeden önce ve veritabanında denetlenir. */
 export async function createProperty(tx: Tx, ctx: TenantContext, input: unknown): Promise<string> {
@@ -277,8 +282,10 @@ export async function createProperty(tx: Tx, ctx: TenantContext, input: unknown)
     await tx.execute(sql`
       insert into properties (
         id, workspace_id, created_by, name, property_type, description,
-        max_guests, bedrooms, bathrooms, beds_double, beds_single, beds_sofa,
-        province, district, neighborhood, address_line, postal_code, latitude, longitude,
+        max_guests, bedrooms, bathrooms,
+        province, district, neighborhood, map_embed_url,
+        distance_market_km, distance_restaurant_km, distance_center_km, distance_beach_km,
+        distance_airport_ayt_km, distance_airport_dlm_km, distance_health_km,
         description_html, tourism_license_no, youtube_video_ids,
         pool_swimming, pool_swimming_depth, pool_swimming_width, pool_swimming_length,
         pool_swimming_protected,
@@ -286,9 +293,9 @@ export async function createProperty(tx: Tx, ctx: TenantContext, input: unknown)
         pool_kids, pool_kids_depth, pool_kids_width, pool_kids_length)
       values (
         ${id}, app_current_workspace_id(), app_current_user_id(), ${c.name}, ${c.property_type},
-        ${c.description}, ${c.max_guests}, ${c.bedrooms}, ${c.bathrooms}, ${c.beds_double},
-        ${c.beds_single}, ${c.beds_sofa}, ${c.province}, ${c.district}, ${c.neighborhood},
-        ${c.address_line}, ${c.postal_code}, ${c.latitude}, ${c.longitude},
+        ${c.description}, ${c.max_guests}, ${c.bedrooms}, ${c.bathrooms},
+        ${c.province}, ${c.district}, ${c.neighborhood}, ${c.map_embed_url},
+        ${distanceValues(c.distances)},
         ${c.description_html}, ${c.tourism_license_no}, ${sql.param(c.youtube_video_ids)}::text[],
         ${poolValues(c.pools)})`);
     await tx.execute(sql`release savepoint create_property`);
@@ -343,17 +350,13 @@ function changedFields(
     ["max_guests", before.maxGuests, c.max_guests],
     ["bedrooms", before.bedrooms, c.bedrooms],
     ["bathrooms", before.bathrooms, c.bathrooms],
-    ["beds_double", before.bedsDouble, c.beds_double],
-    ["beds_single", before.bedsSingle, c.beds_single],
-    ["beds_sofa", before.bedsSofa, c.beds_sofa],
     ["province", before.province, c.province],
     ["district", before.district, c.district],
     ["neighborhood", before.neighborhood, c.neighborhood],
-    ["address_line", before.addressLine, c.address_line],
-    ["postal_code", before.postalCode, c.postal_code],
+    ["map", before.mapEmbedUrl, c.map_embed_url],
   ];
   for (const [field, a, b] of pairs) if (a !== b) out.push(field);
-  if (before.latitude !== c.latitude || before.longitude !== c.longitude) out.push("coordinates");
+  if (DISTANCE_KEYS.some((k) => before.distances[k] !== c.distances[k])) out.push("distances");
   if (!samePools(before.pools, c.pools)) out.push("pools");
   return out;
 }
@@ -383,10 +386,11 @@ export async function updateProperty(
         update properties set
           name = ${c.name}, property_type = ${c.property_type}, description = ${c.description},
           max_guests = ${c.max_guests}, bedrooms = ${c.bedrooms}, bathrooms = ${c.bathrooms},
-          beds_double = ${c.beds_double}, beds_single = ${c.beds_single}, beds_sofa = ${c.beds_sofa},
           province = ${c.province}, district = ${c.district}, neighborhood = ${c.neighborhood},
-          address_line = ${c.address_line}, postal_code = ${c.postal_code},
-          latitude = ${c.latitude}, longitude = ${c.longitude},
+          map_embed_url = ${c.map_embed_url},
+          (distance_market_km, distance_restaurant_km, distance_center_km, distance_beach_km,
+           distance_airport_ayt_km, distance_airport_dlm_km, distance_health_km) =
+            (${distanceValues(c.distances)}),
           description_html = ${c.description_html}, tourism_license_no = ${c.tourism_license_no},
           youtube_video_ids = ${sql.param(c.youtube_video_ids)}::text[],
           (pool_swimming, pool_swimming_depth, pool_swimming_width, pool_swimming_length,

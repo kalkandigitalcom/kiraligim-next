@@ -8,7 +8,14 @@ import {
   PROPERTY_STATUSES,
   PROPERTY_TYPES,
 } from "@/lib/property-meta";
+import { MAP_INPUT_MAX, MAP_PARSE_MESSAGES, parseMapInput } from "@/lib/map-embed";
 import { TR_PROVINCES } from "@/lib/tr-provinces";
+import {
+  DISTANCE_KEYS,
+  DISTANCE_LABELS,
+  DISTANCE_LIMITS,
+  type DistanceKey,
+} from "@/lib/villa-extras";
 import { parseYouTubeId } from "@/lib/youtube";
 
 import { type CleanDescription, sanitizeDescription } from "./description";
@@ -52,20 +59,45 @@ const int = (min: number, max: number, label: string) =>
       .max(max, `${label} en fazla ${max} olabilir.`),
   );
 
-const intDefaultZero = (max: number, label: string) =>
-  z.preprocess((v) => (blankToUndefined(v) === undefined ? 0 : v), int(0, max, label));
-
-const coordinate = (min: number, max: number, label: string) =>
+/**
+ * Mesafe (km): boş → null; "2,5" / "2.5" → 2.5; en fazla 4 basamak ve 2 ondalık; 0'dan büyük.
+ * Veritabanı numeric(6,2) ve CHECK ile aynı sınırlar.
+ */
+const distance = (label: string) =>
   z.preprocess(
-    (v) => (typeof v === "string" ? (blankToUndefined(v.replace(",", ".")) ?? undefined) : v),
-    z.coerce
-      .number({ error: `${label} bir sayı olmalı.` })
-      .min(min, `${label} ${min} ile ${max} arasında olmalı.`)
-      .max(max, `${label} ${min} ile ${max} arasında olmalı.`)
-      // Veritabanı numeric(9,6): 6 ondalık basamağa yuvarlanır.
-      .transform((n) => Math.round(n * 1e6) / 1e6)
-      .optional(),
+    (v) => {
+      if (typeof v !== "string") return v;
+      const t = v.trim().replace(",", ".");
+      if (!t) return undefined;
+      return /^[0-9]{1,4}(\.[0-9]{1,2})?$/.test(t) ? Number(t) : Number.NaN;
+    },
+    z
+      .number({ error: `${label}: km cinsinden, en fazla 2 ondalıklı bir sayı girin (ör. 2,5).` })
+      .gt(DISTANCE_LIMITS.min, `${label}: 0'dan büyük olmalı.`)
+      .max(DISTANCE_LIMITS.max, `${label}: en fazla ${DISTANCE_LIMITS.max} km olabilir.`)
+      .optional()
+      .transform((n) => n ?? null),
   );
+
+const distanceFields = Object.fromEntries(
+  DISTANCE_KEYS.map((k) => [k, distance(DISTANCE_LABELS[k])]),
+) as Record<DistanceKey, ReturnType<typeof distance>>;
+
+/**
+ * Harita: Google Haritalar "Haritayı yerleştir" kodu veya tam paylaşım bağlantısı. Yalnız güvenli
+ * gömme adresi çıkarılır (src/lib/map-embed.ts); boş → null (harita gösterilmez).
+ */
+const mapLocation = z
+  .preprocess(blankToUndefined, z.string().max(MAP_INPUT_MAX, "Harita kodu çok uzun.").optional())
+  .transform((raw, ctx) => {
+    if (raw === undefined) return null;
+    const r = parseMapInput(raw);
+    if (!r.ok) {
+      ctx.addIssue({ code: "custom", message: MAP_PARSE_MESSAGES[r.error] });
+      return z.NEVER;
+    }
+    return r.url;
+  });
 
 /**
  * Biçimlendirilmiş açıklama: HTML sunucuda temizlenir (description.ts); sınırlar temiz HTML'e ve
@@ -96,36 +128,17 @@ const richDescription = z
     }
   });
 
-/**
- * YouTube: boş satırlar yok sayılır; her bağlantı ayrı doğrulanır (hata yolu: youtubeUrls.<sıra>).
- * Çıktı video kimlikleridir.
- */
-const youtubeUrls = z
-  .preprocess(
-    (v) => (v === undefined ? [] : typeof v === "string" ? [v] : v),
-    z.array(z.string().max(500, "Bağlantı çok uzun.")),
-  )
-  .transform((urls, ctx) => {
-    const ids: string[] = [];
-    urls.forEach((raw, i) => {
-      if (!raw.trim()) return;
-      const id = parseYouTubeId(raw);
-      if (!id) {
-        ctx.addIssue({
-          code: "custom",
-          path: [i],
-          message: "Geçerli bir YouTube video bağlantısı girin.",
-        });
-      } else if (ids.includes(id)) {
-        ctx.addIssue({ code: "custom", path: [i], message: "Bu video zaten eklendi." });
-      } else {
-        ids.push(id);
-      }
-    });
-    if (ids.length > L.youtubeMax) {
-      ctx.addIssue({ code: "custom", message: `En fazla ${L.youtubeMax} video eklenebilir.` });
+/** YouTube: tek video (isteğe bağlı). Çıktı video kimliği listesidir (0 veya 1 öğe). */
+const youtubeUrl = z
+  .preprocess(blankToUndefined, z.string().trim().max(500, "Bağlantı çok uzun.").optional())
+  .transform((raw, ctx) => {
+    if (raw === undefined) return [] as string[];
+    const id = parseYouTubeId(raw);
+    if (!id) {
+      ctx.addIssue({ code: "custom", message: "Geçerli bir YouTube video bağlantısı girin." });
+      return z.NEVER;
     }
-    return ids;
+    return [id];
   });
 
 const POOL_DIMENSIONS = [
@@ -208,42 +221,20 @@ export const propertyInput = z
         .regex(LICENSE_PATTERN, "Belge numarasında yalnız harf, rakam, boşluk, - / . kullanın.")
         .optional(),
     ),
-    youtubeUrls,
+    youtubeUrl,
     ...rawPoolFields,
     poolSwimmingProtected: z.unknown().optional(),
     maxGuests: int(L.guestsMin, L.guestsMax, "Kişi kapasitesi"),
     bedrooms: int(0, L.roomsMax, "Yatak odası sayısı"),
     bathrooms: int(0, L.roomsMax, "Banyo sayısı"),
-    bedsDouble: intDefaultZero(L.bedsMax, "Çift kişilik yatak"),
-    bedsSingle: intDefaultZero(L.bedsMax, "Tek kişilik yatak"),
-    bedsSofa: intDefaultZero(L.bedsMax, "Çekyat / kanepe yatak"),
     province: z.enum(TR_PROVINCES, { error: "İl seçin." }),
     district: text(2, L.placeMax, "İlçe"),
     neighborhood: optionalText(L.neighborhoodMax, "Mahalle / köy"),
-    addressLine: optionalText(L.addressMax, "Açık adres"),
-    postalCode: z.preprocess(
-      blankToUndefined,
-      z
-        .string()
-        .trim()
-        .regex(/^[0-9]{5}$/, "Posta kodu 5 haneli olmalı.")
-        .optional(),
-    ),
-    latitude: coordinate(-90, 90, "Enlem"),
-    longitude: coordinate(-180, 180, "Boylam"),
+    mapLocation,
+    ...distanceFields,
   })
   .superRefine((v, ctx) => {
     for (const issue of poolIssues(v)) ctx.addIssue({ code: "custom", ...issue });
-  })
-  .superRefine((v, ctx) => {
-    if ((v.latitude === undefined) !== (v.longitude === undefined)) {
-      const path = v.latitude === undefined ? "latitude" : "longitude";
-      ctx.addIssue({
-        code: "custom",
-        path: [path],
-        message: "Enlem ve boylam birlikte girilmeli.",
-      });
-    }
   });
 
 /** Ham havuz alanları → yapılandırılmış havuz bilgisi ("yok" iken ölçüler yok sayılır). */
@@ -278,25 +269,21 @@ export function parsePropertyInput(input: unknown) {
   return result;
 }
 
-/** Formdaki alan adları (FormData → nesne). */
+/** Formdaki alan adları (FormData → nesne). Hepsi tek değerli metindir. */
 export const PROPERTY_FIELDS = [
   "name",
   "propertyType",
   "description",
   "tourismLicenseNo",
+  "youtubeUrl",
   "maxGuests",
   "bedrooms",
   "bathrooms",
-  "bedsDouble",
-  "bedsSingle",
-  "bedsSofa",
   "province",
   "district",
   "neighborhood",
-  "addressLine",
-  "postalCode",
-  "latitude",
-  "longitude",
+  "mapLocation",
+  ...DISTANCE_KEYS,
   "poolSwimming",
   "poolSwimmingDepth",
   "poolSwimmingWidth",
@@ -314,8 +301,8 @@ export const PROPERTY_FIELDS = [
 
 export type PropertyField = (typeof PROPERTY_FIELDS)[number];
 
-/** Form değerleri: tek değerli alanlar metin, YouTube bağlantıları liste. */
-export type PropertyFormRaw = Record<PropertyField, string> & { youtubeUrls: string[] };
+/** Form değerleri: tüm alanlar metin. */
+export type PropertyFormRaw = Record<PropertyField, string>;
 
 export function propertyFormValues(data: FormData): PropertyFormRaw {
   const out = {} as PropertyFormRaw;
@@ -323,10 +310,6 @@ export function propertyFormValues(data: FormData): PropertyFormRaw {
     const v = data.get(k);
     out[k] = typeof v === "string" ? v : "";
   }
-  out.youtubeUrls = data
-    .getAll("youtubeUrls")
-    .filter((v): v is string => typeof v === "string")
-    .slice(0, 50);
   return out;
 }
 

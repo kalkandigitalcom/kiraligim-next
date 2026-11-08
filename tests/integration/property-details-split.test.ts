@@ -53,7 +53,7 @@ const as = <T>(u: U, ws: string, fn: (tx: Tx, ctx: TenantContext) => Promise<T>)
 const row = async (id: string) =>
   (
     await admin.query(
-      `select name, max_guests, district, description, description_html, latitude::text, longitude::text,
+      `select name, max_guests, district, description, description_html, map_embed_url, distance_beach_km::text,
               pool_swimming, pool_swimming_depth::text, pool_swimming_protected, youtube_video_ids,
               public_slug, is_public, public_published_at, amenities, check_in_time::text,
               check_out_time::text, house_rules, cancellation_policy, payment_terms, updated_at
@@ -99,10 +99,10 @@ beforeAll(async () => {
       province: "Antalya",
       district: "Kaş",
       neighborhood: "Kalkan",
-      latitude: "36.265512",
-      longitude: "29.414301",
+      mapLocation: "https://www.google.com/maps/@36.265512,29.414301,15z",
+      distanceBeachKm: "0,8",
       description: "<p>Denize <strong>400 m</strong>.</p>",
-      youtubeUrls: ["https://youtu.be/aBcDeFgHiJ0"],
+      youtubeUrl: "https://youtu.be/aBcDeFgHiJ0",
       poolSwimming: "yes",
       poolSwimmingDepth: "1,55",
       poolSwimmingWidth: "4",
@@ -139,8 +139,8 @@ describe("olanaklar ve konaklama bilgileri (updateStayDetails)", () => {
       "max_guests",
       "district",
       "description_html",
-      "latitude",
-      "longitude",
+      "map_embed_url",
+      "distance_beach_km",
       "pool_swimming_depth",
       "pool_swimming_protected",
       "youtube_video_ids",
@@ -323,13 +323,13 @@ describe("mülk alanlarını parça parça kaydetme (updatePropertyFields)", () 
     const p = (await as(O, ws, (tx) => getProperty(tx, prop)))!;
     const raw = propertyToRaw(p);
     expect(raw).toMatchObject({
-      latitude: "36.265512",
-      longitude: "29.414301",
+      mapLocation: "https://www.google.com/maps?q=36.265512,29.414301&z=16&output=embed",
+      distanceBeachKm: "0,8",
       poolSwimming: "yes",
       poolSwimmingDepth: "1,55",
       poolSwimmingLength: "9,25",
       poolSwimmingProtected: "yes",
-      youtubeUrls: ["https://www.youtube.com/watch?v=aBcDeFgHiJ0"],
+      youtubeUrl: "https://www.youtube.com/watch?v=aBcDeFgHiJ0",
     });
     const before = await row(prop);
     expect((await as(O, ws, (tx, ctx) => updateProperty(tx, ctx, prop, raw))).changed).toBe(0);
@@ -338,7 +338,7 @@ describe("mülk alanlarını parça parça kaydetme (updatePropertyFields)", () 
     expect(await audits(ws, "property.updated")).toEqual([]);
   });
 
-  it("yalnız verilen alan değişir; havuz, koordinat, açıklama, video ve sayfa ayarları korunur", async () => {
+  it("yalnız verilen alan değişir; havuz, harita, mesafe, açıklama, video ve sayfa ayarları korunur", async () => {
     const before = await row(prop);
     const r = await as(M, ws, (tx, ctx) =>
       updatePropertyFields(tx, ctx, prop, { name: "Defne Konak", maxGuests: "10", bogus: "x" }),
@@ -350,8 +350,8 @@ describe("mülk alanlarını parça parça kaydetme (updatePropertyFields)", () 
       "district",
       "description",
       "description_html",
-      "latitude",
-      "longitude",
+      "map_embed_url",
+      "distance_beach_km",
       "pool_swimming",
       "pool_swimming_depth",
       "pool_swimming_protected",

@@ -6,6 +6,8 @@
  * değerlerle tamamlanır (src/server/properties/property-fields.ts).
  */
 
+import { DISTANCE_KEYS } from "./villa-extras";
+
 export const WIZARD_STEPS = ["temel", "aciklama", "olanaklar", "konaklama", "kontrol"] as const;
 export type WizardStep = (typeof WIZARD_STEPS)[number];
 
@@ -62,39 +64,25 @@ const POOL_FIELDS = [
   "poolKidsLength",
 ] as const;
 
-/** Adım 1: temel bilgiler + "Yalnız sizin için" bölümü. */
+/** Adım 1: villa, konum (harita), kapasite ve yakın yerlere mesafeler. */
 export const BASICS_FIELDS = [
   "name",
   "propertyType",
+  "tourismLicenseNo",
   "province",
   "district",
   "neighborhood",
+  "mapLocation",
   "maxGuests",
   "bedrooms",
   "bathrooms",
-  "bedsDouble",
-  "bedsSingle",
-  "bedsSofa",
-  "addressLine",
-  "postalCode",
-  "latitude",
-  "longitude",
-  "tourismLicenseNo",
+  ...DISTANCE_KEYS,
 ] as const;
 
-/** "Yalnız sizin için" bölümündeki alanlar (misafire gösterilmez). */
-export const PRIVATE_FIELDS = [
-  "addressLine",
-  "postalCode",
-  "latitude",
-  "longitude",
-  "tourismLicenseNo",
-] as const;
-
-/** Mülk alanları (properties tablosu) adım bazında. YouTube listesi 2. adımdadır. */
+/** Mülk alanları (properties tablosu) adım bazında. */
 export const STEP_PROPERTY_FIELDS: Record<EditStep, readonly string[]> = {
   temel: BASICS_FIELDS,
-  aciklama: ["description"],
+  aciklama: ["description", "youtubeUrl"],
   olanaklar: POOL_FIELDS,
   konaklama: [],
 };
@@ -104,13 +92,23 @@ export const STEP_STAY_FIELDS: Record<EditStep, readonly string[]> = {
   temel: [],
   aciklama: [],
   olanaklar: ["amenities"],
-  konaklama: ["checkInTime", "checkOutTime", "houseRules", "cancellationPolicy", "paymentTerms"],
+  konaklama: [
+    "checkInTime",
+    "checkOutTime",
+    "houseRuleKeys",
+    "houseRules",
+    "priceIncludes",
+    "cancellationPolicy",
+    "paymentTerms",
+  ],
 };
 
-/** Hata alanı → adım ("youtubeUrls.2" gibi sıralı anahtarlar dahil). */
+/** Çoklu seçim (onay kutusu) alanları: FormData'dan liste olarak okunur. */
+export const LIST_FIELDS: readonly string[] = ["amenities", "houseRuleKeys", "priceIncludes"];
+
+/** Hata alanı → adım. */
 export function stepOfField(field: string): EditStep | null {
   const base = field.split(".")[0]!;
-  if (base === "youtubeUrls") return "aciklama";
   for (const s of ["temel", "aciklama", "olanaklar", "konaklama"] as const) {
     if (STEP_PROPERTY_FIELDS[s].includes(base) || STEP_STAY_FIELDS[s].includes(base)) return s;
   }
@@ -133,16 +131,9 @@ export function wizardFormValues(
   const out: Record<string, string | string[]> = {};
   for (const k of STEP_PROPERTY_FIELDS[step]) out[k] = text(data, k);
   for (const k of STEP_STAY_FIELDS[step]) {
-    out[k] =
-      k === "amenities"
-        ? data.getAll(k).filter((v): v is string => typeof v === "string")
-        : text(data, k);
-  }
-  if (step === "aciklama") {
-    out.youtubeUrls = data
-      .getAll("youtubeUrls")
-      .filter((v): v is string => typeof v === "string")
-      .slice(0, 50);
+    out[k] = LIST_FIELDS.includes(k)
+      ? data.getAll(k).filter((v): v is string => typeof v === "string")
+      : text(data, k);
   }
   return out;
 }
@@ -153,20 +144,21 @@ export const EMPTY_PROPERTY_VALUES = {
   propertyType: "villa",
   description: "",
   tourismLicenseNo: "",
-  youtubeUrls: [] as string[],
+  youtubeUrl: "",
   maxGuests: "",
   bedrooms: "",
   bathrooms: "",
-  bedsDouble: "0",
-  bedsSingle: "0",
-  bedsSofa: "0",
   province: "",
   district: "",
   neighborhood: "",
-  addressLine: "",
-  postalCode: "",
-  latitude: "",
-  longitude: "",
+  mapLocation: "",
+  distanceMarketKm: "",
+  distanceRestaurantKm: "",
+  distanceCenterKm: "",
+  distanceBeachKm: "",
+  distanceAirportAytKm: "",
+  distanceAirportDlmKm: "",
+  distanceHealthKm: "",
   poolSwimming: "no",
   poolSwimmingDepth: "",
   poolSwimmingWidth: "",

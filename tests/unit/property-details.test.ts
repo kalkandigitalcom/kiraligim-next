@@ -63,46 +63,27 @@ describe("YouTube bağlantıları", () => {
     expect(youtubeWatchUrl("dQw4w9WgXcQ")).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
   });
 
-  it("form: boş satırlar atlanır, kimlikler sırayla, geçersiz/yinelenen satır sırasıyla raporlanır", () => {
-    const ok = propertyInput.parse({
-      ...base,
-      youtubeUrls: [
-        "",
-        "https://youtu.be/dQw4w9WgXcQ",
-        "  ",
-        "https://www.youtube.com/shorts/a_b-C1d2E3f",
-      ],
-    });
-    expect(ok.youtubeUrls).toEqual(["dQw4w9WgXcQ", "a_b-C1d2E3f"]);
-    expect(propertyInput.parse(base).youtubeUrls).toEqual([]);
+  it("form: tek video; boş → yok; geçersiz → alan hatası (birden çok video alanı yok)", () => {
     expect(
-      errorsOf({
-        youtubeUrls: [
-          "https://youtu.be/dQw4w9WgXcQ",
-          "https://vimeo.com/1",
-          "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        ],
-      }),
-    ).toEqual({
-      "youtubeUrls.1": "Geçerli bir YouTube video bağlantısı girin.",
-      "youtubeUrls.2": "Bu video zaten eklendi.",
+      propertyInput.parse({ ...base, youtubeUrl: "https://www.youtube.com/shorts/a_b-C1d2E3f" })
+        .youtubeUrl,
+    ).toEqual(["a_b-C1d2E3f"]);
+    expect(propertyInput.parse(base).youtubeUrl).toEqual([]);
+    expect(errorsOf({ youtubeUrl: "https://vimeo.com/1" })).toMatchObject({
+      youtubeUrl: "Geçerli bir YouTube video bağlantısı girin.",
     });
-    const many = Array.from(
-      { length: 11 },
-      (_, i) => `https://youtu.be/abcdefghi${String(i).padStart(2, "0")}`,
-    );
-    expect(errorsOf({ youtubeUrls: many })).toEqual({
-      youtubeUrls: "En fazla 10 video eklenebilir.",
-    });
+    // Eski çoklu alan artık okunmaz.
+    expect(
+      propertyInput.parse({ ...base, youtubeUrls: ["https://youtu.be/dQw4w9WgXcQ"] }).youtubeUrl,
+    ).toEqual([]);
   });
 
-  it("FormData: aynı adlı alanlar liste olarak okunur", () => {
+  it("FormData: tek değerli alanlar", () => {
     const fd = new FormData();
-    fd.append("youtubeUrls", "https://youtu.be/dQw4w9WgXcQ");
-    fd.append("youtubeUrls", "");
+    fd.append("youtubeUrl", "https://youtu.be/dQw4w9WgXcQ");
     fd.set("poolKids", "yes");
     const v = propertyFormValues(fd);
-    expect(v.youtubeUrls).toEqual(["https://youtu.be/dQw4w9WgXcQ", ""]);
+    expect(v.youtubeUrl).toBe("https://youtu.be/dQw4w9WgXcQ");
     expect(v.poolKids).toBe("yes");
     expect(v.tourismLicenseNo).toBe("");
   });

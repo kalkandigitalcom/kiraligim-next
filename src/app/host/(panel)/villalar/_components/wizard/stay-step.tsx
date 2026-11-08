@@ -1,15 +1,25 @@
 "use client";
 
+import { ListChecks, ReceiptText } from "lucide-react";
+
 import { Field, TextareaField } from "@/components/ui/field";
 import { PUBLIC_PROFILE_LIMITS as L } from "@/lib/public-profile-meta";
+import { HOUSE_RULES, PRICE_INCLUDES } from "@/lib/villa-extras";
 
 import type { WizardValues } from "../../actions";
+import { ChoiceCards } from "./choice-cards";
 import { StepCard } from "./step-card";
 import { type WizardAction, WizardFooter, WizardForm, useWizardForm } from "./wizard-form";
 
 export type StayValues = Pick<
   WizardValues,
-  "checkInTime" | "checkOutTime" | "houseRules" | "cancellationPolicy" | "paymentTerms"
+  | "checkInTime"
+  | "checkOutTime"
+  | "houseRuleKeys"
+  | "houseRules"
+  | "priceIncludes"
+  | "cancellationPolicy"
+  | "paymentTerms"
 >;
 
 type Props = {
@@ -20,7 +30,10 @@ type Props = {
   nextHref: string | null;
 };
 
-/** 4. adım: giriş-çıkış saatleri, ev kuralları, iptal ve ödeme koşulları. */
+/**
+ * 4. adım: giriş-çıkış saatleri, ev kuralları (hazır seçenekler + ek not), fiyata dahil olanlar,
+ * iptal ve ödeme koşulları.
+ */
 export function StayStep({ action, initial, readOnly, prevHref, nextHref }: Props) {
   const { state, formAction, pending, v, fe } = useWizardForm(action, initial);
   return (
@@ -56,18 +69,49 @@ export function StayStep({ action, initial, readOnly, prevHref, nextHref }: Prop
         </StepCard>
         <StepCard
           id="kural-baslik"
-          title="Kurallar ve koşullar"
-          description="Bu metinler villa sayfasında misafire aynen gösterilir."
+          title="Ev kuralları"
+          icon={<ListChecks className="size-4" />}
+          description="Villanız için geçerli olanları işaretleyin. Seçtikleriniz villa sayfasında listelenir."
         >
+          <ChoiceCards
+            name="houseRuleKeys"
+            options={HOUSE_RULES}
+            selected={v.houseRuleKeys}
+            labelledBy="kural-baslik"
+          />
+          {fe.houseRuleKeys ? <p className="text-sm text-destructive">{fe.houseRuleKeys}</p> : null}
           <TextareaField
             id="houseRules"
             name="houseRules"
-            label="Ev kuralları (isteğe bağlı)"
+            label="Ek not (isteğe bağlı)"
             defaultValue={v.houseRules}
             maxLength={L.houseRulesMax}
             error={fe.houseRules}
-            placeholder="Ör. Evcil hayvan kabul edilmez. 23:00'ten sonra yüksek sesle müzik yapılmaz."
+            className="min-h-20"
+            placeholder="Ör. Sessizlik saatleri 23:00–08:00 arasıdır."
           />
+        </StepCard>
+
+        <StepCard
+          id="dahil-baslik"
+          title="Fiyata dahil olanlar"
+          icon={<ReceiptText className="size-4" />}
+          description="Bilgi amaçlıdır; fiyat hesabını değiştirmez. Fiyat dönemlerinde temizlik ücreti girdiyseniz Temizlik'i işaretlemeyin."
+        >
+          <ChoiceCards
+            name="priceIncludes"
+            options={PRICE_INCLUDES}
+            selected={v.priceIncludes}
+            labelledBy="dahil-baslik"
+          />
+          {fe.priceIncludes ? <p className="text-sm text-destructive">{fe.priceIncludes}</p> : null}
+        </StepCard>
+
+        <StepCard
+          id="kosul-baslik"
+          title="İptal ve ödeme koşulları"
+          description="Bu metinler villa sayfasında misafire aynen gösterilir."
+        >
           <TextareaField
             id="cancellationPolicy"
             name="cancellationPolicy"

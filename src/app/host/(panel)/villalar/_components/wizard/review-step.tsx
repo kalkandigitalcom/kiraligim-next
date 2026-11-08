@@ -5,6 +5,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { formatMeters, POOL_KINDS, POOL_LABELS, PROPERTY_TYPE_LABELS } from "@/lib/property-meta";
 import { type EditStep, stepHref, WIZARD_STEP_LABELS } from "@/lib/property-wizard";
 import { AMENITY_LABELS, orderAmenities } from "@/lib/public-profile-meta";
+import {
+  DISTANCE_KEYS,
+  DISTANCE_LABELS,
+  formatDistance,
+  HOUSE_RULE_LABELS,
+  PRICE_INCLUDE_LABELS,
+} from "@/lib/villa-extras";
 import type { PublicProfile } from "@/server/properties/public-profile";
 import type { Property } from "@/server/properties/service";
 
@@ -34,7 +41,10 @@ export function missingItems(p: Property, pp: PublicProfile): Missing[] {
   if (!pp.checkInTime || !pp.checkOutTime) {
     out.push({ step: "konaklama", text: "Giriş ve çıkış saatlerini girin" });
   }
-  if (!pp.houseRules) out.push({ step: "konaklama", text: "Ev kurallarını yazın" });
+  if (!p.mapEmbedUrl) out.push({ step: "temel", text: "Haritada villanızın yerini ekleyin" });
+  if (pp.houseRuleKeys.length === 0 && !pp.houseRules) {
+    out.push({ step: "konaklama", text: "Ev kurallarını işaretleyin" });
+  }
   if (!pp.cancellationPolicy) out.push({ step: "konaklama", text: "İptal koşullarını yazın" });
   if (!pp.paymentTerms) out.push({ step: "konaklama", text: "Ödeme koşullarını yazın" });
   return out;
@@ -46,6 +56,18 @@ const excerpt = (v: string | null, n = 180) => {
   const t = v.replace(/\s+/g, " ").trim();
   return t.length > n ? `${t.slice(0, n).trimEnd()}…` : t;
 };
+
+function Chips({ labels }: { labels: string[] }) {
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {labels.map((l) => (
+        <span key={l} className="rounded-full bg-mist px-2.5 py-0.5 text-xs">
+          {l}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -107,6 +129,10 @@ export function ReviewStep({ property: p, profile: pp, canManage, statusAction }
     return `${POOL_LABELS[k]}${extra ? ` (${extra})` : ""}`;
   });
   const place = [p.neighborhood, p.district, p.province].filter(Boolean).join(", ");
+  const distances = DISTANCE_KEYS.flatMap((key) => {
+    const km = p.distances[key];
+    return km === null ? [] : [{ key, km }];
+  });
   const published = pp.visibility.state === "published";
 
   return (
@@ -177,22 +203,13 @@ export function ReviewStep({ property: p, profile: pp, canManage, statusAction }
         <Row label="Kapasite">
           {p.maxGuests} kişi · {p.bedrooms} yatak odası · {p.bathrooms} banyo
         </Row>
-        <Row label="Yataklar">
-          {p.bedsDouble} çift kişilik · {p.bedsSingle} tek kişilik · {p.bedsSofa} çekyat
+        <Row label="Harita">{p.mapEmbedUrl ? "Eklendi" : "—"}</Row>
+        <Row label="Mesafeler">
+          {distances.length === 0
+            ? "—"
+            : distances.map((d) => `${DISTANCE_LABELS[d.key]} ${formatDistance(d.km)}`).join(" · ")}
         </Row>
-        <Row label="Yalnız sizin için">
-          <span className="flex flex-col gap-0.5">
-            <span>Açık adres: {dash(p.addressLine)}</span>
-            <span>Posta kodu: {dash(p.postalCode)}</span>
-            <span>
-              Harita konumu:{" "}
-              {p.latitude !== null && p.longitude !== null
-                ? `${p.latitude.toFixed(6)}, ${p.longitude.toFixed(6)}`
-                : "—"}
-            </span>
-            <span>Belge no: {dash(p.tourismLicenseNo)}</span>
-          </span>
-        </Row>
+        <Row label="Belge no">{dash(p.tourismLicenseNo)}</Row>
       </Summary>
 
       <Summary step="aciklama" propertyId={p.id} canManage={canManage}>
@@ -200,9 +217,7 @@ export function ReviewStep({ property: p, profile: pp, canManage, statusAction }
         <Row label="Fotoğraflar">
           {pp.photoCount === 0 ? "Henüz fotoğraf yok" : `${pp.photoCount} fotoğraf`}
         </Row>
-        <Row label="Videolar">
-          {p.youtubeVideoIds.length === 0 ? "—" : `${p.youtubeVideoIds.length} video`}
-        </Row>
+        <Row label="Video">{p.youtubeVideoIds.length === 0 ? "—" : "Eklendi"}</Row>
       </Summary>
 
       <Summary step="olanaklar" propertyId={p.id} canManage={canManage}>
@@ -226,7 +241,23 @@ export function ReviewStep({ property: p, profile: pp, canManage, statusAction }
         <Row label="Giriş / çıkış">
           {dash(pp.checkInTime)} / {dash(pp.checkOutTime)}
         </Row>
-        <Row label="Ev kuralları">{excerpt(pp.houseRules)}</Row>
+        <Row label="Ev kuralları">
+          {pp.houseRuleKeys.length === 0 ? (
+            excerpt(pp.houseRules)
+          ) : (
+            <span className="flex flex-col gap-1">
+              <Chips labels={pp.houseRuleKeys.map((k) => HOUSE_RULE_LABELS[k] ?? k)} />
+              {pp.houseRules ? <span>Ek not: {excerpt(pp.houseRules, 120)}</span> : null}
+            </span>
+          )}
+        </Row>
+        <Row label="Fiyata dahil">
+          {pp.priceIncludes.length === 0 ? (
+            "—"
+          ) : (
+            <Chips labels={pp.priceIncludes.map((k) => PRICE_INCLUDE_LABELS[k] ?? k)} />
+          )}
+        </Row>
         <Row label="İptal koşulları">{excerpt(pp.cancellationPolicy)}</Row>
         <Row label="Ödeme koşulları">{excerpt(pp.paymentTerms)}</Row>
       </Summary>

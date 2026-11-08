@@ -11,9 +11,19 @@ import { type TenantContext, type Tx, withTenant } from "@/db/tenant";
 import { EMPTY_PROPERTY_VALUES, wizardFormValues } from "@/lib/property-wizard";
 import { plainTextToHtml } from "@/lib/rich-text";
 import { photoPrefix } from "@/server/properties/photos";
-import { saveWizardStep, updateStayFields } from "@/server/properties/property-fields";
-import { publishProperty, updatePublicSlug } from "@/server/properties/public-profile";
-import { createProperty } from "@/server/properties/service";
+import {
+  propertyToRaw,
+  saveWizardStep,
+  stayToRaw,
+  updateStayFields,
+} from "@/server/properties/property-fields";
+import {
+  getPublicProfile,
+  publishProperty,
+  updatePublicProfile,
+  updatePublicSlug,
+} from "@/server/properties/public-profile";
+import { createProperty, getProperty } from "@/server/properties/service";
 import { updateWorkspaceWhatsapp } from "@/server/workspaces/contact";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
@@ -44,8 +54,9 @@ const row = async (id: string) =>
   (
     await admin.query(
       `select name, property_type, province, district, neighborhood, max_guests, bedrooms, bathrooms,
-              beds_double, beds_single, beds_sofa, address_line, postal_code, latitude::text,
-              longitude::text, tourism_license_no, description, description_html, youtube_video_ids,
+              map_embed_url, distance_market_km::text, distance_beach_km::text,
+              distance_airport_dlm_km::text, tourism_license_no, description, description_html,
+              youtube_video_ids, house_rule_keys, price_includes,
               pool_swimming, pool_swimming_depth::text, pool_swimming_width::text,
               pool_swimming_length::text, pool_swimming_protected, pool_indoor, pool_kids,
               public_slug, is_public, public_published_at, amenities, check_in_time::text,
@@ -86,13 +97,13 @@ const BASICS: [string, string][] = [
   ["maxGuests", "8"],
   ["bedrooms", "4"],
   ["bathrooms", "3"],
-  ["bedsDouble", "2"],
-  ["bedsSingle", "2"],
-  ["bedsSofa", "1"],
-  ["addressLine", "Kalkan Mah. 12. Sok. No 4"],
-  ["postalCode", "07960"],
-  ["latitude", "36.265512"],
-  ["longitude", "29.414301"],
+  [
+    "mapLocation",
+    '<iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3196.1!2d29.414301!3d36.265512!2m3!1f0!2f0!3f0" width="600" height="450"></iframe>',
+  ],
+  ["distanceMarketKm", "0,4"],
+  ["distanceBeachKm", "1,2"],
+  ["distanceAirportDlmKm", "112"],
   ["tourismLicenseNo", "07-1234"],
 ];
 
@@ -126,11 +137,14 @@ describe("1. adım ile yeni mülk", () => {
       name: "Defne Villa",
       neighborhood: "Kalkan",
       max_guests: 8,
-      beds_sofa: 1,
-      address_line: "Kalkan Mah. 12. Sok. No 4",
-      postal_code: "07960",
-      latitude: "36.265512",
+      map_embed_url:
+        "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3196.1!2d29.414301!3d36.265512!2m3!1f0!2f0!3f0",
+      distance_market_km: "0.40",
+      distance_beach_km: "1.20",
+      distance_airport_dlm_km: "112.00",
       tourism_license_no: "07-1234",
+      house_rule_keys: [],
+      price_includes: [],
       description: null,
       description_html: null,
       youtube_video_ids: [],
@@ -145,13 +159,13 @@ describe("1. adım ile yeni mülk", () => {
 });
 
 describe("her adım yalnız kendi alanlarını kaydeder", () => {
-  it("2. adım: açıklama ve videolar; başka hiçbir alan değişmez", async () => {
+  it("2. adım: açıklama ve tek video; başka hiçbir alan değişmez", async () => {
     const before = await row(prop);
     const values = wizardFormValues(
       "aciklama",
       form([
         ["description", "<p>Denize <strong>400 m</strong>.</p>"],
-        ["youtubeUrls", "https://youtu.be/aBcDeFgHiJ0"],
+        ["youtubeUrl", "https://youtu.be/aBcDeFgHiJ0"],
         // Başka adımın alanı formda olsa bile okunmaz.
         ["name", "Sızan Ad"],
       ]),
@@ -267,11 +281,16 @@ describe("her adım yalnız kendi alanlarını kaydeder", () => {
     const before = await row(prop);
     const values = wizardFormValues(
       "temel",
-      form(BASICS.map(([k, v]) => [k, k === "maxGuests" ? "10" : k === "postalCode" ? "" : v])),
+      form(
+        BASICS.map(([k, v]) => [k, k === "maxGuests" ? "10" : k === "distanceMarketKm" ? "" : v]),
+      ),
     );
     const r = await as(M, ws, (tx, ctx) => saveWizardStep(tx, ctx, prop, "temel", values));
-    expect(r.changed).toBe(2);
-    expect(diff(before, await row(prop))).toEqual(["max_guests", "postal_code"]);
+    expect(r.changed).toBe(2); // kapasite + mesafeler (tek denetim alanı)
+    expect(diff(before, await row(prop))).toEqual(["distance_market_km", "max_guests"]);
+    expect((await audits(ws, "property.updated")).at(-1)).toEqual({
+      fields: ["max_guests", "distances"],
+    });
   });
 
   it("değişiklik yoksa hiçbir şey yazılmaz", async () => {
@@ -297,6 +316,181 @@ describe("her adım yalnız kendi alanlarını kaydeder", () => {
     expect(await row(prop)).toEqual(before);
     expect((await audits(ws, "property.updated")).length).toBe(nU);
     expect((await audits(ws, "property.public_profile_updated")).length).toBe(nP);
+  });
+});
+
+describe("revizyon: kurallar, fiyata dahil olanlar, harita, eski veriler", () => {
+  it("4. adım: hazır kurallar + ek not + fiyata dahil olanlar kaydedilir ve geri okunur", async () => {
+    const before = await row(prop);
+    const values = wizardFormValues(
+      "konaklama",
+      form([
+        ["checkInTime", "15:00"],
+        ["checkOutTime", "10:00"],
+        ["houseRuleKeys", "parti-yok"],
+        ["houseRuleKeys", "sigara-icilmez"],
+        ["houseRuleKeys", "sigara-icilmez"],
+        ["houseRules", "Sessiz saatler 23:00 sonrası."],
+        ["priceIncludes", "su"],
+        ["priceIncludes", "elektrik"],
+        ["paymentTerms", "%30 ön ödeme."],
+      ]),
+    );
+    const r = await as(O, ws, (tx, ctx) => saveWizardStep(tx, ctx, prop, "konaklama", values));
+    expect(r.changed).toBe(2);
+    const after = await row(prop);
+    expect(diff(before, after)).toEqual(["house_rule_keys", "price_includes"]);
+    // Tekrarsız, katalog sırasıyla.
+    expect(after).toMatchObject({
+      house_rule_keys: ["sigara-icilmez", "parti-yok"],
+      price_includes: ["elektrik", "su"],
+    });
+    expect((await audits(ws, "property.public_profile_updated")).at(-1)).toEqual({
+      fields: ["house_rule_keys", "price_includes"],
+    });
+    const p = await as(S, ws, (tx) => getPublicProfile(tx, prop));
+    expect(p).toMatchObject({
+      houseRuleKeys: ["sigara-icilmez", "parti-yok"],
+      priceIncludes: ["elektrik", "su"],
+    });
+  });
+
+  it("katalog dışı seçim reddedilir; olanaklar adımı kuralları değiştirmez; eski birleşik kayıt da", async () => {
+    const before = await row(prop);
+    const e = await failure(
+      as(O, ws, (tx, ctx) =>
+        saveWizardStep(tx, ctx, prop, "konaklama", { houseRuleKeys: ["yok-boyle-kural"] }),
+      ),
+    );
+    expect(Object.keys(e?.fieldErrors ?? {})).toEqual(["houseRuleKeys"]);
+    await as(O, ws, (tx, ctx) =>
+      saveWizardStep(tx, ctx, prop, "olanaklar", {
+        amenities: ["wifi", "otopark", "klima"],
+        poolSwimming: "yes",
+        poolSwimmingDepth: "1,55",
+        poolSwimmingWidth: "4",
+        poolSwimmingLength: "9,25",
+        poolSwimmingProtected: "yes",
+        poolIndoor: "no",
+        poolKids: "no",
+      }),
+    );
+    await as(O, ws, (tx, ctx) =>
+      updatePublicProfile(tx, ctx, prop, {
+        publicSlug: `a3-villa-${tag}`,
+        amenities: ["wifi", "otopark", "klima"],
+        checkInTime: "15:00",
+        checkOutTime: "10:00",
+        houseRules: "Sessiz saatler 23:00 sonrası.",
+        paymentTerms: "%30 ön ödeme.",
+      }),
+    );
+    expect(await row(prop)).toMatchObject({
+      amenities: ["wifi", "klima", "otopark"],
+      house_rule_keys: before.house_rule_keys,
+      price_includes: before.price_includes,
+    });
+  });
+
+  it("'Evcil hayvan kabul edilmez' kuralı ile 'Evcil hayvan kabul edilir' olanağı birlikte seçilemez", async () => {
+    const pools = {
+      poolSwimming: "yes",
+      poolSwimmingDepth: "1,55",
+      poolSwimmingWidth: "4",
+      poolSwimmingLength: "9,25",
+      poolSwimmingProtected: "yes",
+      poolIndoor: "no",
+      poolKids: "no",
+    };
+    // Önce olanak seçili: kural eklenemez.
+    await as(O, ws, (tx, ctx) =>
+      saveWizardStep(tx, ctx, prop, "olanaklar", { ...pools, amenities: ["wifi", "evcil-hayvan"] }),
+    );
+    let before = await row(prop);
+    let e = await failure(
+      as(O, ws, (tx, ctx) =>
+        saveWizardStep(tx, ctx, prop, "konaklama", { houseRuleKeys: ["evcil-hayvan-yok"] }),
+      ),
+    );
+    expect(e?.code).toBe("VALIDATION");
+    expect(e?.fieldErrors?.houseRuleKeys?.[0]).toMatch(/çelişiyor/);
+    expect(await row(prop)).toEqual(before);
+    // Ters yön: kural seçiliyken olanak eklenemez.
+    await as(O, ws, (tx, ctx) =>
+      saveWizardStep(tx, ctx, prop, "olanaklar", { ...pools, amenities: ["wifi", "otopark"] }),
+    );
+    await as(O, ws, (tx, ctx) =>
+      saveWizardStep(tx, ctx, prop, "konaklama", { houseRuleKeys: ["evcil-hayvan-yok"] }),
+    );
+    before = await row(prop);
+    e = await failure(
+      as(O, ws, (tx, ctx) =>
+        saveWizardStep(tx, ctx, prop, "olanaklar", { ...pools, amenities: ["evcil-hayvan"] }),
+      ),
+    );
+    expect(e?.fieldErrors?.amenities?.[0]).toMatch(/çelişiyor/);
+    expect(await row(prop)).toEqual(before);
+    await as(O, ws, (tx, ctx) =>
+      saveWizardStep(tx, ctx, prop, "konaklama", {
+        houseRuleKeys: ["sigara-icilmez", "parti-yok"],
+      }),
+    );
+  });
+
+  it("harita: alan boşaltılınca kaldırılır; misafir sayfası verisinde gösterilmez", async () => {
+    await as(O, ws, (tx, ctx) =>
+      saveWizardStep(tx, ctx, prop, "temel", { ...Object.fromEntries(BASICS), mapLocation: "" }),
+    );
+    expect((await row(prop)).map_embed_url).toBeNull();
+    await as(O, ws, (tx, ctx) =>
+      saveWizardStep(tx, ctx, prop, "temel", Object.fromEntries(BASICS)),
+    );
+    expect((await row(prop)).map_embed_url).toMatch(
+      /^https:\/\/www\.google\.com\/maps\/embed\?pb=/,
+    );
+  });
+
+  it("1. aşama: eski kolonlar (yatak, açık adres, posta kodu, koordinat) okunmaz/yazılmaz, değerleri korunur", async () => {
+    await admin.query(
+      `update properties set beds_double = 3, beds_single = 2, beds_sofa = 1,
+              address_line = 'Gizli adres 1', postal_code = '07960',
+              latitude = 36.111111, longitude = 29.222222 where id = $1`,
+      [prop],
+    );
+    const legacy = async () =>
+      (
+        await admin.query(
+          `select beds_double, beds_single, beds_sofa, address_line, postal_code,
+                  latitude::text, longitude::text from properties where id = $1`,
+          [prop],
+        )
+      ).rows[0];
+    const before = await legacy();
+    for (const step of ["temel", "aciklama", "olanaklar", "konaklama"] as const) {
+      const p = (await as(O, ws, (tx) => getProperty(tx, prop)))!;
+      const raw = {
+        ...propertyToRaw(p),
+        ...stayToRaw((await as(O, ws, (tx) => getPublicProfile(tx, prop)))!),
+      };
+      await as(O, ws, (tx, ctx) =>
+        saveWizardStep(tx, ctx, prop, step, {
+          ...raw,
+          // Kötü niyetli istemci eski alanları gönderse de yazılmaz.
+          bedsDouble: "9",
+          addressLine: "Sızan",
+          latitude: "1",
+          longitude: "1",
+          maxGuests: step === "temel" ? "7" : raw.maxGuests,
+        }),
+      );
+    }
+    expect(await legacy()).toEqual(before);
+    expect(before).toMatchObject({ beds_double: 3, address_line: "Gizli adres 1" });
+    // Uygulama nesnesinde eski alanlar yok.
+    const p = (await as(O, ws, (tx) => getProperty(tx, prop)))!;
+    for (const k of ["bedsDouble", "addressLine", "postalCode", "latitude", "longitude"]) {
+      expect(p, k).not.toHaveProperty(k);
+    }
   });
 });
 

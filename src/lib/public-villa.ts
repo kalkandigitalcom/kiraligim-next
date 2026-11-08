@@ -3,11 +3,13 @@
  * sunucu servisi (src/server/public/villa.ts) ve tarayıcı bileşenleri aynı tipleri kullanır.
  *
  * Bu nesnede YALNIZ public sayfanın göstereceği alanlar bulunur: misafir/rezervasyon bilgisi,
- * açık adres, koordinat, posta kodu, belge numarası, işletme adı ve kimliği yoktur. Dolu tarihler
+ * belge numarası, işletme adı ve kimliği yoktur. Konum yalnız mahalle/ilçe/il ve sahibin
+ * misafire göstermek için eklediği Google Haritalar gömme adresidir. Dolu tarihler
  * rezervasyon/blok ayrımı yapılmadan birleşik aralıklardır.
  */
 import { addDays, type Currency } from "./reservation-meta";
 import type { RatePeriod } from "./rate-meta";
+import type { DistanceKey } from "./villa-extras";
 
 export const PUBLIC_BOOKING = {
   /** Takvim bugünden bu kadar ay ileriye açılır (son giriş günü). */
@@ -43,17 +45,26 @@ export type PublicVilla = {
   propertyType: string;
   descriptionHtml: string | null;
   descriptionText: string | null;
-  youtubeVideoIds: string[];
+  /** Tek YouTube videosu (kimlik); yoksa null. */
+  youtubeVideoId: string | null;
   maxGuests: number;
   bedrooms: number;
   bathrooms: number;
-  beds: { double: number; single: number; sofa: number };
   location: { province: string; district: string; neighborhood: string | null };
+  /** Doğrulanmış Google Haritalar gömme adresi (src/lib/map-embed.ts); yoksa null. */
+  mapEmbedUrl: string | null;
+  /** Girilmiş mesafeler, katalog sırasıyla (km). */
+  distances: { key: DistanceKey; km: number }[];
   pools: { swimming: PublicPool | null; indoor: PublicPool | null; kids: PublicPool | null };
   amenities: string[];
   checkInTime: string | null;
   checkOutTime: string | null;
+  /** Hazır ev kuralları (katalog sırasıyla, katalog dışı anahtarlar atlanır). */
+  houseRuleKeys: string[];
+  /** Ev kuralları ek notu (serbest metin). */
   houseRules: string | null;
+  /** Fiyata dahil olanlar (bilgi amaçlı; katalog sırasıyla). */
+  priceIncludes: string[];
   cancellationPolicy: string | null;
   paymentTerms: string | null;
   /** İşletme WhatsApp numarası (+905321234567). */

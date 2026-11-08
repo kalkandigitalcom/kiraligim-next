@@ -1,17 +1,13 @@
 "use client";
 
-import { Lock } from "lucide-react";
+import { CircleCheck, MapPin, Route } from "lucide-react";
 import { useState } from "react";
 
 import { Field, SelectField, TextareaField } from "@/components/ui/field";
-import {
-  mapLink,
-  PROPERTY_LIMITS as L,
-  PROPERTY_TYPE_LABELS,
-  PROPERTY_TYPES,
-} from "@/lib/property-meta";
-import { PRIVATE_FIELDS } from "@/lib/property-wizard";
+import { MAP_INPUT_MAX, MAP_PARSE_MESSAGES, parseMapInput } from "@/lib/map-embed";
+import { PROPERTY_LIMITS as L, PROPERTY_TYPE_LABELS, PROPERTY_TYPES } from "@/lib/property-meta";
 import { TR_PROVINCES_SORTED } from "@/lib/tr-provinces";
+import { DISTANCE_KEYS, DISTANCE_LABELS, type DistanceKey } from "@/lib/villa-extras";
 
 import type { WizardValues } from "../../actions";
 import { StepCard } from "./step-card";
@@ -21,20 +17,15 @@ export type BasicsValues = Pick<
   WizardValues,
   | "name"
   | "propertyType"
+  | "tourismLicenseNo"
   | "province"
   | "district"
   | "neighborhood"
+  | "mapLocation"
   | "maxGuests"
   | "bedrooms"
   | "bathrooms"
-  | "bedsDouble"
-  | "bedsSingle"
-  | "bedsSofa"
-  | "addressLine"
-  | "postalCode"
-  | "latitude"
-  | "longitude"
-  | "tourismLicenseNo"
+  | DistanceKey
 >;
 
 type Props = {
@@ -49,20 +40,13 @@ type Props = {
 const typeOptions = PROPERTY_TYPES.map((t) => ({ value: t, label: PROPERTY_TYPE_LABELS[t] }));
 const provinceOptions = TR_PROVINCES_SORTED.map((p) => ({ value: p, label: p }));
 
-function parseCoord(v: string, min: number, max: number): number | null {
-  if (!v.trim()) return null;
-  const n = Number(v.replace(",", "."));
-  return Number.isFinite(n) && n >= min && n <= max ? n : null;
-}
-
 function NumberField(props: {
-  id: keyof BasicsValues;
+  id: "maxGuests" | "bedrooms" | "bathrooms";
   label: string;
   value: string;
   error: string | undefined;
   min: number;
   max: number;
-  required?: boolean;
 }) {
   return (
     <Field
@@ -75,21 +59,39 @@ function NumberField(props: {
       label={props.label}
       defaultValue={props.value}
       error={props.error}
-      required={props.required}
+      required
     />
   );
 }
 
-/** 1. adım: ad, tür, yer, kapasite, odalar ve yataklar; kapalı "Yalnız sizin için" bölümü. */
+/** Yapıştırılan harita kodunun anında kontrolü (asıl doğrulama sunucuda ve veritabanında). */
+function MapStatus({ text }: { text: string }) {
+  if (!text.trim()) return null;
+  const r = parseMapInput(text);
+  return r.ok ? (
+    <p
+      className="flex items-center gap-1.5 text-sm font-medium text-turquoise-700"
+      data-testid="map-status"
+      data-ok="true"
+    >
+      <CircleCheck aria-hidden className="size-4" />
+      Konum tanındı. Kaydedince villa sayfanızda harita olarak görünür.
+    </p>
+  ) : (
+    <p className="text-sm text-amber-800" data-testid="map-status" data-ok="false">
+      {MAP_PARSE_MESSAGES[r.error]}
+    </p>
+  );
+}
+
+/** 1. adım: villa, konum ve harita, kapasite, yakın yerlere mesafeler. */
 export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, cancel }: Props) {
   const { state, formAction, pending, v, fe } = useWizardForm(action, initial);
-  // Yalnız "Haritada aç" bağlantısını canlı göstermek için izlenir; değerler formdan gönderilir.
-  const [lat, setLat] = useState(v.latitude);
-  const [lng, setLng] = useState(v.longitude);
-  const la = parseCoord(lat, -90, 90);
-  const lo = parseCoord(lng, -180, 180);
-  const privateError = PRIVATE_FIELDS.some((k) => fe[k]);
-  const privateFilled = PRIVATE_FIELDS.filter((k) => v[k].trim() !== "").length;
+  // Yalnız anında geri bildirim için izlenir; değer formdan gönderilir.
+  const [mapText, setMapText] = useState(v.mapLocation);
+  // Kullanıcı alanı değiştirdiyse sunucunun önceki hatası yerine anında kontrol gösterilir.
+  const mapEdited = mapText !== v.mapLocation;
+  const mapError = mapEdited ? undefined : fe.mapLocation;
 
   return (
     <>
@@ -121,6 +123,16 @@ export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, canc
             defaultValue={v.propertyType}
             error={fe.propertyType}
             required
+          />
+          <Field
+            id="tourismLicenseNo"
+            name="tourismLicenseNo"
+            label="Turizm belge numarası (isteğe bağlı)"
+            hint="T.C. Kültür ve Turizm Bakanlığı belgeniz varsa numarasını yazın."
+            maxLength={L.licenseMax}
+            autoComplete="off"
+            defaultValue={v.tourismLicenseNo}
+            error={fe.tourismLicenseNo}
           />
         </StepCard>
 
@@ -161,7 +173,38 @@ export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, canc
           />
         </StepCard>
 
-        <StepCard id="kapasite-baslik" title="Kapasite, odalar ve yataklar">
+        <StepCard
+          id="harita-baslik"
+          title="Harita (isteğe bağlı)"
+          icon={<MapPin className="size-4" />}
+          description="Villanızın yeri misafirlerinize villa sayfasında harita olarak gösterilir."
+        >
+          <ol className="-mt-1 flex list-decimal flex-col gap-1 pl-5 text-sm text-navy-900/80">
+            <li>Google Haritalar&apos;da villanızı bulun.</li>
+            <li>
+              <strong>Paylaş</strong> → <strong>Haritayı yerleştir</strong>&apos;i seçin ve{" "}
+              <strong>HTML&apos;yi kopyala</strong>&apos;ya basın.
+            </li>
+            <li>Kopyaladığınızı aşağıya yapıştırın.</li>
+          </ol>
+          <TextareaField
+            id="mapLocation"
+            name="mapLocation"
+            label="Harita kodu veya bağlantısı"
+            hint="Tarayıcının adres çubuğundaki Google Haritalar bağlantısını da yapıştırabilirsiniz. Haritayı kaldırmak için alanı boşaltın."
+            maxLength={MAP_INPUT_MAX}
+            spellCheck={false}
+            autoComplete="off"
+            className="min-h-24 font-mono text-[13px]"
+            defaultValue={v.mapLocation}
+            onChange={(e) => setMapText(e.target.value)}
+            error={mapError}
+            placeholder='<iframe src="https://www.google.com/maps/embed?pb=…"></iframe>'
+          />
+          {mapError ? null : <MapStatus text={mapText} />}
+        </StepCard>
+
+        <StepCard id="kapasite-baslik" title="Kapasite ve odalar">
           <div className="grid gap-4 sm:grid-cols-3">
             <NumberField
               id="maxGuests"
@@ -170,7 +213,6 @@ export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, canc
               error={fe.maxGuests}
               min={L.guestsMin}
               max={L.guestsMax}
-              required
             />
             <NumberField
               id="bedrooms"
@@ -179,7 +221,6 @@ export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, canc
               error={fe.bedrooms}
               min={0}
               max={L.roomsMax}
-              required
             />
             <NumberField
               id="bathrooms"
@@ -188,138 +229,32 @@ export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, canc
               error={fe.bathrooms}
               min={0}
               max={L.roomsMax}
-              required
-            />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <NumberField
-              id="bedsDouble"
-              label="Çift kişilik yatak"
-              value={v.bedsDouble}
-              error={fe.bedsDouble}
-              min={0}
-              max={L.bedsMax}
-            />
-            <NumberField
-              id="bedsSingle"
-              label="Tek kişilik yatak"
-              value={v.bedsSingle}
-              error={fe.bedsSingle}
-              min={0}
-              max={L.bedsMax}
-            />
-            <NumberField
-              id="bedsSofa"
-              label="Çekyat / kanepe yatak"
-              value={v.bedsSofa}
-              error={fe.bedsSofa}
-              min={0}
-              max={L.bedsMax}
             />
           </div>
         </StepCard>
 
-        <details
-          // Bu bölümde hata varsa açık gelir.
-          open={privateError || undefined}
-          className="group rounded-2xl border border-border bg-white shadow-sm"
-          data-testid="private-section"
+        <StepCard
+          id="mesafe-baslik"
+          title="Yakın yerlere mesafeler (isteğe bağlı)"
+          icon={<Route className="size-4" />}
+          description="Kilometre olarak yazın; bilmediklerinizi boş bırakın. Ör. 1,5"
         >
-          <summary className="flex cursor-pointer list-none items-start gap-3 rounded-2xl p-5 select-none focus-visible:ring-3 focus-visible:ring-turquoise-500/40 focus-visible:outline-none sm:p-6 [&::-webkit-details-marker]:hidden">
-            <span
-              aria-hidden
-              className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-mist text-navy-900"
-            >
-              <Lock className="size-4" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block font-semibold text-navy-900">Yalnız sizin için</span>
-              <span className="mt-0.5 block text-sm text-muted-foreground">
-                Açık adres, posta kodu, harita konumu ve belge numarası. Misafirlere gösterilmez.
-                {privateFilled > 0 ? ` (${privateFilled}/${PRIVATE_FIELDS.length} dolu)` : ""}
-              </span>
-            </span>
-            <span
-              aria-hidden
-              className="mt-1 text-sm font-medium text-turquoise-700 group-open:hidden"
-            >
-              Aç
-            </span>
-            <span
-              aria-hidden
-              className="mt-1 hidden text-sm font-medium text-turquoise-700 group-open:inline"
-            >
-              Kapat
-            </span>
-          </summary>
-          <div className="flex flex-col gap-4 border-t border-border p-5 sm:p-6">
-            <TextareaField
-              id="addressLine"
-              name="addressLine"
-              label="Açık adres (isteğe bağlı)"
-              maxLength={L.addressMax}
-              className="min-h-20"
-              defaultValue={v.addressLine}
-              error={fe.addressLine}
-            />
-            <Field
-              id="postalCode"
-              name="postalCode"
-              label="Posta kodu (isteğe bağlı)"
-              inputMode="numeric"
-              maxLength={5}
-              className="sm:max-w-40"
-              defaultValue={v.postalCode}
-              error={fe.postalCode}
-            />
-            <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+            {DISTANCE_KEYS.map((k) => (
               <Field
-                id="latitude"
-                name="latitude"
-                label="Enlem (isteğe bağlı)"
+                key={k}
+                id={k}
+                name={k}
+                label={`${DISTANCE_LABELS[k]} (km)`}
                 inputMode="decimal"
-                placeholder="36.265100"
-                defaultValue={v.latitude}
-                onChange={(e) => setLat(e.target.value)}
-                error={fe.latitude}
+                maxLength={8}
+                autoComplete="off"
+                defaultValue={v[k]}
+                error={fe[k]}
               />
-              <Field
-                id="longitude"
-                name="longitude"
-                label="Boylam (isteğe bağlı)"
-                inputMode="decimal"
-                placeholder="29.414300"
-                defaultValue={v.longitude}
-                onChange={(e) => setLng(e.target.value)}
-                error={fe.longitude}
-              />
-            </div>
-            <p className="-mt-1 text-sm text-muted-foreground">
-              Telefonunuzdaki harita uygulamasında villanızın üzerine basılı tutun; görünen iki
-              sayıyı (ör. 36.2651 ve 29.4143) buraya yazın.{" "}
-              {la !== null && lo !== null ? (
-                <a
-                  href={mapLink(la, lo)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-turquoise-700 hover:underline"
-                >
-                  Haritada aç
-                  <span className="sr-only"> (yeni sekmede açılır)</span>
-                </a>
-              ) : null}
-            </p>
-            <Field
-              id="tourismLicenseNo"
-              name="tourismLicenseNo"
-              label="T.C. Kültür ve Turizm Bakanlığı Belge No (isteğe bağlı)"
-              maxLength={L.licenseMax}
-              autoComplete="off"
-              defaultValue={v.tourismLicenseNo}
-              error={fe.tourismLicenseNo}
-            />
+            ))}
           </div>
-        </details>
+        </StepCard>
       </WizardForm>
       <WizardFooter
         formId="wizard-form"
