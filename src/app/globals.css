@@ -140,3 +140,306 @@
     color-mix(in srgb, var(--color-navy-900) 18%, transparent) 5px 7px
   );
 }
+
+/*
+ * Tanıtım sitesi (src/app/site/(tanitim)). CSP: satır içi stil yok. Konumlar sabit sınıflardır;
+ * JavaScript yalnız CSSOM üzerinden özel değişken yazar (--py, --rx, --ry), bu CSP'ye tabi değildir.
+ *
+ * Hareket ilkeleri: yalnız transform/opacity; prefers-reduced-motion: reduce iken hiçbiri çalışmaz.
+ * Kaydırma ile belirme (data-reveal) yalnız <html class="motion-ok"> iken gizler: JavaScript
+ * yüklenmezse içerik doğrudan görünür. Paralaks ve eğim yalnız geniş ekran + hassas işaretçide.
+ */
+@utility site-grid {
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--color-navy-900) 5%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--color-navy-900) 5%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 64px 64px;
+}
+
+@utility site-grid-dark {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* Hero ve koyu bölümlerde yumuşak ışık. */
+@utility site-glow {
+  background-image:
+    radial-gradient(60% 50% at 85% 10%, rgb(20 163 168 / 0.18), transparent 70%),
+    radial-gradient(40% 40% at 5% 90%, rgb(14 78 92 / 0.1), transparent 70%);
+}
+
+@utility site-glow-dark {
+  background-image:
+    radial-gradient(50% 60% at 80% 0%, rgb(20 163 168 / 0.28), transparent 70%),
+    radial-gradient(40% 50% at 0% 100%, rgb(20 163 168 / 0.14), transparent 70%);
+}
+
+/* Takvim şeritleri (ürün diliyle aynı). */
+@utility cal-confirmed {
+  background-color: var(--color-turquoise-700);
+  color: white;
+}
+
+@utility cal-pending {
+  background-color: #fef3c7;
+  border: 1.5px dashed #d97706;
+  color: #78350f;
+}
+
+/* Başlıkta vurgulu kelimenin altındaki fırça çizgisi. */
+@utility site-underline {
+  background-image: linear-gradient(
+    transparent 62%,
+    rgb(20 163 168 / 0.28) 62%,
+    rgb(20 163 168 / 0.28) 92%,
+    transparent 92%
+  );
+}
+
+@keyframes site-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes site-pop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes site-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes site-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes site-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes site-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes site-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* Yer çekimi olmayan sınıflar: hareket kapalıyken nötr. */
+.site-parallax {
+  translate: 0 var(--py, 0px);
+}
+
+.site-tilt {
+  transform: perspective(1600px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 0.4s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .site-rise {
+    animation: site-rise 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .site-pop {
+    animation: site-pop 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .site-d1 {
+    animation-delay: 0.08s;
+  }
+  .site-d2 {
+    animation-delay: 0.16s;
+  }
+  .site-d3 {
+    animation-delay: 0.24s;
+  }
+  .site-d4 {
+    animation-delay: 0.45s;
+  }
+  .site-d5 {
+    animation-delay: 0.7s;
+  }
+  .site-d6 {
+    animation-delay: 0.95s;
+  }
+  .site-float {
+    animation: site-float 6s ease-in-out infinite;
+  }
+  .site-float-slow {
+    animation: site-float 8s ease-in-out 1.2s infinite;
+  }
+  .site-marquee {
+    animation: site-marquee 40s linear infinite;
+  }
+  .site-marquee:hover {
+    animation-play-state: paused;
+  }
+  .site-blink {
+    animation: site-pulse 1.6s ease-in-out infinite;
+  }
+
+  /* Kaydırma ile belirme (MotionRoot "is-in" ekler). */
+  .motion-ok [data-reveal] {
+    opacity: 0;
+    transform: translateY(24px);
+    transition:
+      opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1),
+      transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .motion-ok [data-reveal="scale"] {
+    transform: translateY(24px) scale(0.97);
+  }
+  .motion-ok [data-reveal="left"] {
+    transform: translateX(-28px);
+  }
+  .motion-ok [data-reveal="right"] {
+    transform: translateX(28px);
+  }
+  .motion-ok [data-reveal].is-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Takvim şeritleri: bölüm görününce soldan sağa çizilir. */
+  .motion-ok [data-reveal] .site-draw {
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .motion-ok [data-reveal].is-in .site-draw {
+    transform: scaleX(1);
+  }
+  .motion-ok [data-reveal] .site-stagger {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.6s ease,
+      transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .motion-ok [data-reveal].is-in .site-stagger {
+    opacity: 1;
+    transform: none;
+  }
+  .motion-ok [data-reveal].is-in .site-type {
+    animation: site-type 1.2s steps(40, end) 0.4s both;
+  }
+}
+
+/* Gecikme sınıfları (stagger): hareket kapalıyken etkisiz. */
+.site-delay-1 {
+  transition-delay: 0.1s !important;
+}
+.site-delay-2 {
+  transition-delay: 0.2s !important;
+}
+.site-delay-3 {
+  transition-delay: 0.3s !important;
+}
+.site-delay-4 {
+  transition-delay: 0.4s !important;
+}
+.site-delay-5 {
+  transition-delay: 0.5s !important;
+}
+.site-delay-6 {
+  transition-delay: 0.6s !important;
+}
+.site-delay-7 {
+  transition-delay: 0.7s !important;
+}
+.site-delay-8 {
+  transition-delay: 0.8s !important;
+}
+
+/* Üst bar: sayfa kaydırılınca gölge (MotionRoot html'e data-scrolled ekler). */
+[data-scrolled] .site-header {
+  box-shadow: 0 8px 30px -12px rgb(11 47 56 / 0.18);
+  border-color: rgb(11 47 56 / 0.08);
+}
+
+/* Mobil menü (<details>). */
+.site-menu > summary {
+  list-style: none;
+}
+.site-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* SSS: açılırken içerik yumuşak açılır (destekleyen tarayıcılarda). */
+.site-faq {
+  interpolate-size: allow-keywords;
+}
+.site-faq::details-content {
+  block-size: 0;
+  overflow-y: clip;
+  transition:
+    block-size 0.35s ease,
+    content-visibility 0.35s allow-discrete;
+}
+.site-faq[open]::details-content {
+  block-size: auto;
+}
+.site-faq > summary {
+  list-style: none;
+}
+.site-faq > summary::-webkit-details-marker {
+  display: none;
+}
+.site-faq[open] .site-faq-icon {
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-tilt,
+  .site-faq::details-content {
+    transition: none;
+  }
+}
