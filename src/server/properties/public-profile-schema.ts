@@ -45,41 +45,70 @@ const textField = (label: string, max: number) =>
       .optional(),
   );
 
-export const publicProfileInput = z
-  .object({
-    publicSlug: slugField,
-    amenities: z
-      .array(z.string())
-      .default([])
-      .superRefine((list, ctx) => {
-        const unknown = list.filter((k) => !isAmenityKey(k));
-        if (unknown.length > 0)
-          ctx.addIssue({ code: "custom", message: "Geçersiz olanak seçimi." });
-      })
-      // Tekrarsız ve katalog sırasıyla saklanır (karşılaştırma ve gösterim kararlı olsun).
-      .transform((list) => orderAmenities(list))
-      .refine(
-        (list) => list.length <= L.amenitiesMax,
-        `En fazla ${L.amenitiesMax} olanak seçilebilir.`,
-      ),
-    checkInTime: timeField("Giriş saati"),
-    checkOutTime: timeField("Çıkış saati"),
-    houseRules: textField("Ev kuralları", L.houseRulesMax),
-    cancellationPolicy: textField("İptal koşulları", L.cancellationPolicyMax),
-    paymentTerms: textField("Ön ödeme ve ödeme koşulları", L.paymentTermsMax),
-    /** Yayındaki sayfanın adresi değişirken "eski bağlantı çalışmayacak" onayı. */
-    confirmSlugChange: z.preprocess((v) => v === "on" || v === true, z.boolean()),
+// Alan tanımları tek yerde: birleşik form (F1, uyumluluk) ve ayrık formlar (Aşama 2) aynı kuralları
+// kullanır.
+const amenitiesField = z
+  .array(z.string())
+  .default([])
+  .superRefine((list, ctx) => {
+    const unknown = list.filter((k) => !isAmenityKey(k));
+    if (unknown.length > 0) ctx.addIssue({ code: "custom", message: "Geçersiz olanak seçimi." });
   })
-  .transform((v) => ({
-    publicSlug: v.publicSlug ?? null,
-    amenities: v.amenities,
-    checkInTime: v.checkInTime ?? null,
-    checkOutTime: v.checkOutTime ?? null,
-    houseRules: v.houseRules ?? null,
-    cancellationPolicy: v.cancellationPolicy ?? null,
-    paymentTerms: v.paymentTerms ?? null,
-    confirmSlugChange: v.confirmSlugChange,
-  }));
+  // Tekrarsız ve katalog sırasıyla saklanır (karşılaştırma ve gösterim kararlı olsun).
+  .transform((list) => orderAmenities(list))
+  .refine(
+    (list) => list.length <= L.amenitiesMax,
+    `En fazla ${L.amenitiesMax} olanak seçilebilir.`,
+  );
+
+const stayShape = {
+  amenities: amenitiesField,
+  checkInTime: timeField("Giriş saati"),
+  checkOutTime: timeField("Çıkış saati"),
+  houseRules: textField("Ev kuralları", L.houseRulesMax),
+  cancellationPolicy: textField("İptal koşulları", L.cancellationPolicyMax),
+  paymentTerms: textField("Ön ödeme ve ödeme koşulları", L.paymentTermsMax),
+};
+
+const slugShape = {
+  publicSlug: slugField,
+  /** Yayındaki sayfanın adresi değişirken "eski bağlantı çalışmayacak" onayı. */
+  confirmSlugChange: z.preprocess((v) => v === "on" || v === true, z.boolean()),
+};
+
+const stayOut = (v: {
+  amenities: string[];
+  checkInTime?: string;
+  checkOutTime?: string;
+  houseRules?: string;
+  cancellationPolicy?: string;
+  paymentTerms?: string;
+}) => ({
+  amenities: v.amenities,
+  checkInTime: v.checkInTime ?? null,
+  checkOutTime: v.checkOutTime ?? null,
+  houseRules: v.houseRules ?? null,
+  cancellationPolicy: v.cancellationPolicy ?? null,
+  paymentTerms: v.paymentTerms ?? null,
+});
+
+/** Birleşik villa sayfası ayarları (F1; updatePublicProfile — uyumluluk için korunur). */
+export const publicProfileInput = z.object({ ...slugShape, ...stayShape }).transform((v) => ({
+  publicSlug: v.publicSlug ?? null,
+  ...stayOut(v),
+  confirmSlugChange: v.confirmSlugChange,
+}));
+
+/** Olanaklar ve konaklama bilgileri (mülk bilgisi; sayfa adresi ve yayın durumu dahil değil). */
+export const stayDetailsInput = z.object(stayShape).transform(stayOut);
+export type StayDetailsValues = z.output<typeof stayDetailsInput>;
+
+/** Yalnız sayfa adresi (Yayın sayfası). */
+export const publicSlugInput = z.object(slugShape).transform((v) => ({
+  publicSlug: v.publicSlug ?? null,
+  confirmSlugChange: v.confirmSlugChange,
+}));
+export type PublicSlugValues = z.output<typeof publicSlugInput>;
 
 export type PublicProfileValues = z.output<typeof publicProfileInput>;
 
@@ -97,6 +126,39 @@ export type PublicProfileFormRaw = Record<PublicProfileTextField, string> & {
   amenities: string[];
   confirmSlugChange: boolean;
 };
+
+export const STAY_TEXT_FIELDS = [
+  "checkInTime",
+  "checkOutTime",
+  "houseRules",
+  "cancellationPolicy",
+  "paymentTerms",
+] as const;
+export type StayDetailsFormRaw = Record<(typeof STAY_TEXT_FIELDS)[number], string> & {
+  amenities: string[];
+};
+export type PublicSlugFormRaw = { publicSlug: string; confirmSlugChange: boolean };
+
+const text = (data: FormData, k: string) => {
+  const v = data.get(k);
+  return typeof v === "string" ? v : "";
+};
+
+/** FormData → olanak ve konaklama formu (hata durumunda forma geri döner). */
+export function stayDetailsFormValues(data: FormData): StayDetailsFormRaw {
+  const out = {} as StayDetailsFormRaw;
+  for (const k of STAY_TEXT_FIELDS) out[k] = text(data, k);
+  out.amenities = data.getAll("amenities").filter((v): v is string => typeof v === "string");
+  return out;
+}
+
+/** FormData → sayfa adresi formu. */
+export function publicSlugFormValues(data: FormData): PublicSlugFormRaw {
+  return {
+    publicSlug: text(data, "publicSlug"),
+    confirmSlugChange: data.get("confirmSlugChange") === "on",
+  };
+}
 
 /** FormData → ham form nesnesi (hata durumunda forma geri döner). */
 export function publicProfileFormValues(data: FormData): PublicProfileFormRaw {

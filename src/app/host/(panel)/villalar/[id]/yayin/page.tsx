@@ -6,7 +6,6 @@ import { Alert } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { getEnv } from "@/lib/env";
 import {
-  AMENITY_LABELS,
   formatWhatsapp,
   PUBLISH_REQUIREMENT_LABELS,
   PUBLISH_REQUIREMENTS,
@@ -14,16 +13,17 @@ import {
   shareMessage,
 } from "@/lib/public-profile-meta";
 import { cn } from "@/lib/utils";
-import { getPublicProfile, type PublicProfile } from "@/server/properties/public-profile";
+import { stepHref } from "@/lib/property-wizard";
+import { getPublicProfile } from "@/server/properties/public-profile";
 import { canManageProperties } from "@/server/properties/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
 import { StatusBadge } from "../../_components/property-bits";
 import { PropertyTabs } from "../../_components/property-tabs";
-import { publishAction, unpublishAction, updatePublicProfileAction } from "./actions";
-import { PublicProfileForm } from "./public-profile-form";
+import { publishAction, unpublishAction, updatePublicSlugAction } from "./actions";
 import { PublishControls } from "./publish-controls";
 import { ShareLink } from "./share-link";
+import { SlugForm } from "./slug-form";
 
 export const metadata: Metadata = { title: "Yayın" };
 
@@ -47,21 +47,13 @@ const STATE_BADGE = {
   closed: { label: "Kapalı", className: "bg-amber-50 text-amber-900" },
 } as const;
 
-const toFormValues = (p: PublicProfile) => ({
-  publicSlug: p.publicSlug ?? "",
-  amenities: p.amenities,
-  checkInTime: p.checkInTime ?? "",
-  checkOutTime: p.checkOutTime ?? "",
-  houseRules: p.houseRules ?? "",
-  cancellationPolicy: p.cancellationPolicy ?? "",
-  paymentTerms: p.paymentTerms ?? "",
-  confirmSlugChange: false,
-});
-
 /**
- * Müşteriye açık villa sayfası ayarları (F1). Tüm üyeler görür ve bağlantıyı paylaşabilir;
- * owner/manager düzenler, yayınlar ve sayfayı önizler (F2d: /villalar/{id}/yayin/onizleme; yetki
- * sunucuda denetlenir). WhatsApp numarası işletme düzeyindedir (yalnız owner, panel ana sayfasında).
+ * Yayın ayarları: YALNIZ müşteriye açık sayfanın yayınıyla ilgili alanlar — sayfa adresi, yayın
+ * durumu ve eksik koşullar, önizleme, yayınla/yayından kaldır, müşteri bağlantısı ve paylaşım,
+ * WhatsApp numarası bağlantısı. Olanaklar ve konaklama bilgileri mülk bilgileridir (Bilgiler).
+ * Tüm üyeler görür ve bağlantıyı paylaşabilir; owner/manager adresi değiştirir, yayınlar ve
+ * önizler (yetki sunucuda denetlenir). WhatsApp numarası işletme düzeyindedir (yalnız owner,
+ * Genel Bakış → Müşteri iletişimi).
  */
 export default async function PropertyPublishPage({ params, searchParams }: Props) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
@@ -100,7 +92,7 @@ export default async function PropertyPublishPage({ params, searchParams }: Prop
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {!canManage ? (
         <Alert tone="info">
-          Villa sayfası ayarlarını görüntüleyebilir ve bağlantıyı paylaşabilirsiniz; düzenleme ve
+          Yayın durumunu görüntüleyebilir ve bağlantıyı paylaşabilirsiniz; adres değiştirme ve
           yayınlama yetkisi işletme sahibi ve yöneticilerdedir.
         </Alert>
       ) : null}
@@ -149,7 +141,7 @@ export default async function PropertyPublishPage({ params, searchParams }: Prop
                   <span className="sr-only">{okR ? " (tamam)" : " (eksik)"}</span>
                   {!okR && r === "photo" ? (
                     <Link
-                      href={`/villalar/${p.propertyId}/fotograflar`}
+                      href={stepHref(p.propertyId, "aciklama")}
                       className="ml-1 text-turquoise-700 hover:underline"
                     >
                       Fotoğraf ekle
@@ -229,19 +221,19 @@ export default async function PropertyPublishPage({ params, searchParams }: Prop
         )}
       </section>
 
-      {/* Ayarlar */}
+      {/* Sayfa adresi */}
       <section
-        id="sayfa-ayarlari"
-        aria-labelledby="publish-settings-title"
+        id="sayfa-adresi"
+        aria-labelledby="publish-slug-title"
         className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6"
       >
-        <h2 id="publish-settings-title" className="mb-4 font-semibold text-navy-900">
-          Sayfa ayarları
+        <h2 id="publish-slug-title" className="mb-4 font-semibold text-navy-900">
+          Sayfa adresi
         </h2>
         {canManage ? (
-          <PublicProfileForm
-            action={updatePublicProfileAction.bind(null, p.propertyId)}
-            initial={toFormValues(p)}
+          <SlugForm
+            action={updatePublicSlugAction.bind(null, p.propertyId)}
+            initial={{ publicSlug: p.publicSlug ?? "", confirmSlugChange: false }}
             savedSlug={p.publicSlug}
             isPublic={p.isPublic}
             propertyName={p.propertyName}
@@ -249,43 +241,19 @@ export default async function PropertyPublishPage({ params, searchParams }: Prop
             publicHost={publicHost}
           />
         ) : (
-          <dl className="grid gap-4 text-sm" data-testid="profile-readonly">
-            <div>
-              <dt className="text-muted-foreground">Adres</dt>
-              <dd className="text-navy-900">{p.publicSlug ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Olanaklar</dt>
-              <dd className="text-navy-900">
-                {p.amenities.length > 0
-                  ? p.amenities.map((k) => AMENITY_LABELS[k]).join(", ")
-                  : "—"}
-              </dd>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <dt className="text-muted-foreground">Giriş saati</dt>
-                <dd className="text-navy-900">{p.checkInTime ?? "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Çıkış saati</dt>
-                <dd className="text-navy-900">{p.checkOutTime ?? "—"}</dd>
-              </div>
-            </div>
-            {(
-              [
-                ["Ev kuralları", p.houseRules],
-                ["İptal koşulları", p.cancellationPolicy],
-                ["Ön ödeme ve ödeme koşulları", p.paymentTerms],
-              ] as const
-            ).map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd className="whitespace-pre-line text-navy-900">{value ?? "—"}</dd>
-              </div>
-            ))}
-          </dl>
+          <p className="text-sm text-navy-900" data-testid="slug-readonly">
+            {p.publicSlug ? `${publicHost}/villa/${p.publicSlug}` : "Henüz adres kaydedilmedi."}
+          </p>
         )}
+        <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
+          Olanaklar, giriş-çıkış saatleri ve kurallar mülk bilgilerindedir.{" "}
+          <Link
+            href={stepHref(p.propertyId, "olanaklar")}
+            className="font-medium text-turquoise-700 hover:underline"
+          >
+            Bilgilere git
+          </Link>
+        </p>
       </section>
     </div>
   );
