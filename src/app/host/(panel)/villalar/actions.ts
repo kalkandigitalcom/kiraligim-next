@@ -3,9 +3,18 @@
 import { redirect, unstable_rethrow } from "next/navigation";
 
 import { type ActionResult, ok, toActionError } from "@/lib/result";
+import {
+  EMPTY_PROPERTY_VALUES,
+  isWizardStep,
+  nextStep,
+  stepHref,
+  wizardFormValues,
+} from "@/lib/property-wizard";
 import { sanitizeDescription } from "@/server/properties/description";
-import { type PropertyFormRaw, propertyFormValues } from "@/server/properties/schema";
-import { createProperty, setPropertyStatus, updateProperty } from "@/server/properties/service";
+import { saveWizardStep } from "@/server/properties/property-fields";
+import type { StayDetailsFormRaw } from "@/server/properties/public-profile-schema";
+import type { PropertyFormRaw } from "@/server/properties/schema";
+import { createProperty, setPropertyStatus } from "@/server/properties/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
 /**
@@ -27,12 +36,15 @@ async function runAction<T>(name: string, fn: () => Promise<T>): Promise<ActionR
   }
 }
 
-export type PropertyFormState = {
+/** Sihirbaz formlarının ortak değer kümesi: mülk alanları + olanak/konaklama alanları. */
+export type WizardValues = PropertyFormRaw & StayDetailsFormRaw;
+
+export type WizardFormState = {
   error?: string;
   /** Alan adı → ilk hata. Liste alanlarında sıra eklenir: "youtubeUrls.2". */
   fieldErrors?: Record<string, string>;
-  values?: PropertyFormRaw;
-  saved?: boolean;
+  /** Hata durumunda kullanıcının bu adımda girdiği değerler (kaybolmasın diye geri gönderilir). */
+  values?: Partial<WizardValues>;
 };
 
 const firstErrors = (fe: Record<string, string[]> | undefined) => {
@@ -45,49 +57,58 @@ const firstErrors = (fe: Record<string, string[]> | undefined) => {
  * Forma geri gönderilen değerler. Açıklama HTML'i istemciye dönmeden önce temizlenir: düzenleyici
  * bu değeri yeniden gösterir; temizlenmemiş HTML hiçbir zaman sayfaya yazılmaz.
  */
-function formValues(formData: FormData): PropertyFormRaw {
-  const values = propertyFormValues(formData);
-  values.description = sanitizeDescription(values.description)?.html ?? "";
-  return values;
+function echoValues(values: Partial<WizardValues>): Partial<WizardValues> {
+  if (typeof values.description !== "string") return values;
+  return { ...values, description: sanitizeDescription(values.description)?.html ?? "" };
 }
 
+/** Yeni mülk (sihirbazın 1. adımı). Diğer adımların alanları başlangıç değerleriyle oluşur. */
 export async function createPropertyAction(
-  _prev: PropertyFormState,
+  _prev: WizardFormState,
   formData: FormData,
-): Promise<PropertyFormState> {
-  const input = propertyFormValues(formData);
-  const values = formValues(formData);
+): Promise<WizardFormState> {
+  const values = wizardFormValues("temel", formData) as Partial<WizardValues>;
   const result = await runAction("property.create", () =>
-    withPanelTenant((tx, ctx) => createProperty(tx, ctx, input)),
+    withPanelTenant((tx, ctx) => createProperty(tx, ctx, { ...EMPTY_PROPERTY_VALUES, ...values })),
   );
   if (!result.ok) {
     return {
       error: result.error.message,
       fieldErrors: firstErrors(result.error.fieldErrors),
-      values,
+      values: echoValues(values),
     };
   }
-  redirect(`/villalar/${result.data}?durum=olusturuldu`);
+  redirect(`${stepHref(result.data, "aciklama")}&durum=olusturuldu`);
 }
 
-export async function updatePropertyAction(
+/**
+ * Sihirbaz adımı kaydı (owner/manager): yalnız adımın alanları okunur ve `saveWizardStep` ile
+ * kaydedilir (tek işlem; yetki, doğrulama ve denetim kaydı serviste). Başarıda sonraki adıma
+ * geçilir; hata olursa kullanıcının girdiği değerler forma geri döner.
+ */
+export async function saveWizardStepAction(
   id: string,
-  _prev: PropertyFormState,
+  step: string,
+  _prev: WizardFormState,
   formData: FormData,
-): Promise<PropertyFormState> {
-  const input = propertyFormValues(formData);
-  const values = formValues(formData);
-  const result = await runAction("property.update", () =>
-    withPanelTenant((tx, ctx) => updateProperty(tx, ctx, id, input)),
+): Promise<WizardFormState> {
+  if (!isWizardStep(step) || step === "kontrol") return { error: "Geçersiz adım." };
+  const values = wizardFormValues(step, formData) as Partial<WizardValues>;
+  const propertyId = String(id);
+  const result = await runAction(`property.wizard_${step}`, () =>
+    withPanelTenant((tx, ctx) => saveWizardStep(tx, ctx, propertyId, step, values)),
   );
   if (!result.ok) {
     return {
       error: result.error.message,
       fieldErrors: firstErrors(result.error.fieldErrors),
-      values,
+      values: echoValues(values),
     };
   }
-  return { saved: true, values };
+  const next = nextStep(step) ?? "kontrol";
+  redirect(
+    `${stepHref(propertyId, next)}&durum=${result.data.changed > 0 ? "kaydedildi" : "degisiklik-yok"}`,
+  );
 }
 
 export type StatusFormState = { error?: string };
@@ -102,5 +123,5 @@ export async function setPropertyStatusAction(
     withPanelTenant((tx, ctx) => setPropertyStatus(tx, ctx, id, status)),
   );
   if (!result.ok) return { error: result.error.message };
-  redirect(`/villalar/${id}?durum=${status === "passive" ? "pasif" : "aktif"}`);
+  redirect(`${stepHref(id, "kontrol")}&durum=${status === "passive" ? "pasif" : "aktif"}`);
 }

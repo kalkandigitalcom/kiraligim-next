@@ -7,9 +7,16 @@ import { ALLOWANCE_MESSAGES } from "@/server/billing/entitlements";
 import { canManageProperties, getPropertyUsage } from "@/server/properties/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
+import {
+  EMPTY_PROPERTY_VALUES,
+  WIZARD_STEP_INTROS,
+  WIZARD_STEP_LABELS,
+} from "@/lib/property-wizard";
+
 import { createPropertyAction } from "../actions";
 import { UsageMeter } from "../_components/property-bits";
-import { EMPTY_PROPERTY, PropertyForm } from "../_components/property-form";
+import { BasicsStep } from "../_components/wizard/basics-step";
+import { WizardStepper } from "../_components/wizard/wizard-stepper";
 
 export const metadata: Metadata = { title: "Yeni mülk" };
 
@@ -47,18 +54,30 @@ export default async function NewPropertyPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       {back}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <h1 className="text-2xl font-bold tracking-tight text-navy-900 sm:text-3xl">Yeni mülk</h1>
         <UsageMeter usage={usage} />
       </div>
-      <div className="rounded-2xl border border-border bg-white p-6 shadow-sm sm:p-8">
-        <PropertyForm
+      <WizardStepper propertyId={null} current="temel" />
+      <div>
+        <h2 className="text-xl font-bold tracking-tight text-navy-900" data-testid="step-title">
+          <span className="sr-only">Adım 1/5: </span>
+          {WIZARD_STEP_LABELS.temel}
+        </h2>
+        <p className="mt-1 text-[15px] text-muted-foreground">
+          {WIZARD_STEP_INTROS.temel} Diğer bilgileri sonraki adımlarda ekleyeceksiniz.
+        </p>
+      </div>
+      <div className="flex flex-col gap-6">
+        <BasicsStep
           action={createPropertyAction}
-          initial={EMPTY_PROPERTY}
-          submitLabel="Mülkü kaydet"
-          pendingLabel="Kaydediliyor…"
+          initial={EMPTY_PROPERTY_VALUES}
+          readOnly={false}
+          prevHref={null}
+          nextHref={null}
+          cancel={{ href: "/villalar", label: "Vazgeç" }}
         />
       </div>
     </div>

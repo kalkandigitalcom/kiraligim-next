@@ -66,7 +66,10 @@ function Choice({
               type="radio"
               name={name}
               value={v}
-              checked={value === v}
+              // Kontrolsüz (defaultChecked): React 19 form eylemi sonrası formu sıfırlar; kontrollü
+              // radyo düğmeleri o an boş kalıyordu (kayıt hatasından sonra Var/Yok seçimi kayboluyordu).
+              // Varsayılan her render'da güncel seçimdir, sıfırlama da ona döner.
+              defaultChecked={value === v}
               onChange={() => onChange(v)}
               className="sr-only"
             />

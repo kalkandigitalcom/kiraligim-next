@@ -17,7 +17,12 @@ import { zodFieldErrors } from "@/lib/result";
 import { type PUBLIC_PROFILE_AUDIT_FIELDS, recordAudit } from "@/server/audit/record";
 import { getEntitlements } from "@/server/billing/entitlements";
 
-import { type PublicProfileValues, publicProfileInput } from "./public-profile-schema";
+import {
+  type PublicProfileValues,
+  publicProfileInput,
+  publicSlugInput,
+  stayDetailsInput,
+} from "./public-profile-schema";
 import { canManageProperties, isUuid } from "./service";
 
 /**
@@ -175,23 +180,36 @@ async function lockRow(tx: Tx, id: string): Promise<Row> {
   return row;
 }
 
+/** Kilitli satırdaki mevcut değerler (birleşik ayar biçiminde). */
+function currentValues(r: Row): PublicProfileValues {
+  return {
+    publicSlug: r.public_slug,
+    // Kayıttaki dizi olduğu gibi korunur (yeniden sıralama/süzme "değişiklik" sayılmasın).
+    amenities: [...(r.amenities ?? [])],
+    checkInTime: toHhMm(r.check_in_time),
+    checkOutTime: toHhMm(r.check_out_time),
+    houseRules: r.house_rules,
+    cancellationPolicy: r.cancellation_policy,
+    paymentTerms: r.payment_terms,
+    confirmSlugChange: false,
+  };
+}
+
 /**
- * Villa sayfası ayarlarını kaydeder (owner/manager). Yayındaki sayfanın adresi değişiyorsa
- * "eski bağlantı çalışmayacak" onayı gerekir; yayındaki sayfanın adresi silinemez.
+ * Ortak yazma yolu: satırı kilitler, `next(before)` ile yeni değerleri üretir, adres kurallarını
+ * uygular, yalnız değişen alanları denetim kaydına yazar. Tüm public-profile güncellemeleri
+ * (birleşik ve ayrık) buradan geçer: kural ve denetim davranışı tek yerdedir.
  */
-export async function updatePublicProfile(
+async function applyProfileUpdate(
   tx: Tx,
-  ctx: TenantContext,
   id: string,
-  input: unknown,
+  next: (before: Row) => PublicProfileValues,
 ): Promise<{ changed: number }> {
-  if (!canManageProperties(ctx.role)) throw forbidden();
-  const v = parse(input);
-  if (!isUuid(id)) throw notFoundProperty();
   let fields: AuditField[] = [];
   try {
     await tx.execute(sql`savepoint public_profile`);
     const before = await lockRow(tx, id);
+    const v = next(before);
     const slugChanged = before.public_slug !== v.publicSlug;
     if (before.is_public && slugChanged) {
       if (v.publicSlug === null) {
@@ -236,6 +254,64 @@ export async function updatePublicProfile(
     });
   }
   return { changed: fields.length };
+}
+
+/**
+ * Villa sayfası ayarlarını birlikte kaydeder (owner/manager): adres + olanaklar + konaklama
+ * bilgileri. F1 formu bunu kullanıyordu; uyumluluk için korunur. Yayındaki sayfanın adresi
+ * değişiyorsa onay gerekir; yayındaki sayfanın adresi silinemez.
+ */
+export async function updatePublicProfile(
+  tx: Tx,
+  ctx: TenantContext,
+  id: string,
+  input: unknown,
+): Promise<{ changed: number }> {
+  if (!canManageProperties(ctx.role)) throw forbidden();
+  const v = parse(input);
+  if (!isUuid(id)) throw notFoundProperty();
+  return applyProfileUpdate(tx, id, () => v);
+}
+
+/**
+ * Olanaklar ve konaklama bilgileri (owner/manager): giriş/çıkış saati, ev kuralları, iptal ve
+ * ödeme koşulları. Sayfa adresine ve yayın durumuna DOKUNMAZ (mevcut değer korunur).
+ */
+export async function updateStayDetails(
+  tx: Tx,
+  ctx: TenantContext,
+  id: string,
+  input: unknown,
+): Promise<{ changed: number }> {
+  if (!canManageProperties(ctx.role)) throw forbidden();
+  const parsed = stayDetailsInput.safeParse(input);
+  if (!parsed.success) throw validationError(zodFieldErrors(parsed.error));
+  if (!isUuid(id)) throw notFoundProperty();
+  return applyProfileUpdate(tx, id, (before) => ({
+    ...currentValues(before),
+    ...parsed.data,
+  }));
+}
+
+/**
+ * Yalnız sayfa adresi (owner/manager; Yayın sayfası). Olanak ve konaklama bilgileri korunur.
+ * Yayındaki sayfanın adresi değişirken onay ve "boş bırakılamaz" kuralları aynen geçerlidir.
+ */
+export async function updatePublicSlug(
+  tx: Tx,
+  ctx: TenantContext,
+  id: string,
+  input: unknown,
+): Promise<{ changed: number }> {
+  if (!canManageProperties(ctx.role)) throw forbidden();
+  const parsed = publicSlugInput.safeParse(input);
+  if (!parsed.success) throw validationError(zodFieldErrors(parsed.error));
+  if (!isUuid(id)) throw notFoundProperty();
+  return applyProfileUpdate(tx, id, (before) => ({
+    ...currentValues(before),
+    publicSlug: parsed.data.publicSlug,
+    confirmSlugChange: parsed.data.confirmSlugChange,
+  }));
 }
 
 export const unmetMessage = (unmet: PublishRequirement[]) =>

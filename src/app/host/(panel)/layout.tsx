@@ -1,39 +1,33 @@
-import Link from "next/link";
-
-import { Logo } from "@/components/brand/logo";
+import { getDb } from "@/db/client";
 import { requireUser } from "@/server/auth/session";
+import { resolveActiveWorkspace } from "@/server/workspaces/active";
+import { listMyWorkspaces } from "@/server/workspaces/service";
 
-import { PanelNav } from "./_components/panel-nav";
-import { SignOutButton } from "./_components/sign-out-button";
+import { PanelShell, type ShellWorkspace } from "./_components/panel-shell";
+
+const ROLE_LABEL = { owner: "Sahip", manager: "Yönetici", staff: "Personel" } as const;
 
 /**
- * Korumalı panel bölümü. Oturum yoksa her istekte /giris'e yönlendirilir.
- * Sayfalar ayrıca requireUser() çağırır (layout'lar her gezinmede yeniden çalışmayabilir).
+ * Korumalı panel bölümü: sol kenar çubuğu (mobilde çekmece) + içerik. Oturum yoksa her istekte
+ * /giris'e yönlendirilir; sayfalar ayrıca requireUser()/withPanelTenant çağırır (layout'lar her
+ * gezinmede yeniden çalışmayabilir). Kenar çubuğundaki işletme adı ve rol yalnız bilgi amaçlıdır;
+ * yetki kararları sayfa ve action'larda withTenant ile verilir.
  */
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  const active = await resolveActiveWorkspace(user.id);
+  let workspace: ShellWorkspace = null;
+  if (active.kind === "selected") {
+    const all = await listMyWorkspaces(getDb(), user.id);
+    workspace = {
+      name: active.workspace.name,
+      roleLabel: ROLE_LABEL[active.workspace.role],
+      canSwitch: all.length > 1,
+    };
+  }
   return (
-    <div className="flex min-h-dvh flex-1 flex-col bg-mist">
-      <header className="border-b border-border bg-white">
-        <div className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-6">
-            <Link href="/" aria-label="Ana sayfa" className="shrink-0">
-              <Logo className="h-7 w-auto" />
-            </Link>
-            <PanelNav className="hidden sm:block" />
-          </div>
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="hidden truncate text-sm text-muted-foreground sm:inline">
-              {user.name}
-            </span>
-            <SignOutButton />
-          </div>
-        </div>
-        <div className="border-t border-border px-2 py-1.5 sm:hidden">
-          <PanelNav />
-        </div>
-      </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-10">{children}</main>
-    </div>
+    <PanelShell user={{ name: user.name, email: user.email }} workspace={workspace}>
+      {children}
+    </PanelShell>
   );
 }

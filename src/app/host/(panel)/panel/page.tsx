@@ -16,7 +16,7 @@ import { listWorkspaceMembers } from "@/server/workspaces/service";
 import { updateWhatsappAction } from "./actions";
 import { WhatsappForm } from "./whatsapp-form";
 
-export const metadata: Metadata = { title: "Panel" };
+export const metadata: Metadata = { title: "Genel Bakış" };
 
 const dateTr = new Intl.DateTimeFormat("tr-TR", {
   day: "numeric",
@@ -26,11 +26,6 @@ const dateTr = new Intl.DateTimeFormat("tr-TR", {
 });
 
 const ROLE_LABEL = { owner: "Sahip", manager: "Yönetici", staff: "Personel" } as const;
-
-const UPCOMING = [
-  { title: "Rezervasyonlar", text: "Rezervasyonları tek listede takip edin." },
-  { title: "Takvim", text: "Doluluk ve müsaitlik görünümü." },
-] as const;
 
 const CONTACT_NOTICES: Record<string, string> = {
   kaydedildi: "WhatsApp numarası kaydedildi.",
@@ -194,23 +189,6 @@ export default async function PanelPage({ searchParams }: Props) {
           →
         </span>
       </Link>
-
-      <section aria-labelledby="yakinda-baslik">
-        <h2 id="yakinda-baslik" className="text-base font-semibold text-navy-900">
-          Yakında
-        </h2>
-        <ul className="mt-4 grid gap-4 sm:grid-cols-2">
-          {UPCOMING.map((m) => (
-            <li
-              key={m.title}
-              className="rounded-2xl border border-dashed border-border bg-white/60 p-5"
-            >
-              <p className="font-semibold text-navy-900">{m.title}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{m.text}</p>
-            </li>
-          ))}
-        </ul>
-      </section>
     </div>
   );
 }

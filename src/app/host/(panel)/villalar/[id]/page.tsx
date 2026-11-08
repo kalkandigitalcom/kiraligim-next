@@ -3,17 +3,35 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Alert } from "@/components/ui/alert";
-import { formatMeters, POOL_KINDS, PROPERTY_TYPE_LABELS } from "@/lib/property-meta";
-import { youtubeWatchUrl } from "@/lib/youtube";
-import { canManageProperties, getProperty, type Property } from "@/server/properties/service";
+import { PROPERTY_TYPE_LABELS } from "@/lib/property-meta";
+import {
+  nextStep,
+  parseWizardStep,
+  prevStep,
+  stepHref,
+  stepIndex,
+  WIZARD_STEP_INTROS,
+  WIZARD_STEP_LABELS,
+  WIZARD_STEPS,
+} from "@/lib/property-wizard";
+import { photoSources } from "@/server/properties/photo-urls";
+import { listPhotos } from "@/server/properties/photos";
+import { propertyToRaw, stayToRaw } from "@/server/properties/property-fields";
+import { getPublicProfile } from "@/server/properties/public-profile";
+import { canManageProperties, getProperty } from "@/server/properties/service";
+import { getStorage } from "@/server/storage";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
-import { setPropertyStatusAction, updatePropertyAction } from "../actions";
+import { saveWizardStepAction, setPropertyStatusAction } from "../actions";
 import { StatusBadge } from "../_components/property-bits";
-import type { PoolFormValues } from "../_components/pool-fields";
-import { PropertyForm, type PropertyFormValues } from "../_components/property-form";
 import { PropertyTabs } from "../_components/property-tabs";
-import { StatusToggle } from "../_components/status-toggle";
+import { AmenitiesStep } from "../_components/wizard/amenities-step";
+import { BasicsStep } from "../_components/wizard/basics-step";
+import { DescriptionStep } from "../_components/wizard/description-step";
+import { ReviewStep } from "../_components/wizard/review-step";
+import { StayStep } from "../_components/wizard/stay-step";
+import { WizardStepper } from "../_components/wizard/wizard-stepper";
+import { type ManagerPhoto, PhotoManager } from "./fotograflar/photo-manager";
 
 export const metadata: Metadata = { title: "Mülk" };
 
@@ -22,65 +40,92 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const KEY = { swimming: "Swimming", indoor: "Indoor", kids: "Kids" } as const;
-const meters = (n: number | null) => (n === null ? "" : formatMeters(n));
-
-function poolValues(p: Property) {
-  const out: Record<string, string> = {
-    poolSwimmingProtected: p.pools.swimmingProtected ? "yes" : "no",
-  };
-  for (const k of POOL_KINDS) {
-    const pool = p.pools[k];
-    out[`pool${KEY[k]}`] = pool.present ? "yes" : "no";
-    out[`pool${KEY[k]}Depth`] = meters(pool.depth);
-    out[`pool${KEY[k]}Width`] = meters(pool.width);
-    out[`pool${KEY[k]}Length`] = meters(pool.length);
-  }
-  return out as PoolFormValues;
-}
-
-const toFormValues = (p: Property): PropertyFormValues => ({
-  ...poolValues(p),
-  name: p.name,
-  propertyType: p.propertyType,
-  description: p.descriptionHtml ?? "",
-  tourismLicenseNo: p.tourismLicenseNo ?? "",
-  youtubeUrls: p.youtubeVideoIds.map(youtubeWatchUrl),
-  maxGuests: String(p.maxGuests),
-  bedrooms: String(p.bedrooms),
-  bathrooms: String(p.bathrooms),
-  bedsDouble: String(p.bedsDouble),
-  bedsSingle: String(p.bedsSingle),
-  bedsSofa: String(p.bedsSofa),
-  province: p.province,
-  district: p.district,
-  neighborhood: p.neighborhood ?? "",
-  addressLine: p.addressLine ?? "",
-  postalCode: p.postalCode ?? "",
-  latitude: p.latitude === null ? "" : p.latitude.toFixed(6),
-  longitude: p.longitude === null ? "" : p.longitude.toFixed(6),
-});
-
 const NOTICES: Record<string, string> = {
-  olusturuldu: "Mülk oluşturuldu.",
+  olusturuldu: "Mülk oluşturuldu. Şimdi villanızı anlatın ve fotoğraflarını ekleyin.",
+  kaydedildi: "Bilgiler kaydedildi.",
   pasif: "Mülk pasife alındı.",
   aktif: "Mülk aktif edildi.",
 };
 
+/**
+ * Mülk bilgileri sihirbazı (Aşama 3). `?adim=` yoksa (mevcut mülk) 5. adım: kontrol ve özet.
+ * Her adım yalnız kendi alanlarını kaydeder (saveWizardStepAction). Staff tüm adımları görür,
+ * hiçbir şeyi değiştiremez (alanlar devre dışı; yetki ayrıca serviste ve veritabanında).
+ */
 export default async function PropertyPage({ params, searchParams }: Props) {
   const { id } = await params;
-  const { durum } = await searchParams;
+  const sp = await searchParams;
+  const step = parseWizardStep(sp.adim);
   // RLS: başka işletmenin mülkü veya geçersiz kimlik → null → 404 (varlık sızdırılmaz).
-  const view = await withPanelTenant(async (tx, ctx) => ({
-    property: await getProperty(tx, id),
-    canManage: canManageProperties(ctx.role),
-  }));
+  const view = await withPanelTenant(async (tx, ctx) => {
+    const property = await getProperty(tx, id);
+    return {
+      property,
+      profile: property ? await getPublicProfile(tx, id) : null,
+      photos: property && step === "aciklama" ? await listPhotos(tx, property.id) : [],
+      canManage: canManageProperties(ctx.role),
+    };
+  });
   const p = view.property;
-  if (!p) notFound();
-  const notice = typeof durum === "string" ? NOTICES[durum] : undefined;
+  if (!p || !view.profile) notFound();
+  const pp = view.profile;
+  const readOnly = !view.canManage;
+  const notice = typeof sp.durum === "string" ? NOTICES[sp.durum] : undefined;
+  const prev = prevStep(step);
+  const next = nextStep(step);
+  const common = {
+    action: saveWizardStepAction.bind(null, p.id, step),
+    readOnly,
+    prevHref: prev ? stepHref(p.id, prev) : null,
+    nextHref: next ? stepHref(p.id, next) : null,
+  };
+  const raw = propertyToRaw(p);
+  const stay = stayToRaw(pp);
+
+  let body: React.ReactNode;
+  if (step === "temel") {
+    body = <BasicsStep {...common} initial={raw} />;
+  } else if (step === "aciklama") {
+    const storage = getStorage();
+    const photos: ManagerPhoto[] = view.photos.map((ph) => ({
+      id: ph.id,
+      isCover: ph.isCover,
+      width: ph.width,
+      height: ph.height,
+      sources: photoSources(storage, ph.storagePrefix),
+    }));
+    body = (
+      <DescriptionStep
+        {...common}
+        initial={{ description: raw.description, youtubeUrls: raw.youtubeUrls }}
+        photos={
+          <PhotoManager
+            propertyId={p.id}
+            propertyName={p.name}
+            photos={photos}
+            canManage={view.canManage}
+            storageReady={storage !== null}
+          />
+        }
+      />
+    );
+  } else if (step === "olanaklar") {
+    body = <AmenitiesStep {...common} initial={{ ...raw, amenities: stay.amenities }} />;
+  } else if (step === "konaklama") {
+    body = <StayStep {...common} initial={stay} />;
+  } else {
+    body = (
+      <ReviewStep
+        property={p}
+        profile={pp}
+        canManage={view.canManage}
+        statusAction={setPropertyStatusAction.bind(null, p.id)}
+      />
+    );
+  }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <Link href="/villalar" className="text-sm font-medium text-turquoise-700 hover:underline">
         ← Mülkler
       </Link>
@@ -97,34 +142,30 @@ export default async function PropertyPage({ params, searchParams }: Props) {
       </div>
       <PropertyTabs propertyId={p.id} active="info" />
 
+      <WizardStepper propertyId={p.id} current={step} />
+
+      <div>
+        <h2 className="text-xl font-bold tracking-tight text-navy-900" data-testid="step-title">
+          <span className="sr-only">
+            Adım {stepIndex(step) + 1}/{WIZARD_STEPS.length}:{" "}
+          </span>
+          {WIZARD_STEP_LABELS[step]}
+        </h2>
+        <p className="mt-1 text-[15px] text-muted-foreground">{WIZARD_STEP_INTROS[step]}</p>
+      </div>
+
       {notice ? <Alert tone="success">{notice}</Alert> : null}
-      {!view.canManage ? (
+      {readOnly ? (
         <Alert tone="info">
-          Bu mülkü görüntülüyorsunuz; düzenleme yetkisi işletme sahibi ve yöneticilerdedir.
+          Bu mülkün bilgilerini görüntülüyorsunuz; düzenleme yetkisi işletme sahibi ve
+          yöneticilerdedir.
         </Alert>
       ) : null}
 
-      <div className="rounded-2xl border border-border bg-white p-6 shadow-sm sm:p-8">
-        <PropertyForm
-          action={updatePropertyAction.bind(null, p.id)}
-          initial={toFormValues(p)}
-          submitLabel="Değişiklikleri kaydet"
-          pendingLabel="Kaydediliyor…"
-          readOnly={!view.canManage}
-        />
+      {/* Adım değişince form durumu sıfırlanır (önceki adımın hatası taşınmaz). */}
+      <div key={step} className="flex flex-col gap-6">
+        {body}
       </div>
-
-      {view.canManage ? (
-        <section
-          aria-labelledby="durum-baslik"
-          className="rounded-2xl border border-border bg-white p-6 shadow-sm sm:p-8"
-        >
-          <h2 id="durum-baslik" className="mb-3 text-base font-semibold text-navy-900">
-            Durum
-          </h2>
-          <StatusToggle status={p.status} action={setPropertyStatusAction.bind(null, p.id)} />
-        </section>
-      ) : null}
     </div>
   );
 }
