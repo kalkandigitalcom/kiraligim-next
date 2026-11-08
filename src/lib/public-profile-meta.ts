@@ -113,22 +113,27 @@ export const shareMessage = (propertyName: string, url: string) =>
 // Havuzlar burada değil: mevcut havuz alanlarından gösterilir.
 // ---------------------------------------------------------------------------
 
+/**
+ * Kategoriler (Revizyon 2: "Genel" kaldırıldı, seçenekler anlamlı gruplara dağıtıldı). Kayıtta
+ * yalnız anahtar saklandığı için gruplama değişikliği veri taşıması gerektirmez; anahtarlar aynı.
+ */
 export const AMENITY_GROUPS = [
   {
-    key: "genel",
-    label: "Genel",
+    key: "konfor",
+    label: "İklimlendirme",
     items: [
-      ["wifi", "Wi-Fi"],
       ["klima", "Klima"],
       ["isitma", "Isıtma"],
       ["somine", "Şömine"],
+    ],
+  },
+  {
+    key: "eglence",
+    label: "İnternet ve eğlence",
+    items: [
+      ["wifi", "Wi-Fi"],
       ["televizyon", "Televizyon"],
       ["calisma-alani", "Çalışma alanı"],
-      ["camasir-makinesi", "Çamaşır makinesi"],
-      ["kurutma-makinesi", "Kurutma makinesi"],
-      ["utu", "Ütü"],
-      ["sac-kurutma", "Saç kurutma makinesi"],
-      ["havlu-nevresim", "Havlu ve nevresim"],
     ],
   },
   {
@@ -144,17 +149,40 @@ export const AMENITY_GROUPS = [
     ],
   },
   {
+    key: "banyo",
+    label: "Banyo ve çamaşır",
+    items: [
+      ["havlu-nevresim", "Havlu ve nevresim"],
+      ["sac-kurutma", "Saç kurutma makinesi"],
+      ["camasir-makinesi", "Çamaşır makinesi"],
+      ["kurutma-makinesi", "Kurutma makinesi"],
+      ["utu", "Ütü"],
+    ],
+  },
+  {
+    key: "havuz",
+    label: "Havuz başı ve spa",
+    items: [
+      ["sezlong", "Şezlong"],
+      ["dis-dus", "Dış duş"],
+      ["jakuzi", "Jakuzi"],
+      ["sauna", "Sauna / hamam"],
+    ],
+  },
+  {
     key: "dis-alan",
-    label: "Dış alan ve manzara",
+    label: "Dış mekân",
     items: [
       ["bahce", "Bahçe"],
       ["teras", "Teras / balkon"],
       ["barbeku", "Barbekü"],
-      ["sezlong", "Şezlong"],
-      ["dis-dus", "Dış duş"],
       ["otopark", "Otopark"],
-      ["jakuzi", "Jakuzi"],
-      ["sauna", "Sauna / hamam"],
+    ],
+  },
+  {
+    key: "manzara",
+    label: "Manzara ve mahremiyet",
+    items: [
       ["deniz-manzarasi", "Deniz manzarası"],
       ["doga-manzarasi", "Doğa manzarası"],
       ["muhafazakar", "Muhafazakâr (dışarıdan görünmez)"],

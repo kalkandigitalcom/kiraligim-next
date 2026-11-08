@@ -124,15 +124,16 @@ describe("olanaklar ve konaklama bilgileri (updateStayDetails)", () => {
   it("doğru kaydedilir; adres, yayın durumu ve mülk alanları değişmez; denetimde yalnız alan adları", async () => {
     const before = await row(prop);
     const r = await as(O, ws, (tx, ctx) => updateStayDetails(tx, ctx, prop, STAY));
-    expect(r.changed).toBe(6);
+    expect(r.changed).toBe(4);
     const after = await row(prop);
     expect(after).toMatchObject({
       amenities: ["wifi", "otopark", "deniz-manzarasi"], // katalog sırası
       check_in_time: "16:00:00",
       check_out_time: "10:30:00",
       house_rules: STAY.houseRules,
-      cancellation_policy: STAY.cancellationPolicy,
-      payment_terms: STAY.paymentTerms,
+      // Revizyon 2: iptal / ödeme koşulları gönderilse de yazılmaz.
+      cancellation_policy: null,
+      payment_terms: null,
     });
     for (const k of [
       "name",
@@ -151,14 +152,7 @@ describe("olanaklar ve konaklama bilgileri (updateStayDetails)", () => {
       expect(after[k], k).toEqual(before[k]);
     }
     expect((await audits(ws, "property.public_profile_updated")).at(-1)).toEqual({
-      fields: [
-        "amenities",
-        "check_in_time",
-        "check_out_time",
-        "house_rules",
-        "cancellation_policy",
-        "payment_terms",
-      ],
+      fields: ["amenities", "check_in_time", "check_out_time", "house_rules"],
     });
     expect(await audits(ws, "property.updated")).toEqual([]);
   });
@@ -168,15 +162,16 @@ describe("olanaklar ve konaklama bilgileri (updateStayDetails)", () => {
     expect((await as(O, ws, (tx, ctx) => updateStayDetails(tx, ctx, prop, STAY))).changed).toBe(0);
     expect((await audits(ws, "property.public_profile_updated")).length).toBe(n);
     const r = await as(M, ws, (tx, ctx) =>
-      updateStayDetails(tx, ctx, prop, { ...STAY, paymentTerms: "" }),
+      updateStayDetails(tx, ctx, prop, { ...STAY, houseRules: "" }),
     );
     expect(r.changed).toBe(1);
     const after = await row(prop);
-    expect(after.payment_terms).toBeNull();
-    expect(after.house_rules).toBe(STAY.houseRules);
+    expect(after.house_rules).toBeNull();
+    expect(after.check_in_time).toBe("16:00:00");
     expect((await audits(ws, "property.public_profile_updated")).at(-1)).toEqual({
-      fields: ["payment_terms"],
+      fields: ["house_rules"],
     });
+    expect((await as(M, ws, (tx, ctx) => updateStayDetails(tx, ctx, prop, STAY))).changed).toBe(1);
   });
 
   it("geçersiz değerler alan hatasıyla reddedilir, hiçbir şey yazılmaz", async () => {
@@ -280,7 +275,7 @@ describe("sayfa adresi (updatePublicSlug)", () => {
     expect((await row(prop)).public_slug).toBe(slug);
     // Yayındayken olanak/konaklama kaydı adres onayı istemez ve adresi değiştirmez.
     const r = await as(O, ws, (tx, ctx) =>
-      updateStayDetails(tx, ctx, prop, { ...STAY, paymentTerms: "", checkOutTime: "11:00" }),
+      updateStayDetails(tx, ctx, prop, { ...STAY, checkOutTime: "11:00" }),
     );
     expect(r.changed).toBe(1);
     expect(await row(prop)).toMatchObject({ public_slug: slug, is_public: true });
@@ -312,7 +307,7 @@ describe("sayfa adresi (updatePublicSlug)", () => {
         confirmSlugChange: false,
       }),
     );
-    expect(r.changed).toBe(3); // ev kuralları, çıkış saati (10:30) ve ödeme koşulları
+    expect(r.changed).toBe(2); // ev kuralları ve çıkış saati (10:30); ödeme koşulları artık yok
     const p = await as(O, ws, (tx) => getPublicProfile(tx, prop));
     expect(p).toMatchObject({ houseRules: "Birleşik form.", checkOutTime: "10:30" });
   });

@@ -4,13 +4,15 @@ import { sql } from "drizzle-orm";
 
 import { type PublicDb, withPublicRead } from "@/db/public";
 import type { Tx } from "@/db/tenant";
-import { safeMapEmbedUrl } from "@/lib/map-embed";
+import { mapOpenUrl, safeMapEmbedUrl } from "@/lib/map-embed";
+import { effectiveMapMode, isMapMode, isValidPin, type MapPin, pinOpenUrl } from "@/lib/map-pin";
 import { slugProblem } from "@/lib/public-profile-meta";
 import {
   busyQueryWindow,
   lastCheckInDay,
   PUBLIC_BOOKING,
   type PublicPhoto,
+  type PublicMap,
   type PublicPool,
   type PublicVilla,
 } from "@/lib/public-villa";
@@ -21,6 +23,8 @@ import { plainTextToHtml } from "@/lib/rich-text";
 import {
   DISTANCE_COLUMNS,
   DISTANCE_KEYS,
+  DISTANCE_UNIT_COLUMNS,
+  isDistanceUnit,
   orderHouseRules,
   orderPriceIncludes,
 } from "@/lib/villa-extras";
@@ -48,7 +52,17 @@ export type VillaRow = {
   province: string;
   district: string;
   neighborhood: string | null;
+  map_mode: string | null;
   map_embed_url: string | null;
+  map_pin_lat: string | null;
+  map_pin_lng: string | null;
+  distance_market_unit: string | null;
+  distance_restaurant_unit: string | null;
+  distance_center_unit: string | null;
+  distance_beach_unit: string | null;
+  distance_airport_ayt_unit: string | null;
+  distance_airport_dlm_unit: string | null;
+  distance_health_unit: string | null;
   distance_market_km: string | null;
   distance_restaurant_km: string | null;
   distance_center_km: string | null;
@@ -75,8 +89,6 @@ export type VillaRow = {
   house_rules: string | null;
   house_rule_keys: string[] | null;
   price_includes: string[] | null;
-  cancellation_policy: string | null;
-  payment_terms: string | null;
   contact_whatsapp: string;
   updated_at: Date | string;
 };
@@ -130,9 +142,30 @@ function rowDistances(r: VillaRow): PublicVilla["distances"] {
   for (const key of DISTANCE_KEYS) {
     const v = r[DISTANCE_COLUMNS[key] as keyof VillaRow] as string | null;
     const km = v === null ? null : Number(v);
-    if (km !== null && Number.isFinite(km) && km > 0) out.push({ key, km });
+    const u = r[DISTANCE_UNIT_COLUMNS[key] as keyof VillaRow];
+    if (km !== null && Number.isFinite(km) && km > 0) {
+      out.push({ key, km, unit: isDistanceUnit(u) ? u : null });
+    }
   }
   return out;
+}
+
+/**
+ * Harita: sahibin seçtiği yöntem. Google adresi gösterimden önce yeniden doğrulanır (kalıba
+ * uymayan adres hiç gösterilmez); iğne aralık denetiminden geçer. Yöntem NULL ise (Revizyon 2
+ * öncesi kayıt) Google adresi varsa o gösterilir.
+ */
+function publicMap(r: VillaRow): PublicMap | null {
+  const embed = safeMapEmbedUrl(r.map_embed_url);
+  const lat = r.map_pin_lat === null ? Number.NaN : Number(r.map_pin_lat);
+  const lng = r.map_pin_lng === null ? Number.NaN : Number(r.map_pin_lng);
+  const pin: MapPin | null = isValidPin(lat, lng) ? { lat, lng } : null;
+  const mode = effectiveMapMode(isMapMode(r.map_mode) ? r.map_mode : null, embed, pin);
+  if (mode === "google" && embed)
+    return { kind: "google", embedUrl: embed, openUrl: mapOpenUrl(embed) };
+  if (mode === "pin" && pin)
+    return { kind: "pin", lat: pin.lat, lng: pin.lng, openUrl: pinOpenUrl(pin) };
+  return null;
 }
 
 export const toRatePeriods = (rows: RateRow[]): RatePeriod[] =>
@@ -221,8 +254,7 @@ export function buildPublicVilla(
     bedrooms: r.bedrooms,
     bathrooms: r.bathrooms,
     location: { province: r.province, district: r.district, neighborhood: r.neighborhood },
-    // Gösterimden önce yeniden doğrulanır: kalıba uymayan adres hiç gösterilmez.
-    mapEmbedUrl: safeMapEmbedUrl(r.map_embed_url),
+    map: publicMap(r),
     distances: rowDistances(r),
     pools: {
       swimming: pool(
@@ -241,8 +273,6 @@ export function buildPublicVilla(
     houseRuleKeys: orderHouseRules(r.house_rule_keys ?? []).map((x) => x.key),
     houseRules: r.house_rules,
     priceIncludes: orderPriceIncludes(r.price_includes ?? []).map((x) => x.key),
-    cancellationPolicy: r.cancellation_policy,
-    paymentTerms: r.payment_terms,
     whatsapp: r.contact_whatsapp,
     photos: toPublicPhotos(data.photos, storage),
     rates,
@@ -265,7 +295,7 @@ export const PUBLIC_VILLA_KEYS = [
   "bedrooms",
   "bathrooms",
   "location",
-  "mapEmbedUrl",
+  "map",
   "distances",
   "pools",
   "amenities",
@@ -274,8 +304,6 @@ export const PUBLIC_VILLA_KEYS = [
   "houseRuleKeys",
   "houseRules",
   "priceIncludes",
-  "cancellationPolicy",
-  "paymentTerms",
   "whatsapp",
   "photos",
   "rates",

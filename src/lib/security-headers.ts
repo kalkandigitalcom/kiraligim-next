@@ -4,6 +4,8 @@
  * - CSP istek başına nonce içerdiği için proxy.ts içinde üretilir.
  */
 
+import { OSM_TILE_ORIGIN } from "./map-pin";
+
 export type HeaderPair = { key: string; value: string };
 
 export function staticSecurityHeaders(): HeaderPair[] {
@@ -48,7 +50,9 @@ export function buildCsp(
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${opts.isDev ? " 'unsafe-eval'" : ""}`,
     // Geliştirmede HMR satır içi stil ekler; nonce varken 'unsafe-inline' yok sayıldığı için ayrı.
     opts.isDev ? "style-src 'self' 'unsafe-inline'" : `style-src 'self' 'nonce-${nonce}'`,
-    ["img-src 'self' blob: data:", ...imgExtra].join(" "),
+    // OpenStreetMap karoları: villa haritası "iğne" yöntemi (Leaflet; src/lib/map-pin.ts). Misafir
+    // sayfasında yalnız "Haritayı göster"e basılınca, panelde iğne yöntemi seçilince istenir.
+    ["img-src 'self' blob: data:", OSM_TILE_ORIGIN, ...imgExtra].join(" "),
     "font-src 'self'",
     "connect-src 'self'",
     // Yalnız villa sayfasındaki Google Haritalar gömmesi (src/lib/map-embed.ts tüm adresleri

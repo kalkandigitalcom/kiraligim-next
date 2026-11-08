@@ -129,7 +129,7 @@ export function Distances({ items }: { items: PublicVilla["distances"] }) {
           className="flex items-center justify-between gap-4 rounded-2xl border border-border px-4 py-3 text-[15px]"
         >
           <span className="text-navy-900/75">{DISTANCE_LABELS[d.key]}</span>
-          <span className="font-semibold tabular-nums">{formatDistance(d.km)}</span>
+          <span className="font-semibold tabular-nums">{formatDistance(d.km, d.unit)}</span>
         </li>
       ))}
     </ul>
@@ -164,14 +164,10 @@ export function PriceIncludes({ keys }: { keys: string[] }) {
 }
 
 /**
- * Giriş/çıkış saatleri, ev kuralları (hazır seçenekler + ek not), iptal ve ödeme koşulları (düz
- * metin, satır sonları korunur).
+ * Giriş/çıkış saatleri ve ev kuralları (hazır seçenekler + ek not; satır sonları korunur).
+ * Revizyon 2: iptal ve ödeme koşulları bölümü kaldırıldı.
  */
 export function Terms({ v }: { v: PublicVilla }) {
-  const blocks = [
-    { id: "iptal", title: "İptal koşulları", text: v.cancellationPolicy },
-    { id: "odeme", title: "Ödeme koşulları", text: v.paymentTerms },
-  ].filter((b): b is { id: string; title: string; text: string } => !!b.text);
   const hasRules = v.houseRuleKeys.length > 0 || !!v.houseRules;
   return (
     <div className="flex flex-col gap-6">
@@ -211,27 +207,12 @@ export function Terms({ v }: { v: PublicVilla }) {
           )}
         </div>
       )}
-      {blocks.map((b) => (
-        <div key={b.id} data-testid={`terms-${b.id}`}>
-          <h3 className="mb-2 font-semibold">{b.title}</h3>
-          <p className="max-w-prose text-[15px] leading-relaxed whitespace-pre-line text-navy-900/80">
-            {b.text}
-          </p>
-        </div>
-      ))}
     </div>
   );
 }
 
 export const hasTerms = (v: PublicVilla) =>
-  !!(
-    v.checkInTime ||
-    v.checkOutTime ||
-    v.houseRules ||
-    v.houseRuleKeys.length > 0 ||
-    v.cancellationPolicy ||
-    v.paymentTerms
-  );
+  !!(v.checkInTime || v.checkOutTime || v.houseRules || v.houseRuleKeys.length > 0);
 
 /** Sezon fiyatları: yalnız bugünden sonraki geceler; fiyatsız dönem "sorunuz" olarak gösterilir. */
 export function RatesTable({ rates, today }: { rates: PublicVilla["rates"]; today: string }) {

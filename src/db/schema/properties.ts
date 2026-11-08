@@ -23,7 +23,13 @@ import {
   PUBLIC_SLUG_PATTERN,
   RESERVED_PUBLIC_SLUGS,
 } from "../../lib/public-profile-meta";
-import { DISTANCE_LIMITS, EXTRA_KEY_PATTERN, EXTRA_LIST_MAX } from "../../lib/villa-extras";
+import { MAP_MODES } from "../../lib/map-pin";
+import {
+  DISTANCE_LIMITS,
+  DISTANCE_UNITS,
+  EXTRA_KEY_PATTERN,
+  EXTRA_LIST_MAX,
+} from "../../lib/villa-extras";
 
 import { users } from "./auth";
 import { workspaces } from "./tenancy";
@@ -52,6 +58,10 @@ const keyListCheck = (col: AnyColumn, max: number, pattern: string) => {
 };
 const distanceCheck = (col: AnyColumn) =>
   sql`${col} is null or (${col} > ${sql.raw(String(DISTANCE_LIMITS.min))} and ${col} <= ${sql.raw(String(DISTANCE_LIMITS.max))})`;
+
+/** Birim yalnız değer varken ve km / m (eski kayıtta değer var, birim NULL olabilir). */
+const unitCheck = (unit: AnyColumn, km: AnyColumn) =>
+  sql`${unit} is null or (${unit} in ('km', 'm') and ${km} is not null)`;
 
 const poolCheck = (has: AnyColumn, depth: AnyColumn, width: AnyColumn, length: AnyColumn) => {
   const L = PROPERTY_LIMITS;
@@ -102,16 +112,33 @@ export const properties = pgTable(
     latitude: numeric({ precision: 9, scale: 6 }),
     /** @deprecated Aşama 2 migration'ında kaldırılacak. */
     longitude: numeric({ precision: 9, scale: 6 }),
-    /** Google Haritalar gömme adresi (src/lib/map-embed.ts ile üretilmiş; misafire gösterilir). */
+    /**
+     * Misafire gösterilen harita yöntemi (Revizyon 2): 'google' | 'pin' (yöntemin verisi yoksa
+     * harita gösterilmez). NULL = Revizyon 2 öncesi kayıt: Google adresi varsa o gösterilir
+     * (src/lib/map-pin.ts → effectiveMapMode).
+     */
+    mapMode: text({ enum: MAP_MODES }),
+    /** Google Haritalar gömme adresi (src/lib/map-embed.ts ile üretilmiş). */
     mapEmbedUrl: text(),
-    /** Yakın yerlere mesafeler (km, isteğe bağlı). */
-    distanceMarketKm: numeric({ precision: 6, scale: 2 }),
-    distanceRestaurantKm: numeric({ precision: 6, scale: 2 }),
-    distanceCenterKm: numeric({ precision: 6, scale: 2 }),
-    distanceBeachKm: numeric({ precision: 6, scale: 2 }),
-    distanceAirportAytKm: numeric({ precision: 6, scale: 2 }),
-    distanceAirportDlmKm: numeric({ precision: 6, scale: 2 }),
-    distanceHealthKm: numeric({ precision: 6, scale: 2 }),
+    /** Haritada bırakılan iğne (OpenStreetMap / Leaflet); ikisi birlikte dolu ya da boş. */
+    mapPinLat: numeric({ precision: 8, scale: 6 }),
+    mapPinLng: numeric({ precision: 9, scale: 6 }),
+    /** Yakın yerlere mesafeler: kayıt km (1 m çözünürlük), isteğe bağlı. */
+    distanceMarketKm: numeric({ precision: 8, scale: 3 }),
+    distanceRestaurantKm: numeric({ precision: 8, scale: 3 }),
+    distanceCenterKm: numeric({ precision: 8, scale: 3 }),
+    distanceBeachKm: numeric({ precision: 8, scale: 3 }),
+    distanceAirportAytKm: numeric({ precision: 8, scale: 3 }),
+    distanceAirportDlmKm: numeric({ precision: 8, scale: 3 }),
+    distanceHealthKm: numeric({ precision: 8, scale: 3 }),
+    /** Mesafelerin giriş/gösterim birimi ('km' | 'm'); NULL = girilmemiş veya eski kayıt (otomatik). */
+    distanceMarketUnit: text({ enum: DISTANCE_UNITS }),
+    distanceRestaurantUnit: text({ enum: DISTANCE_UNITS }),
+    distanceCenterUnit: text({ enum: DISTANCE_UNITS }),
+    distanceBeachUnit: text({ enum: DISTANCE_UNITS }),
+    distanceAirportAytUnit: text({ enum: DISTANCE_UNITS }),
+    distanceAirportDlmUnit: text({ enum: DISTANCE_UNITS }),
+    distanceHealthUnit: text({ enum: DISTANCE_UNITS }),
     // Havuzlar: var/yok + ölçüler (metre). Yoksa ölçüler NULL; varsa üçü de dolu.
     poolSwimming: boolean().notNull().default(false),
     poolSwimmingDepth: numeric({ precision: 5, scale: 2 }),
@@ -151,7 +178,9 @@ export const properties = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
+    /** @deprecated Revizyon 2: uygulama okumaz/yazmaz; daraltma migration'ında kaldırılacak. */
     cancellationPolicy: text(),
+    /** @deprecated Revizyon 2: uygulama okumaz/yazmaz; daraltma migration'ında kaldırılacak. */
     paymentTerms: text(),
     // Kullanıcı silinince mülk kalır, oluşturan bilgisi NULL olur (KVKK silme akışını engellemez).
     createdBy: uuid().references(() => users.id, { onDelete: "set null" }),
@@ -251,6 +280,15 @@ export const properties = pgTable(
     check(
       "properties_distances",
       sql`(${distanceCheck(t.distanceMarketKm)}) and (${distanceCheck(t.distanceRestaurantKm)}) and (${distanceCheck(t.distanceCenterKm)}) and (${distanceCheck(t.distanceBeachKm)}) and (${distanceCheck(t.distanceAirportAytKm)}) and (${distanceCheck(t.distanceAirportDlmKm)}) and (${distanceCheck(t.distanceHealthKm)})`,
+    ),
+    check("properties_map_mode", sql`${t.mapMode} is null or ${t.mapMode} in ('google', 'pin')`),
+    check(
+      "properties_map_pin",
+      sql`(${t.mapPinLat} is null and ${t.mapPinLng} is null) or (${t.mapPinLat} is not null and ${t.mapPinLng} is not null and ${t.mapPinLat} between -90 and 90 and ${t.mapPinLng} between -180 and 180 and not (${t.mapPinLat} = 0 and ${t.mapPinLng} = 0))`,
+    ),
+    check(
+      "properties_distance_units",
+      sql`(${unitCheck(t.distanceMarketUnit, t.distanceMarketKm)}) and (${unitCheck(t.distanceRestaurantUnit, t.distanceRestaurantKm)}) and (${unitCheck(t.distanceCenterUnit, t.distanceCenterKm)}) and (${unitCheck(t.distanceBeachUnit, t.distanceBeachKm)}) and (${unitCheck(t.distanceAirportAytUnit, t.distanceAirportAytKm)}) and (${unitCheck(t.distanceAirportDlmUnit, t.distanceAirportDlmKm)}) and (${unitCheck(t.distanceHealthUnit, t.distanceHealthKm)})`,
     ),
     check(
       "properties_house_rule_keys",

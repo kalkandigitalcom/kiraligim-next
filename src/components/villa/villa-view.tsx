@@ -114,10 +114,10 @@ export function VillaView({
                   <Pools pools={v.pools} />
                 </Section>
               )}
-              {(v.mapEmbedUrl || v.distances.length > 0) && (
+              {(v.map || v.distances.length > 0) && (
                 <Section id="konum" title="Konum ve yakın yerler">
                   <div className="flex flex-col gap-6">
-                    {v.mapEmbedUrl && <MapEmbed src={v.mapEmbedUrl} name={v.name} />}
+                    {v.map && <MapEmbed map={v.map} name={v.name} />}
                     {v.distances.length > 0 && <Distances items={v.distances} />}
                   </div>
                 </Section>

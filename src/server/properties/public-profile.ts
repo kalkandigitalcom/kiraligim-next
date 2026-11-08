@@ -57,8 +57,6 @@ export type PublicProfile = {
   houseRules: string | null;
   houseRuleKeys: string[];
   priceIncludes: string[];
-  cancellationPolicy: string | null;
-  paymentTerms: string | null;
   photoCount: number;
   /** İşletme düzeyinde (yalnız owner düzenler). */
   whatsapp: string | null;
@@ -80,8 +78,6 @@ type Row = {
   house_rules: string | null;
   house_rule_keys: string[] | null;
   price_includes: string[] | null;
-  cancellation_policy: string | null;
-  payment_terms: string | null;
   photo_count: number;
   contact_whatsapp: string | null;
 };
@@ -89,7 +85,7 @@ type Row = {
 const SELECT = sql`
   select p.id, p.name, p.status, p.district, p.public_slug, p.is_public, p.public_published_at,
          p.amenities, p.check_in_time::text as check_in_time, p.check_out_time::text as check_out_time,
-         p.house_rules, p.house_rule_keys, p.price_includes, p.cancellation_policy, p.payment_terms,
+         p.house_rules, p.house_rule_keys, p.price_includes,
          (select count(*)::int from property_photos f
            where f.property_id = p.id and f.workspace_id = p.workspace_id) as photo_count,
          (select w.contact_whatsapp from workspaces w where w.id = p.workspace_id) as contact_whatsapp
@@ -122,8 +118,6 @@ function toProfile(r: Row, subCurrent: boolean): PublicProfile {
     houseRules: r.house_rules,
     houseRuleKeys: orderHouseRules(r.house_rule_keys ?? []).map((x) => x.key),
     priceIncludes: orderPriceIncludes(r.price_includes ?? []).map((x) => x.key),
-    cancellationPolicy: r.cancellation_policy,
-    paymentTerms: r.payment_terms,
     photoCount: r.photo_count,
     whatsapp: r.contact_whatsapp,
     subscriptionCurrent: subCurrent,
@@ -186,8 +180,6 @@ function changedFields(before: Row, v: MergedValues): AuditField[] {
   if (toHhMm(before.check_in_time) !== v.checkInTime) out.push("check_in_time");
   if (toHhMm(before.check_out_time) !== v.checkOutTime) out.push("check_out_time");
   if (before.house_rules !== v.houseRules) out.push("house_rules");
-  if (before.cancellation_policy !== v.cancellationPolicy) out.push("cancellation_policy");
-  if (before.payment_terms !== v.paymentTerms) out.push("payment_terms");
   return out;
 }
 
@@ -211,8 +203,6 @@ function currentValues(r: Row): MergedValues {
     checkInTime: toHhMm(r.check_in_time),
     checkOutTime: toHhMm(r.check_out_time),
     houseRules: r.house_rules,
-    cancellationPolicy: r.cancellation_policy,
-    paymentTerms: r.payment_terms,
     confirmSlugChange: false,
   };
 }
@@ -262,9 +252,7 @@ async function applyProfileUpdate(
           price_includes = ${sql.param(v.priceIncludes)}::text[],
           check_in_time = ${v.checkInTime}::time,
           check_out_time = ${v.checkOutTime}::time,
-          house_rules = ${v.houseRules},
-          cancellation_policy = ${v.cancellationPolicy},
-          payment_terms = ${v.paymentTerms}
+          house_rules = ${v.houseRules}
         where id = ${id} and workspace_id = app_current_workspace_id()`);
       if (res.rowCount !== 1) throw notFoundProperty();
     }

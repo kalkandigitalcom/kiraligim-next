@@ -9,7 +9,7 @@ type ShellProps = {
   labelAside?: React.ReactNode;
 };
 
-const CONTROL =
+export const FIELD_CONTROL_CLASS =
   "w-full rounded-lg border border-input bg-white px-3 text-[15px] text-navy-900 transition-colors placeholder:text-muted-foreground/70 focus-visible:border-turquoise-500 focus-visible:ring-3 focus-visible:ring-turquoise-500/25 focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-mist disabled:opacity-80 aria-invalid:border-destructive aria-invalid:focus-visible:ring-destructive/20";
 
 function describedBy(id: string, hint: unknown, error: unknown) {
@@ -60,7 +60,7 @@ export function Field({ id, label, hint, error, labelAside, className, ...input 
         id={id}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(id, hint, error)}
-        className={cn(CONTROL, "h-11", className)}
+        className={cn(FIELD_CONTROL_CLASS, "h-11", className)}
         {...input}
       />
     </Shell>
@@ -87,7 +87,7 @@ export function SelectField({
         id={id}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(id, hint, error)}
-        className={cn(CONTROL, "h-11 appearance-auto pr-8", className)}
+        className={cn(FIELD_CONTROL_CLASS, "h-11 appearance-auto pr-8", className)}
         {...select}
       >
         {placeholder !== undefined ? <option value="">{placeholder}</option> : null}
@@ -118,7 +118,7 @@ export function TextareaField({
         id={id}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(id, hint, error)}
-        className={cn(CONTROL, "min-h-28 py-2.5 leading-relaxed", className)}
+        className={cn(FIELD_CONTROL_CLASS, "min-h-28 py-2.5 leading-relaxed", className)}
         {...textarea}
       />
     </Shell>

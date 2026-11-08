@@ -21,16 +21,15 @@ describe("ayrık şemalar aynı kuralları kullanır", () => {
       checkInTime: "16:00",
       checkOutTime: "",
       houseRules: "  Kural.\r\nİkinci satır.  ",
-      cancellationPolicy: "",
-      paymentTerms: undefined,
+      // Revizyon 2: kaldırılan alanlar gelse de yok sayılır.
+      cancellationPolicy: "Eski iptal metni",
+      paymentTerms: "Eski ödeme metni",
     });
     expect(ok).toEqual({
       amenities: ["wifi", "otopark"],
       checkInTime: "16:00",
       checkOutTime: null,
       houseRules: "Kural.\nİkinci satır.",
-      cancellationPolicy: null,
-      paymentTerms: null,
     });
     const bad = stayDetailsInput.safeParse({ amenities: ["yok"], checkInTime: "7:00" });
     expect(bad.success).toBe(false);
@@ -87,8 +86,6 @@ describe("ayrık şemalar aynı kuralları kullanır", () => {
       checkInTime: "16:00",
       checkOutTime: "",
       houseRules: "K",
-      cancellationPolicy: "",
-      paymentTerms: "",
     });
     expect(publicSlugFormValues(fd)).toEqual({ publicSlug: "x-villa", confirmSlugChange: false });
   });
@@ -117,7 +114,18 @@ describe("kayıt → form değerleri (parça kayıt için)", () => {
     },
     countryCode: "TR",
     neighborhood: null,
+    mapMode: null,
     mapEmbedUrl: "https://www.google.com/maps?q=36.500000,29.123456&z=16&output=embed",
+    mapPin: { lat: 36.2655, lng: 29.414712 },
+    distanceUnits: {
+      distanceMarketKm: null,
+      distanceRestaurantKm: null,
+      distanceCenterKm: "km",
+      distanceBeachKm: null,
+      distanceAirportAytKm: null,
+      distanceAirportDlmKm: "km",
+      distanceHealthKm: null,
+    },
     distances: {
       distanceMarketKm: 0.4,
       distanceRestaurantKm: null,
@@ -136,12 +144,21 @@ describe("kayıt → form değerleri (parça kayıt için)", () => {
     expect(Object.keys(raw).sort()).toEqual([...PROPERTY_FIELDS].sort());
     expect(raw).toMatchObject({
       description: "<p>Eski metin.<br />İkinci satır.</p>",
+      // Eski kayıt (yöntem NULL, Google adresi var) → Google; iğne de forma gelir (korunur).
+      mapMode: "google",
       mapLocation: "https://www.google.com/maps?q=36.500000,29.123456&z=16&output=embed",
-      distanceMarketKm: "0,4",
+      mapPinLat: "36.2655",
+      mapPinLng: "29.414712",
+      // Eski kayıt (birim NULL): 1 km altı metre, üstü km (önceki gösterimle aynı).
+      distanceMarketKm: "400",
+      distanceMarketUnit: "m",
       distanceCenterKm: "2,5",
+      distanceCenterUnit: "km",
       distanceAirportAytKm: "190",
+      distanceAirportAytUnit: "km",
       distanceAirportDlmKm: "112,25",
       distanceBeachKm: "",
+      distanceBeachUnit: "km",
       poolSwimming: "yes",
       poolSwimmingDepth: "1,50",
       poolSwimmingLength: "9,25",
@@ -155,8 +172,31 @@ describe("kayıt → form değerleri (parça kayıt için)", () => {
 
   it("kayıt → form → doğrulama gidiş-dönüşü değer değiştirmez (harita, mesafeler)", () => {
     const parsed = propertyInput.parse(propertyToRaw(base));
-    expect(parsed.mapLocation).toBe(base.mapEmbedUrl);
-    expect(parsed).toMatchObject(base.distances);
+    expect(parsed.map).toEqual({ mode: "google", embedUrl: base.mapEmbedUrl, pin: base.mapPin });
+    expect(parsed.distances.km).toEqual(base.distances);
+    // Kayıtlı birim korunur; eski kaydın birimi otomatik birimle açıkça yazılır.
+    expect(parsed.distances.unit).toMatchObject({
+      distanceMarketKm: "m",
+      distanceCenterKm: "km",
+      distanceAirportAytKm: "km",
+      distanceBeachKm: null,
+    });
+    // İğne yöntemi seçili kayıt da gidiş-dönüşte aynı kalır.
+    const pinRec = { ...base, mapMode: "pin" as const, mapEmbedUrl: null };
+    expect(propertyInput.parse(propertyToRaw(pinRec)).map).toEqual({
+      mode: "pin",
+      embedUrl: null,
+      pin: base.mapPin,
+    });
+    // Metre birimli kayıt 1 m hassasiyetle döner.
+    const mRec = {
+      ...base,
+      distances: { ...base.distances, distanceHealthKm: 1.255 },
+      distanceUnits: { ...base.distanceUnits, distanceHealthKm: "m" as const },
+    };
+    const mRaw = propertyToRaw(mRec);
+    expect(mRaw.distanceHealthKm).toBe("1255");
+    expect(propertyInput.parse(mRaw).distances.km.distanceHealthKm).toBe(1.255);
   });
 
   it("parça seçici yalnız bilinen metin alanlarını alır (eski alanlar dahil değil)", () => {

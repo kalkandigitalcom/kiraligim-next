@@ -6,7 +6,7 @@
  * değerlerle tamamlanır (src/server/properties/property-fields.ts).
  */
 
-import { DISTANCE_KEYS } from "./villa-extras";
+import { DISTANCE_KEYS, DISTANCE_UNIT_FIELDS } from "./villa-extras";
 
 export const WIZARD_STEPS = ["temel", "aciklama", "olanaklar", "konaklama", "kontrol"] as const;
 export type WizardStep = (typeof WIZARD_STEPS)[number];
@@ -72,11 +72,15 @@ export const BASICS_FIELDS = [
   "province",
   "district",
   "neighborhood",
+  "mapMode",
   "mapLocation",
+  "mapPinLat",
+  "mapPinLng",
   "maxGuests",
   "bedrooms",
   "bathrooms",
   ...DISTANCE_KEYS,
+  ...DISTANCE_UNIT_FIELDS,
 ] as const;
 
 /** Mülk alanları (properties tablosu) adım bazında. */
@@ -92,15 +96,7 @@ export const STEP_STAY_FIELDS: Record<EditStep, readonly string[]> = {
   temel: [],
   aciklama: [],
   olanaklar: ["amenities"],
-  konaklama: [
-    "checkInTime",
-    "checkOutTime",
-    "houseRuleKeys",
-    "houseRules",
-    "priceIncludes",
-    "cancellationPolicy",
-    "paymentTerms",
-  ],
+  konaklama: ["checkInTime", "checkOutTime", "houseRuleKeys", "houseRules", "priceIncludes"],
 };
 
 /** Çoklu seçim (onay kutusu) alanları: FormData'dan liste olarak okunur. */
@@ -151,7 +147,10 @@ export const EMPTY_PROPERTY_VALUES = {
   province: "",
   district: "",
   neighborhood: "",
+  mapMode: "google",
   mapLocation: "",
+  mapPinLat: "",
+  mapPinLng: "",
   distanceMarketKm: "",
   distanceRestaurantKm: "",
   distanceCenterKm: "",
@@ -159,6 +158,13 @@ export const EMPTY_PROPERTY_VALUES = {
   distanceAirportAytKm: "",
   distanceAirportDlmKm: "",
   distanceHealthKm: "",
+  distanceMarketUnit: "km",
+  distanceRestaurantUnit: "km",
+  distanceCenterUnit: "km",
+  distanceBeachUnit: "km",
+  distanceAirportAytUnit: "km",
+  distanceAirportDlmUnit: "km",
+  distanceHealthUnit: "km",
   poolSwimming: "no",
   poolSwimmingDepth: "",
   poolSwimmingWidth: "",

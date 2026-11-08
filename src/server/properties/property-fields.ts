@@ -4,7 +4,13 @@ import type { TenantContext, Tx } from "@/db/tenant";
 import { AppError, forbidden } from "@/lib/errors";
 import { formatMeters, POOL_KINDS } from "@/lib/property-meta";
 import { type EditStep, STEP_PROPERTY_FIELDS, STEP_STAY_FIELDS } from "@/lib/property-wizard";
-import { DISTANCE_KEYS, distanceToInput } from "@/lib/villa-extras";
+import { pinToInput } from "@/lib/map-pin";
+import {
+  DISTANCE_KEYS,
+  DISTANCE_UNIT_KEYS,
+  distanceFormUnit,
+  distanceToInput,
+} from "@/lib/villa-extras";
 import { youtubeWatchUrl } from "@/lib/youtube";
 
 import { getPublicProfile, type PublicProfile, updateStayDetails } from "./public-profile";
@@ -34,8 +40,10 @@ const meters = (n: number | null) => (n === null ? "" : formatMeters(n));
  * Açıklama: kayıtlı temiz HTML; yalnız düz metin olarak kaydedilmiş ESKİ açıklamalar için düz
  * metinden üretilmiş HTML (`Property.descriptionHtml`). Böylece eski açıklama, başka bir alan
  * kaydedilirken boşalmaz. Havuz ölçüleri (2 hane) ve mesafeler veritabanı ölçeğiyle aynı
- * hassasiyette yazılır: gidiş-dönüş değer değiştirmez. Harita: kayıtlı gömme adresi (yeniden
- * ayrıştırıldığında aynı adresi verir). YouTube: tek video (ilk kimlik).
+ * hassasiyette yazılır: gidiş-dönüş değer değiştirmez (mesafe kayıtlı birimiyle; metre 1 m,
+ * km 2 ondalık — Revizyon 2 öncesi kayıtlar 2 ondalık km'dir). Harita: seçili yöntem, kayıtlı
+ * gömme adresi (yeniden ayrıştırıldığında aynı adresi verir) ve iğne (6 ondalık).
+ * YouTube: tek video (ilk kimlik).
  */
 export function propertyToRaw(p: Property): PropertyFormRaw {
   const first = p.youtubeVideoIds[0];
@@ -51,10 +59,18 @@ export function propertyToRaw(p: Property): PropertyFormRaw {
     province: p.province,
     district: p.district,
     neighborhood: p.neighborhood ?? "",
+    mapMode: p.mapMode ?? (p.mapPin && !p.mapEmbedUrl ? "pin" : "google"),
     mapLocation: p.mapEmbedUrl ?? "",
+    mapPinLat: pinToInput(p.mapPin?.lat ?? null),
+    mapPinLng: pinToInput(p.mapPin?.lng ?? null),
     poolSwimmingProtected: p.pools.swimmingProtected ? "yes" : "no",
   } as Record<string, unknown>;
-  for (const k of DISTANCE_KEYS) out[k] = distanceToInput(p.distances[k]);
+  for (const k of DISTANCE_KEYS) {
+    // Eski kayıt (birim NULL): eski gösterimle aynı birim (1 km altı metre); değer kayıpsız çevrilir.
+    const unit = distanceFormUnit(p.distances[k], p.distanceUnits[k]);
+    out[k] = distanceToInput(p.distances[k], unit);
+    out[DISTANCE_UNIT_KEYS[k]] = unit;
+  }
   for (const k of POOL_KINDS) {
     const pool = p.pools[k];
     out[`pool${KEY[k]}`] = pool.present ? "yes" : "no";
@@ -113,8 +129,6 @@ export function stayToRaw(p: PublicProfile): StayDetailsFormRaw {
     checkInTime: p.checkInTime ?? "",
     checkOutTime: p.checkOutTime ?? "",
     houseRules: p.houseRules ?? "",
-    cancellationPolicy: p.cancellationPolicy ?? "",
-    paymentTerms: p.paymentTerms ?? "",
   };
 }
 
@@ -148,7 +162,13 @@ export async function updateStayFields(
   await lockForWrite(tx, ctx, id);
   const current = await getPublicProfile(tx, id);
   if (!current) throw notFound();
-  return updateStayDetails(tx, ctx, id, { ...stayToRaw(current), ...pickStayFields(input) });
+  // Hazır kural / dahil listeleri yalnız gönderildiyse yazılır; gönderilmeyen liste kayıttaki
+  // diziyle aynen korunur (Revizyon 2'de katalogdan çıkan eski anahtarlar başka adımın kaydında
+  // sessizce silinmesin; 4. adım kaydedilince katalogdakilerle değişir).
+  const base: Partial<StayDetailsFormRaw> = stayToRaw(current);
+  delete base.houseRuleKeys;
+  delete base.priceIncludes;
+  return updateStayDetails(tx, ctx, id, { ...base, ...pickStayFields(input) });
 }
 
 /**

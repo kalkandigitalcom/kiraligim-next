@@ -4,12 +4,17 @@
  *
  * Bu nesnede YALNIZ public sayfanın göstereceği alanlar bulunur: misafir/rezervasyon bilgisi,
  * belge numarası, işletme adı ve kimliği yoktur. Konum yalnız mahalle/ilçe/il ve sahibin
- * misafire göstermek için eklediği Google Haritalar gömme adresidir. Dolu tarihler
+ * misafire göstermek için seçtiği harita (Google gömme adresi veya OpenStreetMap iğnesi). Dolu tarihler
  * rezervasyon/blok ayrımı yapılmadan birleşik aralıklardır.
  */
 import { addDays, type Currency } from "./reservation-meta";
 import type { RatePeriod } from "./rate-meta";
-import type { DistanceKey } from "./villa-extras";
+import type { DistanceKey, DistanceUnit } from "./villa-extras";
+
+/** Misafire gösterilecek harita: sahibin seçtiği yöntem (src/lib/map-pin.ts). */
+export type PublicMap =
+  | { kind: "google"; embedUrl: string; openUrl: string | null }
+  | { kind: "pin"; lat: number; lng: number; openUrl: string };
 
 export const PUBLIC_BOOKING = {
   /** Takvim bugünden bu kadar ay ileriye açılır (son giriş günü). */
@@ -51,10 +56,10 @@ export type PublicVilla = {
   bedrooms: number;
   bathrooms: number;
   location: { province: string; district: string; neighborhood: string | null };
-  /** Doğrulanmış Google Haritalar gömme adresi (src/lib/map-embed.ts); yoksa null. */
-  mapEmbedUrl: string | null;
-  /** Girilmiş mesafeler, katalog sırasıyla (km). */
-  distances: { key: DistanceKey; km: number }[];
+  /** Seçili yöntemle harita (Google gömme adresi yeniden doğrulanmış); yoksa null. */
+  map: PublicMap | null;
+  /** Girilmiş mesafeler, katalog sırasıyla (km + gösterim birimi; NULL birim = eski kayıt). */
+  distances: { key: DistanceKey; km: number; unit: DistanceUnit | null }[];
   pools: { swimming: PublicPool | null; indoor: PublicPool | null; kids: PublicPool | null };
   amenities: string[];
   checkInTime: string | null;
@@ -65,8 +70,6 @@ export type PublicVilla = {
   houseRules: string | null;
   /** Fiyata dahil olanlar (bilgi amaçlı; katalog sırasıyla). */
   priceIncludes: string[];
-  cancellationPolicy: string | null;
-  paymentTerms: string | null;
   /** İşletme WhatsApp numarası (+905321234567). */
   whatsapp: string;
   photos: PublicPhoto[];

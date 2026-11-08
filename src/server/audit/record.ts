@@ -70,8 +70,6 @@ export const PUBLIC_PROFILE_AUDIT_FIELDS = [
   "house_rules",
   "house_rule_keys",
   "price_includes",
-  "cancellation_policy",
-  "payment_terms",
 ] as const;
 const slug = z.string().max(48);
 
