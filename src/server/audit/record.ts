@@ -65,11 +65,23 @@ export const RATE_AUDIT_FIELDS = [
   "min_nights",
   "cleaning_fee",
 ] as const;
+/** Denetim kaydına yazılabilecek villa sayfası alan adları (değerleri değil). */
+export const PUBLIC_PROFILE_AUDIT_FIELDS = [
+  "public_slug",
+  "amenities",
+  "check_in_time",
+  "check_out_time",
+  "house_rules",
+  "cancellation_policy",
+  "payment_terms",
+] as const;
 const slug = z.string().max(48);
 
 export const AUDIT_ACTIONS = {
   "workspace.created": z.strictObject({ slug }),
-  "workspace.updated": z.strictObject({ fields: z.array(z.enum(["name", "slug"])).min(1) }),
+  "workspace.updated": z.strictObject({
+    fields: z.array(z.enum(["name", "slug", "contact_whatsapp"])).min(1),
+  }),
   "workspace.member_added": z.strictObject({ role }),
   "workspace.member_role_changed": z.strictObject({ from: role, to: role }),
   "workspace.member_removed": z.strictObject({ role }),
@@ -93,6 +105,12 @@ export const AUDIT_ACTIONS = {
     fields: z.array(z.enum(RATE_AUDIT_FIELDS)).min(1),
   }),
   "property.rate_deleted": z.strictObject({ property: z.uuid() }),
+  // Villa sayfası (F1): yalnız değişen ALAN ADLARI ve yayın geçişleri; adres/metin değerleri yazılmaz.
+  "property.public_profile_updated": z.strictObject({
+    fields: z.array(z.enum(PUBLIC_PROFILE_AUDIT_FIELDS)).min(1),
+  }),
+  "property.published": z.strictObject({}),
+  "property.unpublished": z.strictObject({}),
   // Rezervasyon: misafir adı/telefonu/e-postası ve tutar DEĞERLERİ yazılmaz (kişisel/ticari veri).
   "reservation.created": z.strictObject({
     property: z.uuid(),

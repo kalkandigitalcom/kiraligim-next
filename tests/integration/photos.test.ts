@@ -649,6 +649,8 @@ describe("yetkiler, politikalar, fonksiyon, kısıtlar", () => {
     expect(p.rows.map((x) => [x.policyname, x.cmd, x.roles])).toEqual([
       ["property_photos_delete", "DELETE", ["app_user"]],
       ["property_photos_insert", "INSERT", ["app_user"]],
+      // 0024: public villa okuma fonksiyonları için app_migrator'a dar SELECT (yalnız app.public_read açıkken).
+      ["property_photos_public_read", "SELECT", ["app_migrator"]],
       ["property_photos_select", "SELECT", ["app_user"]],
       ["property_photos_update", "UPDATE", ["app_user"]],
     ]);

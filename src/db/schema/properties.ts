@@ -8,12 +8,20 @@ import {
   pgTable,
   smallint,
   text,
+  time,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
 import { PROPERTY_LIMITS, PROPERTY_STATUSES, PROPERTY_TYPES } from "../../lib/property-meta";
+import {
+  AMENITY_KEY_PATTERN,
+  PUBLIC_PROFILE_LIMITS as PL,
+  PUBLIC_SLUG_PATTERN,
+  RESERVED_PUBLIC_SLUGS,
+} from "../../lib/public-profile-meta";
 
 import { users } from "./auth";
 import { workspaces } from "./tenancy";
@@ -92,6 +100,21 @@ export const properties = pgTable(
     poolKidsDepth: numeric({ precision: 5, scale: 2 }),
     poolKidsWidth: numeric({ precision: 5, scale: 2 }),
     poolKidsLength: numeric({ precision: 5, scale: 2 }),
+    // Müşteriye açık villa sayfası (F1, drizzle/0022–0023). Sayfa adresi tüm sistemde benzersiz;
+    // is_public sahibin yayın isteğidir, sayfanın açık olması ayrıca koşullara bağlıdır
+    // (src/lib/public-profile-meta.ts → pageVisibility). Metinler düz metindir (HTML değil).
+    publicSlug: text(),
+    isPublic: boolean().notNull().default(false),
+    publicPublishedAt: timestamp({ withTimezone: true, mode: "date" }),
+    amenities: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    checkInTime: time(),
+    checkOutTime: time(),
+    houseRules: text(),
+    cancellationPolicy: text(),
+    paymentTerms: text(),
     // Kullanıcı silinince mülk kalır, oluşturan bilgisi NULL olur (KVKK silme akışını engellemez).
     createdBy: uuid().references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp({ withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -101,6 +124,7 @@ export const properties = pgTable(
     // Fotoğraflar (2.4c) gibi alt tablolar bileşik FK ile aynı işletmeye bağlanır.
     unique("properties_id_workspace_key").on(t.id, t.workspaceId),
     index("properties_workspace_status_idx").on(t.workspaceId, t.status),
+    uniqueIndex("properties_public_slug_key").on(t.publicSlug),
     index("properties_created_by_idx").on(t.createdBy),
     check(
       "properties_name_length",
@@ -137,6 +161,26 @@ export const properties = pgTable(
     check(
       "properties_description_html_length",
       sql`${t.descriptionHtml} is null or length(${t.descriptionHtml}) <= ${sql.raw(String(PROPERTY_LIMITS.descriptionHtmlMax))}`,
+    ),
+    check(
+      "properties_public_slug_format",
+      sql`${t.publicSlug} is null or (${t.publicSlug} ~ '${sql.raw(PUBLIC_SLUG_PATTERN)}' and position('--' in ${t.publicSlug}) = 0 and ${t.publicSlug} <> all (array[${sql.raw(RESERVED_PUBLIC_SLUGS.map((w) => `'${w}'`).join(", "))}]))`,
+    ),
+    check(
+      "properties_public_requires_slug",
+      sql`not ${t.isPublic} or (${t.publicSlug} is not null and ${t.publicPublishedAt} is not null)`,
+    ),
+    check(
+      "properties_amenities",
+      sql`cardinality(${t.amenities}) <= ${sql.raw(String(PL.amenitiesMax))} and array_position(${t.amenities}, null) is null and (cardinality(${t.amenities}) = 0 or array_to_string(${t.amenities}, ',') ~ '^${sql.raw(AMENITY_KEY_PATTERN.slice(1, -1))}(,${sql.raw(AMENITY_KEY_PATTERN.slice(1, -1))})*$')`,
+    ),
+    check(
+      "properties_stay_times",
+      sql`(${t.checkInTime} is null or extract(second from ${t.checkInTime}) = 0) and (${t.checkOutTime} is null or extract(second from ${t.checkOutTime}) = 0)`,
+    ),
+    check(
+      "properties_public_texts",
+      sql`(${t.houseRules} is null or (length(${t.houseRules}) between 1 and ${sql.raw(String(PL.houseRulesMax))} and ${t.houseRules} !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]')) and (${t.cancellationPolicy} is null or (length(${t.cancellationPolicy}) between 1 and ${sql.raw(String(PL.cancellationPolicyMax))} and ${t.cancellationPolicy} !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]')) and (${t.paymentTerms} is null or (length(${t.paymentTerms}) between 1 and ${sql.raw(String(PL.paymentTermsMax))} and ${t.paymentTerms} !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]'))`,
     ),
     check(
       "properties_tourism_license_format",

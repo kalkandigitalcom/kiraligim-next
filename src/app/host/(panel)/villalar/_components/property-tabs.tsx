@@ -4,11 +4,14 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   propertyId: string;
-  active: "info" | "photos" | "rates";
+  active: "info" | "photos" | "rates" | "publish";
   photoCount?: number;
 };
 
-/** Mülk sayfası sekmeleri: Bilgiler · Fotoğraflar · Fiyatlar · Takvim (takvim sayfasına, bu mülk seçili). */
+/**
+ * Mülk sayfası sekmeleri: Bilgiler · Fotoğraflar · Fiyatlar · Yayın · Takvim (takvim sayfasına,
+ * bu mülk seçili). Yayın: müşteriye açık villa sayfası ayarları (F1).
+ */
 export function PropertyTabs({ propertyId, active, photoCount }: Props) {
   const tabs = [
     { key: "info", href: `/villalar/${propertyId}`, label: "Bilgiler" },
@@ -18,6 +21,7 @@ export function PropertyTabs({ propertyId, active, photoCount }: Props) {
       label: photoCount === undefined ? "Fotoğraflar" : `Fotoğraflar (${photoCount})`,
     },
     { key: "rates", href: `/villalar/${propertyId}/fiyatlar`, label: "Fiyatlar" },
+    { key: "publish", href: `/villalar/${propertyId}/yayin`, label: "Yayın" },
     { key: "calendar", href: `/takvim?mulk=${propertyId}`, label: "Takvim" },
   ] as const;
   return (

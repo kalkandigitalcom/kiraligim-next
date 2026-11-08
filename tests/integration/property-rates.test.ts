@@ -1023,6 +1023,8 @@ describe("yetkiler, politikalar, kısıtlar", () => {
     expect(p.rows.map((x) => [x.policyname, x.cmd, x.roles])).toEqual([
       ["property_rates_delete", "DELETE", ["app_user"]],
       ["property_rates_insert", "INSERT", ["app_user"]],
+      // 0024: public villa okuma fonksiyonları için app_migrator'a dar SELECT (yalnız app.public_read açıkken).
+      ["property_rates_public_read", "SELECT", ["app_migrator"]],
       ["property_rates_select", "SELECT", ["app_user"]],
       ["property_rates_update", "UPDATE", ["app_user"]],
     ]);
