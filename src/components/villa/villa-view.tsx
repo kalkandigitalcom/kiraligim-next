@@ -19,7 +19,8 @@ import {
   Video,
 } from "./sections";
 import { type StayData, StayProvider } from "./stay-context";
-import { MobileStayBar, StayCard, StayQuote } from "./stay-summary";
+import { BookingCard } from "./booking-card";
+import { MobileStayBar, StayQuote } from "./stay-summary";
 
 /**
  * Villa sayfasının gövdesi. Public sayfa (/villa/{slug}) ve panel önizlemesi (F2d) AYNI bileşeni
@@ -53,6 +54,9 @@ export function VillaView({
     pageUrl,
     whatsapp,
     maxGuests: v.maxGuests,
+    slug: pageUrl ? v.slug : null,
+    // Panel önizlemesinde talep gönderilemez (yalnız görünüm).
+    requestEnabled: !preview && pageUrl !== null,
     busy: v.busy,
     window: v.window,
     rates: v.rates,
@@ -87,12 +91,20 @@ export function VillaView({
       ) : null}
 
       <StayProvider data={stay}>
-        <div className="mt-8 grid gap-10 lg:mt-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-14">
-          <div className="min-w-0">
+        {/* Rezervasyon kartı sayfada TEK öğedir: mobilde öne çıkan bilgilerin hemen altında,
+            masaüstünde sağ sütunda (ızgara yerleşimi; aynı form iki kez oluşturulmaz). */}
+        <div className="mt-8 grid gap-x-14 gap-y-6 lg:mt-10 lg:grid-cols-[minmax(0,1fr)_24rem]">
+          <div className="min-w-0 lg:col-start-1 lg:row-start-1">
             <KeyFacts v={v} />
-            <StayCard className="mt-6 lg:hidden" />
-
-            <div className="mt-9">
+          </div>
+          <aside
+            className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1"
+            aria-label="Rezervasyon"
+          >
+            <BookingCard className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:overflow-y-auto lg:overscroll-contain" />
+          </aside>
+          <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+            <div className="mt-3 lg:mt-3">
               {v.descriptionHtml && (
                 <Section id="aciklama" title="Villa hakkında">
                   <Description html={v.descriptionHtml} />
@@ -142,10 +154,6 @@ export function VillaView({
               )}
             </div>
           </div>
-
-          <aside className="hidden lg:block" aria-label="İletişim">
-            <StayCard className="sticky top-6" />
-          </aside>
         </div>
         <MobileStayBar />
       </StayProvider>

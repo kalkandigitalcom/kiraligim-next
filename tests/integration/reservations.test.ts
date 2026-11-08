@@ -966,6 +966,8 @@ describe("yetkiler, politikalar, kısıtlar, fonksiyon", () => {
       ["reservations_insert", "INSERT", ["app_user"]],
       // 0024: public villa okuma fonksiyonları için app_migrator'a dar SELECT (yalnız app.public_read açıkken).
       ["reservations_public_read", "SELECT", ["app_migrator"]],
+      // 0027 (F3): villa sayfası talebi için app_migrator'a dar INSERT (yalnız app.public_request açıkken).
+      ["reservations_public_request", "INSERT", ["app_migrator"]],
       ["reservations_select", "SELECT", ["app_user"]],
       ["reservations_update", "UPDATE", ["app_user"]],
     ]);

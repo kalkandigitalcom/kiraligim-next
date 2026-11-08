@@ -88,7 +88,7 @@ export const reservations = pgTable(
     check("reservations_status_check", sql`${t.status} in ('pending', 'confirmed', 'cancelled')`),
     check(
       "reservations_source_check",
-      sql`${t.source} is null or ${t.source} in ('direct', 'phone', 'airbnb', 'booking', 'other')`,
+      sql`${t.source} is null or ${t.source} in ('direct', 'phone', 'airbnb', 'booking', 'other', 'web')`,
     ),
     check(
       "reservations_dates",

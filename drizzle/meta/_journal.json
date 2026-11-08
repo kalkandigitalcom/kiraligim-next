@@ -190,6 +190,13 @@
       "when": 1794155544670,
       "tag": "0026_villa_details_rev2",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794158895732,
+      "tag": "0027_public_reservation_requests",
+      "breakpoints": true
     }
   ]
 }

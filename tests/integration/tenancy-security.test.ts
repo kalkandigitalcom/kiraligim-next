@@ -34,6 +34,8 @@ describe("fonksiyonlar", () => {
       "app_properties_enforce_limit",
       "app_property_photos_before_insert",
       "app_property_rates_currency_guard",
+      // 0027 (F3): villa sayfasından rezervasyon talebi (tek yazma noktası)
+      "app_public_reservation_request",
       // 0024 (F2a): public villa okuma fonksiyonları
       "app_public_villa",
       "app_public_villa_busy",
@@ -58,6 +60,8 @@ describe("fonksiyonlar", () => {
     expect(definers).toEqual([
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
+      // 0027 (F3): yayındaki villaya beklemede web talebi yazan tek fonksiyon
+      "app_public_reservation_request",
       // 0024 (F2a): yalnız yayındaki villaların sabit kolonlarını döndüren okuma fonksiyonları
       "app_public_villa",
       "app_public_villa_busy",
@@ -74,6 +78,7 @@ describe("fonksiyonlar", () => {
       select proname, pronargs from pg_proc
        where pronamespace = 'public'::regnamespace and prosecdef and prorettype <> 'trigger'::regtype
          and proname not like 'app\\_public\\_villa%'
+         and proname <> 'app_public_reservation_request'
        order by 1`);
     expect(r.rows).toEqual([
       { proname: "app_current_membership_role", pronargs: 0 },
@@ -91,6 +96,17 @@ describe("fonksiyonlar", () => {
       { proname: "app_public_villa_photos", pronargs: 1 },
       { proname: "app_public_villa_rates", pronargs: 1 },
       { proname: "app_public_villa_visible", pronargs: 1 },
+    ]);
+    // 0027 (F3): talep fonksiyonu sayfa adresi + form alanlarını alır; işletme/mülk kimliği ALMAZ
+    // (veritabanında adresten bulunur). Ayrıntılı testler: tests/integration/reservation-request.test.ts.
+    const req = await admin.query(`
+      select pronargs, pg_get_function_identity_arguments(oid) as args from pg_proc
+       where pronamespace = 'public'::regnamespace and proname = 'app_public_reservation_request'`);
+    expect(req.rows).toEqual([
+      {
+        pronargs: 11,
+        args: "p_id uuid, p_slug text, p_check_in date, p_check_out date, p_guests integer, p_name text, p_phone text, p_email text, p_note text, p_total_minor bigint, p_currency text",
+      },
     ]);
   });
 
@@ -112,6 +128,7 @@ describe("fonksiyonlar", () => {
       app_properties_enforce_limit: [],
       app_property_photos_before_insert: [],
       app_property_rates_currency_guard: [],
+      app_public_reservation_request: ["app_user"],
       app_public_villa: ["app_user"],
       app_public_villa_busy: ["app_user"],
       app_public_villa_photos: ["app_user"],

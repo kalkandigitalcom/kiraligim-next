@@ -545,6 +545,8 @@ describe("veritabanı güvenliği", () => {
       "property_rates:property_rates_select:r:app_user",
       "property_rates:property_rates_update:w:app_user",
       "reservations:reservations_insert:a:app_user",
+      // 0027 (F3): yalnız talep fonksiyonunun açtığı ayarla, yalnız web/beklemede INSERT.
+      "reservations:reservations_public_request:a:app_migrator",
       "reservations:reservations_select:r:app_user",
       "reservations:reservations_update:w:app_user",
       "workspace_subscriptions:subscriptions_migrator_trial_insert:a:app_migrator",
@@ -834,6 +836,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
     expect(defs.map((x) => x.name).sort()).toEqual([
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
+      "app_public_reservation_request",
       "app_public_villa",
       "app_public_villa_busy",
       "app_public_villa_photos",
@@ -848,6 +851,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_slug text": `'${slugA}'`,
         "p_property uuid": `'${propA}'::uuid`,
         "p_property uuid, p_from date, p_to date": `'${propA}'::uuid, current_date, current_date + 5`,
+        "p_id uuid, p_slug text, p_check_in date, p_check_out date, p_guests integer, p_name text, p_phone text, p_email text, p_note text, p_total_minor bigint, p_currency text": `gen_random_uuid(), '${slugA}', current_date + 400, current_date + 403, 1, 'Yetkisiz', '+905320000000', null, null, null, null`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;

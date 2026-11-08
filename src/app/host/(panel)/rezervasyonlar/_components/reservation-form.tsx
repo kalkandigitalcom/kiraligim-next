@@ -15,8 +15,10 @@ import {
   nightsBetween,
   parseAmount,
   RESERVATION_LIMITS as L,
+  MANUAL_RESERVATION_SOURCES,
   RESERVATION_SOURCE_LABELS,
   RESERVATION_SOURCES,
+  type ReservationSource,
   toMinor,
 } from "@/lib/reservation-meta";
 import { cn } from "@/lib/utils";
@@ -41,10 +43,11 @@ type Props = {
   excludeId?: string;
 };
 
-const sourceOptions = RESERVATION_SOURCES.map((s) => ({
-  value: s,
-  label: RESERVATION_SOURCE_LABELS[s],
-}));
+const sourceOption = (s: ReservationSource) => ({ value: s, label: RESERVATION_SOURCE_LABELS[s] });
+// "Web sitesi talebi" yalnız villa sayfasındaki formdan gelir: elle eklemede seçenek değildir;
+// web talebi düzenlenirken kaynağı korunabilsin diye listede kalır.
+const manualSourceOptions = MANUAL_RESERVATION_SOURCES.map(sourceOption);
+const allSourceOptions = RESERVATION_SOURCES.map(sourceOption);
 const currencyOptions = CURRENCIES.map((c) => ({ value: c, label: c }));
 
 /** İki seçenekli düğme grubu (yerel radyo düğmeleri; klavyeyle seçilir). */
@@ -332,7 +335,7 @@ function FormBody({
               id="source"
               name="source"
               label="Kaynak"
-              options={sourceOptions}
+              options={initial.source === "web" ? allSourceOptions : manualSourceOptions}
               defaultValue={initial.source || "direct"}
               error={fe.source}
             />
