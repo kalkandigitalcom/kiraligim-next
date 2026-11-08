@@ -399,6 +399,8 @@ describe("yetkiler ve politikalar", () => {
         "INSERT",
         ["app_migrator"],
       ],
+      // 0024: public villa okuma fonksiyonları için app_migrator'a dar SELECT (yalnız app.public_read açıkken).
+      ["workspace_subscriptions", "subscriptions_public_read", "SELECT", ["app_migrator"]],
       ["workspace_subscriptions", "subscriptions_select", "SELECT", ["app_user"]],
     ]);
     const f = await admin.query(

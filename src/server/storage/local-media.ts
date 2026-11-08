@@ -15,11 +15,27 @@ const notFound = () =>
     headers: { "content-type": "text/plain; charset=utf-8", "x-robots-tag": "noindex" },
   });
 
-export function createLocalMediaHandler(opts: { appUrl: string; appEnv: AppEnv }) {
-  const appHost = new URL(opts.appUrl).host.toLowerCase();
+/**
+ * Yerel medya yalnız panel (APP_URL) ve müşteriye açık villa sayfalarının bulunduğu kök alan adı
+ * (PUBLIC_URL) üzerinden sunulur; yönetim ve tanımsız alan adları 404. (production'da hiç sunulmaz.)
+ */
+export function isLocalMediaHost(
+  host: string | null | undefined,
+  urls: { appUrl: string; publicUrl: string },
+): boolean {
+  const h = host?.trim().toLowerCase();
+  if (!h) return false;
+  return [urls.appUrl, urls.publicUrl].some((u) => new URL(u).host.toLowerCase() === h);
+}
+
+export function createLocalMediaHandler(opts: {
+  appUrl: string;
+  publicUrl: string;
+  appEnv: AppEnv;
+}) {
   return async (request: Request, segments: string[]): Promise<Response> => {
     if (opts.appEnv === "production") return notFound();
-    if (request.headers.get("host")?.trim().toLowerCase() !== appHost) return notFound();
+    if (!isLocalMediaHost(request.headers.get("host"), opts)) return notFound();
     const status = getStorageStatus();
     if (!status.ok || status.config.driver !== "filesystem" || !getStorage()) return notFound();
     const key = segments.join("/");

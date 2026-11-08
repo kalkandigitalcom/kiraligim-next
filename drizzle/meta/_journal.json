@@ -169,6 +169,13 @@
       "when": 1794124505445,
       "tag": "0023_property_public_profile_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794126578194,
+      "tag": "0024_public_villa_read",
+      "breakpoints": true
     }
   ]
 }

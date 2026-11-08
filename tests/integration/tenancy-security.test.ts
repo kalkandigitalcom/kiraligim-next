@@ -34,6 +34,12 @@ describe("fonksiyonlar", () => {
       "app_properties_enforce_limit",
       "app_property_photos_before_insert",
       "app_property_rates_currency_guard",
+      // 0024 (F2a): public villa okuma fonksiyonları
+      "app_public_villa",
+      "app_public_villa_busy",
+      "app_public_villa_photos",
+      "app_public_villa_rates",
+      "app_public_villa_visible",
       "app_reservations_guard",
       "app_set_updated_at",
       "app_subscription_is_current",
@@ -52,6 +58,12 @@ describe("fonksiyonlar", () => {
     expect(definers).toEqual([
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
+      // 0024 (F2a): yalnız yayındaki villaların sabit kolonlarını döndüren okuma fonksiyonları
+      "app_public_villa",
+      "app_public_villa_busy",
+      "app_public_villa_photos",
+      "app_public_villa_rates",
+      "app_public_villa_visible",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -61,10 +73,24 @@ describe("fonksiyonlar", () => {
     const r = await admin.query(`
       select proname, pronargs from pg_proc
        where pronamespace = 'public'::regnamespace and prosecdef and prorettype <> 'trigger'::regtype
+         and proname not like 'app\\_public\\_villa%'
        order by 1`);
     expect(r.rows).toEqual([
       { proname: "app_current_membership_role", pronargs: 0 },
       { proname: "app_current_workspace_unclaimed", pronargs: 0 },
+    ]);
+    // 0024 (F2a): public okuma fonksiyonları parametre alır (adres / mülk kimliği / tarih), ancak
+    // yalnız yayındaki ve görünür villaların sabit kolonlarını döndürür (tests/integration/public-villa.test.ts).
+    const pub = await admin.query(`
+      select proname, pronargs from pg_proc
+       where pronamespace = 'public'::regnamespace and prosecdef and proname like 'app\\_public\\_villa%'
+       order by 1`);
+    expect(pub.rows).toEqual([
+      { proname: "app_public_villa", pronargs: 1 },
+      { proname: "app_public_villa_busy", pronargs: 3 },
+      { proname: "app_public_villa_photos", pronargs: 1 },
+      { proname: "app_public_villa_rates", pronargs: 1 },
+      { proname: "app_public_villa_visible", pronargs: 1 },
     ]);
   });
 
@@ -86,6 +112,11 @@ describe("fonksiyonlar", () => {
       app_properties_enforce_limit: [],
       app_property_photos_before_insert: [],
       app_property_rates_currency_guard: [],
+      app_public_villa: ["app_user"],
+      app_public_villa_busy: ["app_user"],
+      app_public_villa_photos: ["app_user"],
+      app_public_villa_rates: ["app_user"],
+      app_public_villa_visible: [],
       app_reservations_guard: [],
       app_set_updated_at: [],
       app_subscription_is_current: ["app_user"],
@@ -161,6 +192,8 @@ describe("RLS", () => {
       ["workspace_members", "members_select", "SELECT", ["app_user"]],
       ["workspace_members", "members_update", "UPDATE", ["app_user"]],
       ["workspaces", "workspaces_insert", "INSERT", ["app_user"]],
+      // 0024 (F2a): yalnız app.public_read açıkken, yayındaki villaların işletmeleri
+      ["workspaces", "workspaces_public_read", "SELECT", ["app_migrator"]],
       ["workspaces", "workspaces_select", "SELECT", ["app_user"]],
       ["workspaces", "workspaces_update", "UPDATE", ["app_user"]],
     ]);

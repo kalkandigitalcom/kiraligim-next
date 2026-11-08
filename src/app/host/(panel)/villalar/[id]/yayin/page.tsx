@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Alert } from "@/components/ui/alert";
+import { buttonVariants } from "@/components/ui/button";
 import { getEnv } from "@/lib/env";
 import {
   AMENITY_LABELS,
@@ -59,8 +60,8 @@ const toFormValues = (p: PublicProfile) => ({
 
 /**
  * Müşteriye açık villa sayfası ayarları (F1). Tüm üyeler görür ve bağlantıyı paylaşabilir;
- * owner/manager düzenler ve yayınlar. WhatsApp numarası işletme düzeyindedir (yalnız owner, panel
- * ana sayfasında). Public sayfa (kiraligim.com/villa/…) F2'de açılacak.
+ * owner/manager düzenler, yayınlar ve sayfayı önizler (F2d: /villalar/{id}/yayin/onizleme; yetki
+ * sunucuda denetlenir). WhatsApp numarası işletme düzeyindedir (yalnız owner, panel ana sayfasında).
  */
 export default async function PropertyPublishPage({ params, searchParams }: Props) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
@@ -97,10 +98,6 @@ export default async function PropertyPublishPage({ params, searchParams }: Prop
       <PropertyTabs propertyId={p.propertyId} active="publish" />
 
       {notice ? <Alert tone="success">{notice}</Alert> : null}
-      <Alert tone="info">
-        Müşteriye açık villa sayfası geliştirme aşamasında. Ayarlarınızı şimdiden
-        hazırlayabilirsiniz; bağlantı, sayfa kullanıma açıldığında çalışmaya başlayacak.
-      </Alert>
       {!canManage ? (
         <Alert tone="info">
           Villa sayfası ayarlarını görüntüleyebilir ve bağlantıyı paylaşabilirsiniz; düzenleme ve
@@ -189,6 +186,22 @@ export default async function PropertyPublishPage({ params, searchParams }: Prop
             </>
           ) : null}
         </p>
+        {canManage ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
+            <Link
+              href={`/villalar/${p.propertyId}/yayin/onizleme`}
+              target="_blank"
+              className={buttonVariants({ size: "sm", variant: "secondary" })}
+              data-testid="preview-link"
+            >
+              Sayfayı önizle
+              <span className="sr-only"> (yeni sekmede açılır)</span>
+            </Link>
+            <span className="text-sm text-muted-foreground">
+              Müşterinin göreceği sayfa; yayında olmasa da yalnız size görünür.
+            </span>
+          </div>
+        ) : null}
         {canManage ? (
           <PublishControls
             isPublic={p.isPublic}

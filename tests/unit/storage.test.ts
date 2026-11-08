@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { buildCsp } from "@/lib/security-headers";
 import { mediaOriginForCsp, parseStorageConfig } from "@/server/storage/env";
 import { createFilesystemStorage, resolveInside } from "@/server/storage/filesystem";
+import { createLocalMediaHandler, isLocalMediaHost } from "@/server/storage/local-media";
 import { createMemoryStorage } from "@/server/storage/memory";
 import { createR2Storage } from "@/server/storage/r2";
 import { IMMUTABLE_CACHE_CONTROL, isSafeKey, StorageError } from "@/server/storage/types";
@@ -283,5 +284,36 @@ describe("CSP: fotoğraf CDN'i", () => {
       imgOrigins: ["https://*.ornek.com", "'unsafe-inline'"],
     });
     expect(csp).toContain("img-src 'self' blob: data:;");
+  });
+});
+
+describe("yerel medya (yalnız geliştirme): alan adı kapısı", () => {
+  const urls = { appUrl: "http://app.localhost:3000", publicUrl: "http://localhost:3000" };
+
+  it("panel ve kök (villa sayfası) alan adı kabul; yönetim ve tanımsız alan adları ret", () => {
+    expect(isLocalMediaHost("app.localhost:3000", urls)).toBe(true);
+    expect(isLocalMediaHost(" LOCALHOST:3000 ", urls)).toBe(true);
+    expect(isLocalMediaHost("admin.localhost:3000", urls)).toBe(false);
+    expect(isLocalMediaHost("evil.test", urls)).toBe(false);
+    expect(isLocalMediaHost("localhost:3001", urls)).toBe(false);
+    expect(isLocalMediaHost(null, urls)).toBe(false);
+  });
+
+  it("production'da kök alan adından da 404", async () => {
+    const handler = createLocalMediaHandler({ ...urls, appEnv: "production" });
+    const req = new Request(`http://localhost:3000/api/medya/${KEY}`, {
+      headers: { host: "localhost:3000" },
+    });
+    const res = await handler(req, KEY.split("/"));
+    expect(res.status).toBe(404);
+    expect(res.headers.get("x-robots-tag")).toBe("noindex");
+  });
+
+  it("yönetim alan adından 404", async () => {
+    const handler = createLocalMediaHandler({ ...urls, appEnv: "development" });
+    const req = new Request(`http://admin.localhost:3000/api/medya/${KEY}`, {
+      headers: { host: "admin.localhost:3000" },
+    });
+    expect((await handler(req, KEY.split("/"))).status).toBe(404);
   });
 });

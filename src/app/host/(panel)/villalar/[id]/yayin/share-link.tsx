@@ -7,7 +7,7 @@ import { useHydrated } from "@/components/ui/use-hydrated";
 
 /**
  * Villa sayfası bağlantısı: kopyala ve WhatsApp'ta paylaş. Bağlantıyı kopyalamak zararsızdır;
- * tüm üyelere (staff dahil) açıktır. Önizleme F2'de (public sayfa bileşenleriyle) eklenecek.
+ * tüm üyelere (staff dahil) açıktır. Önizleme yalnız owner/manager içindir (Yayın durumu bölümü).
  */
 export function ShareLink({ url, message }: { url: string; message: string }) {
   const hydrated = useHydrated();
@@ -44,15 +44,6 @@ export function ShareLink({ url, message }: { url: string; message: string }) {
         >
           WhatsApp&apos;ta paylaş
         </a>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled
-          title="Villa sayfasıyla birlikte gelecek"
-        >
-          Önizleme (yakında)
-        </Button>
         <span className="text-sm text-turquoise-700" role="status">
           {copied === "ok"
             ? "Kopyalandı."

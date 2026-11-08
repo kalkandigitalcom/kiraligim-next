@@ -964,6 +964,8 @@ describe("yetkiler, politikalar, kısıtlar, fonksiyon", () => {
     );
     expect(p.rows.map((x) => [x.policyname, x.cmd, x.roles])).toEqual([
       ["reservations_insert", "INSERT", ["app_user"]],
+      // 0024: public villa okuma fonksiyonları için app_migrator'a dar SELECT (yalnız app.public_read açıkken).
+      ["reservations_public_read", "SELECT", ["app_migrator"]],
       ["reservations_select", "SELECT", ["app_user"]],
       ["reservations_update", "UPDATE", ["app_user"]],
     ]);

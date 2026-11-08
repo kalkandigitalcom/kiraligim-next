@@ -176,9 +176,11 @@ describe("varsayılanlar ve yetkiler (0022, 0023)", () => {
     );
     expect(pol.rows.map((r) => r.polname)).toEqual([
       "properties_insert",
+      "properties_public_read", // 0024 (F2a): app_migrator, yalnız SELECT
       "properties_select",
       "properties_update",
       "workspaces_insert",
+      "workspaces_public_read", // 0024 (F2a): app_migrator, yalnız SELECT
       "workspaces_select",
       "workspaces_update",
     ]);
