@@ -4,6 +4,7 @@ import { redirect, unstable_rethrow } from "next/navigation";
 
 import type { Quote } from "@/lib/pricing";
 import { type ActionResult, ok, toActionError } from "@/lib/result";
+import { findExternalConflicts } from "@/server/ical/service";
 import { quoteForProperty } from "@/server/rates/service";
 import { type ReservationField, reservationFormValues } from "@/server/reservations/schema";
 import { reservationSearchInput, SEARCH_PAGE_SIZE } from "@/server/reservations/search";
@@ -130,20 +131,23 @@ export async function checkAvailabilityAction(
   const valid = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
   if (!valid(checkIn) || !valid(checkOut) || checkOut <= checkIn) return { available: true };
   const result = await runAction("reservation.availability", () =>
-    withPanelTenant((tx) =>
-      findConflicts(
+    withPanelTenant(async (tx) => ({
+      conflicts: await findConflicts(
         tx,
         String(propertyId),
         checkIn,
         checkOut,
         typeof excludeId === "string" ? excludeId : undefined,
       ),
-    ),
+      // Harici takvim (iCal) dolulukları da kaydı engeller (0029).
+      external: await findExternalConflicts(tx, String(propertyId), checkIn, checkOut),
+    })),
   );
   if (!result.ok) return { available: true };
-  return result.data.length === 0
+  const { conflicts, external } = result.data;
+  return conflicts.length === 0 && external.length === 0
     ? { available: true }
-    : { available: false, message: conflictMessage(result.data) };
+    : { available: false, message: conflictMessage(conflicts, external) };
 }
 
 export type QuoteResult = { quote: Quote | null };

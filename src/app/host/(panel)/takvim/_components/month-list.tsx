@@ -1,14 +1,32 @@
 import Link from "next/link";
 
-import { type CalendarEntry, type CalendarTone, entryTone } from "@/lib/calendar";
-import { formatStay } from "@/lib/reservation-meta";
+import {
+  type CalendarEntry,
+  type CalendarExternal,
+  type CalendarTone,
+  entryTone,
+} from "@/lib/calendar";
+import { formatStay, nightsBetween } from "@/lib/reservation-meta";
 import { cn } from "@/lib/utils";
 
 import { ReservationStatusBadge } from "../../rezervasyonlar/_components/reservation-bits";
-import { TONE_BAR, TONE_LABEL } from "./calendar-styles";
+import { EXTERNAL_BAR, EXTERNAL_LABEL, TONE_BAR, TONE_LABEL } from "./calendar-styles";
 
-/** Ayın kayıtları, girişe göre (ekran okuyucu ve mobil için ızgaranın metin karşılığı). */
-export function MonthList({ title, entries }: { title: string; entries: CalendarEntry[] }) {
+/**
+ * Ayın kayıtları, girişe göre (ekran okuyucu ve mobil için ızgaranın metin karşılığı). Harici
+ * takvim (iCal) dolulukları ayrı başlık altında listelenir; rezervasyon sayısına katılmaz.
+ */
+export function MonthList({
+  title,
+  entries,
+  externals = [],
+  propertyId,
+}: {
+  title: string;
+  entries: CalendarEntry[];
+  externals?: CalendarExternal[];
+  propertyId?: string;
+}) {
   return (
     <section
       aria-labelledby="month-list-title"
@@ -48,6 +66,43 @@ export function MonthList({ title, entries }: { title: string; entries: Calendar
           ))}
         </ul>
       )}
+      {externals.length ? (
+        <div data-testid="month-external-list" className="mt-5 border-t border-border pt-4">
+          <h3 className="text-sm font-semibold text-navy-900">
+            {EXTERNAL_LABEL}{" "}
+            <span className="font-normal text-muted-foreground">({externals.length})</span>
+          </h3>
+          <ul className="mt-2 flex flex-col gap-2">
+            {externals.map((e) => (
+              <li
+                key={e.id}
+                data-testid="month-external"
+                className="flex items-start gap-2.5 rounded-xl border border-violet-200 bg-violet-50/60 px-3 py-2.5"
+              >
+                <span
+                  aria-hidden
+                  className={cn("mt-1.5 h-2.5 w-4 shrink-0 rounded-sm", EXTERNAL_BAR)}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-navy-900">{e.sourceName}</span>
+                  <span className="block text-sm text-muted-foreground">
+                    {formatStay(e.checkIn, e.checkOut)} · {nightsBetween(e.checkIn, e.checkOut)}{" "}
+                    gece
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {propertyId ? (
+            <Link
+              href={`/villalar/${propertyId}/takvim-baglantilari`}
+              className="mt-2 inline-block text-sm font-medium text-turquoise-700 underline"
+            >
+              Harici takvimleri yönet
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -64,6 +119,10 @@ export function CalendarLegend() {
             {TONE_LABEL[t]}
           </li>
         ))}
+        <li className="flex items-center gap-1.5">
+          <span aria-hidden className={cn("h-3 w-5 rounded-sm", EXTERNAL_BAR)} />
+          {EXTERNAL_LABEL}
+        </li>
         <li className="flex items-center gap-1.5">
           <span aria-hidden className="size-3 rounded-full bg-turquoise-700" />
           Bugün

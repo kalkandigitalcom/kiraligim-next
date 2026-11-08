@@ -31,6 +31,11 @@ describe("fonksiyonlar", () => {
       "app_current_user_id",
       "app_current_workspace_id",
       "app_current_workspace_unclaimed",
+      // 0029 (3.1): iCal senkron (kilit, sonuç), dışa aktarma akışı, kaynak tetikleyicisi
+      "app_ical_apply_sync",
+      "app_ical_claim_sources",
+      "app_ical_export",
+      "app_ical_sources_before_write",
       "app_properties_enforce_limit",
       "app_property_photos_before_insert",
       "app_property_rates_currency_guard",
@@ -42,6 +47,8 @@ describe("fonksiyonlar", () => {
       "app_public_villa_photos",
       "app_public_villa_rates",
       "app_public_villa_visible",
+      // 0029 (3.1): harici (iCal) doluluk çakışma tetikleyicisi
+      "app_reservations_external_guard",
       "app_reservations_guard",
       "app_set_updated_at",
       "app_subscription_is_current",
@@ -60,6 +67,10 @@ describe("fonksiyonlar", () => {
     expect(definers).toEqual([
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
+      // 0029 (3.1): iCal senkronu ve dışa aktarma — tek yazma/okuma noktaları (kilit belirteciyle)
+      "app_ical_apply_sync",
+      "app_ical_claim_sources",
+      "app_ical_export",
       // 0027 (F3): yayındaki villaya beklemede web talebi yazan tek fonksiyon
       "app_public_reservation_request",
       // 0024 (F2a): yalnız yayındaki villaların sabit kolonlarını döndüren okuma fonksiyonları
@@ -68,6 +79,8 @@ describe("fonksiyonlar", () => {
       "app_public_villa_photos",
       "app_public_villa_rates",
       "app_public_villa_visible",
+      // 0029 (3.1): harici doluluk tetikleyicisi her bağlamda (F3 dahil) olayları okuyabilmeli
+      "app_reservations_external_guard",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -79,6 +92,7 @@ describe("fonksiyonlar", () => {
        where pronamespace = 'public'::regnamespace and prosecdef and prorettype <> 'trigger'::regtype
          and proname not like 'app\\_public\\_villa%'
          and proname <> 'app_public_reservation_request'
+         and proname not like 'app\\_ical\\_%'
        order by 1`);
     expect(r.rows).toEqual([
       { proname: "app_current_membership_role", pronargs: 0 },
@@ -125,6 +139,10 @@ describe("fonksiyonlar", () => {
       app_current_user_id: ["app_user"],
       app_current_workspace_id: ["app_user"],
       app_current_workspace_unclaimed: ["app_user"],
+      app_ical_apply_sync: ["app_user"],
+      app_ical_claim_sources: ["app_user"],
+      app_ical_export: ["app_user"],
+      app_ical_sources_before_write: [],
       app_properties_enforce_limit: [],
       app_property_photos_before_insert: [],
       app_property_rates_currency_guard: [],
@@ -134,6 +152,7 @@ describe("fonksiyonlar", () => {
       app_public_villa_photos: ["app_user"],
       app_public_villa_rates: ["app_user"],
       app_public_villa_visible: [],
+      app_reservations_external_guard: [],
       app_reservations_guard: [],
       app_set_updated_at: [],
       app_subscription_is_current: ["app_user"],
@@ -208,6 +227,9 @@ describe("RLS", () => {
       ["workspace_members", "members_migrator_lookup", "SELECT", ["app_migrator"]],
       ["workspace_members", "members_select", "SELECT", ["app_user"]],
       ["workspace_members", "members_update", "UPDATE", ["app_user"]],
+      // 0029 (3.1): yalnız app.ical_export / app.ical_sync açıkken (dışa aktarma, cron)
+      ["workspaces", "workspaces_ical_export_read", "SELECT", ["app_migrator"]],
+      ["workspaces", "workspaces_ical_sync_read", "SELECT", ["app_migrator"]],
       ["workspaces", "workspaces_insert", "INSERT", ["app_user"]],
       // 0024 (F2a): yalnız app.public_read açıkken, yayındaki villaların işletmeleri
       ["workspaces", "workspaces_public_read", "SELECT", ["app_migrator"]],

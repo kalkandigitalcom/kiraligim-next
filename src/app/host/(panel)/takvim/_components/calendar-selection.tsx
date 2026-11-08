@@ -54,7 +54,8 @@ type ProviderProps = {
   /** Giriş tarihi penceresi (checkInWindow). */
   min: string;
   max: string;
-  entries: CalendarEntry[];
+  /** Dolu aralıklar: Kiraligim kayıtları ve harici takvim (iCal) dolulukları. */
+  entries: readonly Pick<CalendarEntry, "id" | "checkIn" | "checkOut">[];
   /** Önceki/sonraki aydan taşınan bekleyen giriş günü (sunucuda doğrulanmış). */
   initialStart: string | null;
   children: React.ReactNode;

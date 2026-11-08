@@ -12,3 +12,4 @@ export * from "./properties";
 export * from "./tenancy";
 export * from "./reservations";
 export * from "./rates";
+export * from "./ical";

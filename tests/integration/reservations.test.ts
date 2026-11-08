@@ -963,6 +963,10 @@ describe("yetkiler, politikalar, kısıtlar, fonksiyon", () => {
       "select policyname, cmd, roles::text[] as roles from pg_policies where tablename = 'reservations' order by 1",
     );
     expect(p.rows.map((x) => [x.policyname, x.cmd, x.roles])).toEqual([
+      // 0029 (3.1): iCal dışa aktarma ve senkron çakışma sayımı için app_migrator'a dar SELECT
+      // (yalnız app.ical_export / app.ical_sync açıkken; misafir kolonları fonksiyonlarda okunmaz).
+      ["reservations_ical_export_read", "SELECT", ["app_migrator"]],
+      ["reservations_ical_sync_read", "SELECT", ["app_migrator"]],
       ["reservations_insert", "INSERT", ["app_user"]],
       // 0024: public villa okuma fonksiyonları için app_migrator'a dar SELECT (yalnız app.public_read açıkken).
       ["reservations_public_read", "SELECT", ["app_migrator"]],
@@ -1046,8 +1050,20 @@ describe("yetkiler, politikalar, kısıtlar, fonksiyon", () => {
       select tgname from pg_trigger where tgrelid = 'reservations'::regclass and not tgisinternal order by 1`);
     expect(t.rows.map((x) => x.tgname)).toEqual([
       "reservations_guard",
+      // 0029 (3.1): harici takvim (iCal) çakışma tetikleyicisi — SECURITY DEFINER, çünkü F3 talebi
+      // dahil her bağlamda olayları okuyabilmeli (tests/integration/ical.test.ts).
+      "reservations_guard_external",
       "reservations_set_updated_at",
     ]);
+    const ext = await admin.query(`
+      select prosecdef, pg_get_userbyid(proowner) owner, proconfig, proacl
+        from pg_proc where proname = 'app_reservations_external_guard'`);
+    expect(ext.rows[0]).toMatchObject({
+      prosecdef: true,
+      owner: "app_migrator",
+      proconfig: ["search_path=pg_catalog, pg_temp"],
+    });
+    expect(String(ext.rows[0].proacl)).toBe("{app_migrator=X/app_migrator}");
   });
 
   it("CHECK kısıtları: tutar, para birimi, blok alanları, tarih, telefon, e-posta", async () => {
