@@ -95,6 +95,22 @@ class FetchFail extends Error {
   }
 }
 
+/** Yerel ağ adları (DNS'e gitmeden reddedilir). */
+const LOCAL_NAME_RE = /^localhost$|\.(localhost|local|internal|lan|home|corp)$/i;
+
+/** URL ana makinesinden köşeli parantezi ve sondaki noktayı atar ("[::1]" → "::1", "localhost." → "localhost"). */
+const bareHost = (host: string) => host.replace(/^\[|\]$/g, "").replace(/\.$/, "");
+
+/**
+ * Kayıt öncesi (form) denetimi: adres doğrudan yerel/özel bir IP ya da yerel ağ adı mı?
+ * Ad çözümlemesi yapmaz; DNS ile özel ağa çözülen adlar indirme anında (resolveSafe) engellenir.
+ */
+export function isBlockedHost(host: string): boolean {
+  const bare = bareHost(host);
+  if (net.isIP(bare)) return !isPublicAddress(bare);
+  return LOCAL_NAME_RE.test(bare);
+}
+
 async function resolveSafe(
   host: string,
   resolver: Resolver,
@@ -105,10 +121,7 @@ async function resolveSafe(
     if (!allowed(bare)) throw new FetchFail("blocked_address");
     return { address: bare, family: net.isIP(bare) === 6 ? 6 : 4 };
   }
-  if (
-    allowed === isPublicAddress &&
-    (/^localhost$/i.test(bare) || /\.(localhost|local|internal|lan|home|corp)$/i.test(bare))
-  ) {
+  if (allowed === isPublicAddress && LOCAL_NAME_RE.test(bareHost(bare))) {
     throw new FetchFail("blocked_address");
   }
   let list: Resolved[];

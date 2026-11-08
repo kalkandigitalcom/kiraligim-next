@@ -8,6 +8,7 @@ import {
   layoutWeek,
   mergeExternal,
   monthGrid,
+  splitExternal,
 } from "@/lib/calendar";
 import {
   buildIcsFeed,
@@ -21,12 +22,14 @@ import {
 } from "@/lib/ical";
 import {
   icalExportUrl,
+  icalFailureNote,
   ICAL_TOKEN_RE,
   isOwnExportUid,
   maskIcalUrl,
   normalizeIcalUrl,
 } from "@/lib/ical-meta";
-import { createIcsFetcher, isPublicAddress } from "@/server/ical/fetch";
+import { createIcsFetcher, isBlockedHost, isPublicAddress } from "@/server/ical/fetch";
+import { sourceInput } from "@/server/ical/service";
 import { conflictMessage } from "@/server/reservations/service";
 
 const TODAY = "2026-11-08";
@@ -400,6 +403,53 @@ describe("takvim: harici doluluk ayrı ve farklı renkte", () => {
     ]);
   });
 
+  it("şerit parçaları: kaynak adı yalnız o günleri kapatan kaynaklarla etiketlenir", () => {
+    const pieces = splitExternal(
+      mergeExternal([
+        x("1", "Booking.com", "2026-11-19", "2026-11-22"),
+        x("2", "Airbnb", "2026-11-20", "2026-11-21"),
+        x("3", "Booking.com", "2026-11-22", "2026-11-24"),
+      ]),
+    );
+    expect(pieces.map((p) => [p.checkIn, p.checkOut, p.names, p.startsSpan, p.endsSpan])).toEqual([
+      ["2026-11-19", "2026-11-20", ["Booking.com"], true, false],
+      ["2026-11-20", "2026-11-21", ["Airbnb", "Booking.com"], false, false],
+      // Aynı kaynağın bitişik olayları tek parça; Airbnb'nin adı bu günlere taşınmaz.
+      ["2026-11-21", "2026-11-24", ["Booking.com"], false, true],
+    ]);
+    // Parçalar yarım gün modelinde boşluksuz ve üst üste binmeden dizilir.
+    const segs = layoutWeek("2026-11-16", pieces);
+    for (let i = 1; i < segs.length; i++) expect(segs[i]!.startHalf).toBe(segs[i - 1]!.endHalf);
+  });
+
+  it("farklı kaynakların bitişik tarihleri tek etikette birleşmez", () => {
+    const pieces = splitExternal(
+      mergeExternal([
+        x("1", "Airbnb", "2027-06-10", "2027-06-12"),
+        x("2", "Vrbo", "2027-06-12", "2027-06-14"),
+      ]),
+    );
+    expect(pieces.map((p) => [p.checkIn, p.checkOut, p.names.join(",")])).toEqual([
+      ["2027-06-10", "2027-06-12", "Airbnb"],
+      ["2027-06-12", "2027-06-14", "Vrbo"],
+    ]);
+    expect(pieces.map((p) => [p.startsSpan, p.endsSpan])).toEqual([
+      [true, false],
+      [false, true],
+    ]);
+    // Ayrık aralıklar ayrı birleşik şerit olarak kalır.
+    const apart = splitExternal(
+      mergeExternal([
+        x("1", "Airbnb", "2027-06-01", "2027-06-03"),
+        x("2", "Airbnb", "2027-06-05", "2027-06-06"),
+      ]),
+    );
+    expect(apart.map((p) => [p.startsSpan, p.endsSpan])).toEqual([
+      [true, true],
+      [true, true],
+    ]);
+  });
+
   it("gün etiketi harici takvimi kaynak adıyla anar", () => {
     const grid = monthGrid("2027-06", "2027-06-01");
     const day = grid.weeks.flatMap((w) => w.days).find((d) => d.date === "2027-06-12")!;
@@ -415,5 +465,91 @@ describe("takvim: harici doluluk ayrı ve farklı renkte", () => {
         [{ sourceName: "Airbnb", checkIn: "2027-06-10", checkOut: "2027-06-15" }],
       ),
     ).toBe("Seçilen tarihler dolu: 10–15 Haziran 2027 (harici takvim: Airbnb).");
+  });
+});
+
+describe("iCal kaynak formu: yerel/özel adresler kayıttan önce reddedilir", () => {
+  it.each([
+    "localhost",
+    "localhost.",
+    "LOCALHOST",
+    "api.localhost",
+    "nas.local",
+    "127.0.0.1",
+    "10.0.0.5",
+    "172.16.4.1",
+    "192.168.1.10",
+    "169.254.169.254",
+    "100.64.0.1",
+    "0.0.0.0",
+    "[::1]",
+    "[fe80::1]",
+    "[fd00::1]",
+    "[::ffff:127.0.0.1]",
+  ])("engelli: %s", (host) => {
+    expect(isBlockedHost(host)).toBe(true);
+  });
+
+  it.each([
+    "www.airbnb.com",
+    "admin.booking.com",
+    "calendar.google.com",
+    "8.8.8.8",
+    "[2606:4700::1]",
+  ])("genel: %s", (host) => {
+    expect(isBlockedHost(host)).toBe(false);
+  });
+
+  it.each([
+    "http://127.0.0.1/cal.ics",
+    "http://localhost/cal.ics",
+    "webcal://localhost/cal.ics",
+    "https://192.168.1.10/cal.ics",
+    "http://[::1]/cal.ics",
+    "https://169.254.169.254/latest/meta-data",
+    "http://2130706433/cal.ics",
+    "http://0x7f.1/cal.ics",
+    "https://router.lan/cal.ics",
+  ])("form reddeder: %s", (url) => {
+    const r = sourceInput.safeParse({ name: "Airbnb", url });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues.map((i) => i.path.join("."))).toEqual(["url"]);
+  });
+
+  it("genel adres kabul edilir (webcal → https)", () => {
+    const r = sourceInput.safeParse({
+      name: "Airbnb",
+      url: "webcal://www.airbnb.com/calendar/ical/1.ics?s=abc",
+    });
+    expect(r.success && r.data.url).toBe("https://www.airbnb.com/calendar/ical/1.ics?s=abc");
+  });
+
+  it("indirme anındaki denetim de sürer (DNS ile özel adrese çözülen ad)", async () => {
+    const fetcher = createIcsFetcher({
+      resolver: async () => [{ address: "10.1.2.3", family: 4 }],
+    });
+    expect(await fetcher("https://takvim.example/cal.ics")).toEqual({
+      ok: false,
+      code: "blocked_address",
+    });
+  });
+});
+
+describe("iCal hata açıklaması", () => {
+  it("başarılı senkronu olan kaynakta eski tarihlerin korunduğu söylenir", () => {
+    expect(icalFailureNote(1, true)).toBe(" Son başarılı senkronun tarihleri korunuyor.");
+    expect(icalFailureNote(3, true)).toBe(
+      " (3 denemedir başarısız; son başarılı senkronun tarihleri korunuyor.)",
+    );
+  });
+
+  it("hiç başarılı senkronu olmayan kaynakta 'korunuyor' denmez", () => {
+    expect(icalFailureNote(1, false)).toBe(
+      " Henüz başarılı senkron olmadığından bu takvimden tarih alınmadı.",
+    );
+    expect(icalFailureNote(2, false)).toBe(
+      " (2 denemedir başarısız; henüz başarılı senkron olmadığından bu takvimden tarih alınmadı.)",
+    );
+    expect(icalFailureNote(2, false)).not.toMatch(/korunuyor/);
   });
 });

@@ -21,9 +21,11 @@ export function PropertyTabs({ propertyId, active }: Props) {
       key: "ical",
       href: `/villalar/${propertyId}/takvim-baglantilari`,
       label: "Takvim bağlantıları",
+      // Dar ekranda kısa ad: beş sekme 390 px'te kaydırmadan sığar.
+      short: "iCal",
     },
     { key: "calendar", href: `/takvim?mulk=${propertyId}`, label: "Takvim" },
-  ] as const;
+  ] as const satisfies readonly { key: string; href: string; label: string; short?: string }[];
   return (
     <nav
       aria-label="Mülk bölümleri"
@@ -35,13 +37,20 @@ export function PropertyTabs({ propertyId, active }: Props) {
           href={t.href}
           aria-current={active === t.key ? "page" : undefined}
           className={cn(
-            "shrink-0 border-b-2 px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors",
+            "shrink-0 border-b-2 px-2.5 py-2 text-sm font-semibold whitespace-nowrap transition-colors sm:px-3",
             active === t.key
               ? "border-turquoise-500 text-navy-900"
               : "border-transparent text-muted-foreground hover:text-navy-900",
           )}
         >
-          {t.label}
+          {"short" in t ? (
+            <>
+              <span className="sm:hidden">{t.short}</span>
+              <span className="hidden sm:inline">{t.label}</span>
+            </>
+          ) : (
+            t.label
+          )}
         </Link>
       ))}
     </nav>

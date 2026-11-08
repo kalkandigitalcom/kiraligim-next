@@ -585,6 +585,25 @@ describe("yetki ve izolasyon", () => {
         addSource(tx, ctx, prop2, { name: "X", url: "ftp://x.example/a.ics" }),
       ),
     ).rejects.toMatchObject({ code: "VALIDATION", fieldErrors: { url: expect.any(Array) } });
+    // Yerel/özel adresler kayıttan önce reddedilir; tabloya satır yazılmaz.
+    const countP2 = async () =>
+      (
+        await admin.query(
+          "select count(*)::int c from external_calendar_sources where property_id = $1",
+          [prop2],
+        )
+      ).rows[0].c as number;
+    const before = await countP2();
+    for (const url of [
+      "http://127.0.0.1/a.ics",
+      "webcal://localhost/a.ics",
+      "https://192.168.1.10/a.ics",
+    ]) {
+      await expect(
+        as(O, ws, (tx, ctx) => addSource(tx, ctx, prop2, { name: "Yerel", url })),
+      ).rejects.toMatchObject({ code: "VALIDATION", fieldErrors: { url: expect.any(Array) } });
+    }
+    expect(await countP2()).toBe(before);
     await as(O, ws, (tx, ctx) => addSource(tx, ctx, prop2, { name: "Airbnb", url: URL_A }));
     await expect(
       as(O, ws, (tx, ctx) => addSource(tx, ctx, prop2, { name: "airbnb", url: URL_B })),
@@ -612,6 +631,20 @@ describe("yetki ve izolasyon", () => {
       (x) => x.id === src,
     );
     expect(s).toMatchObject({ status: "pending", lastSyncedAt: null });
+    // Düzenlemede de yerel adres reddedilir; kayıt değişmez.
+    await expect(
+      as(O, ws, (tx, ctx) =>
+        updateSource(tx, ctx, src, {
+          name: "Airbnb",
+          url: "http://10.0.0.5/a.ics",
+          isActive: "on",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION", fieldErrors: { url: expect.any(Array) } });
+    expect(
+      (await admin.query("select url from external_calendar_sources where id = $1", [src])).rows[0]
+        .url,
+    ).toBe(`${URL_A}&v=2`);
     const p3 = await villa(O, ws, "Villa Limit");
     for (let i = 0; i < 10; i++) {
       await as(O, ws, (tx, ctx) =>

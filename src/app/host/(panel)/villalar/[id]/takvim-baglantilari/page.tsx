@@ -11,6 +11,7 @@ import {
   ICAL_SOURCE_STATUS_LABELS,
   ICAL_SYNC_INTERVAL_HOURS,
   icalExportUrl,
+  icalFailureNote,
   type IcalSourceStatus,
 } from "@/lib/ical-meta";
 import { cn } from "@/lib/utils";
@@ -234,9 +235,7 @@ export default async function PropertyIcalPage({ params, searchParams }: Props) 
                   {s.status === "error" && s.lastErrorCode ? (
                     <Alert tone="error">
                       {ICAL_ERROR_MESSAGES[s.lastErrorCode]}
-                      {s.consecutiveFailures > 1
-                        ? ` (${s.consecutiveFailures} denemedir başarısız; son başarılı senkronun tarihleri korunuyor.)`
-                        : " Son başarılı senkronun tarihleri korunuyor."}
+                      {icalFailureNote(s.consecutiveFailures, s.lastSuccessAt !== null)}
                     </Alert>
                   ) : null}
                   {s.conflictCount > 0 ? (

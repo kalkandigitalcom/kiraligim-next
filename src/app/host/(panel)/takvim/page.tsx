@@ -13,6 +13,7 @@ import {
   monthNav,
   resolveMonth,
   resolvePendingStart,
+  splitExternal,
   toCalendarEntry,
 } from "@/lib/calendar";
 import { checkInWindow, istanbulToday } from "@/lib/reservation-meta";
@@ -79,6 +80,8 @@ export default async function CalendarPage({ searchParams }: Props) {
   });
   const { properties, property, entries, externals, canManage, canCreate, pendingStart } = data;
   const spans = mergeExternal(externals);
+  // Şerit parçaları: etiket yalnız o günleri kapatan kaynakları gösterir (seçim birleşik aralığı kullanır).
+  const pieces = splitExternal(spans);
   const nav = monthNav(month, today);
   const monthLabel = formatMonth(month);
 
@@ -204,10 +207,10 @@ export default async function CalendarPage({ searchParams }: Props) {
               monthLabel={monthLabel}
               propertyId={property.id}
               weeks={layoutMonth(grid, entries)}
-              externalWeeks={layoutMonth(grid, spans)}
+              externalWeeks={layoutMonth(grid, pieces)}
               entries={entries}
               externals={externals}
-              spans={spans}
+              pieces={pieces}
             >
               <MonthList
                 title={`${monthLabel} kayıtları`}

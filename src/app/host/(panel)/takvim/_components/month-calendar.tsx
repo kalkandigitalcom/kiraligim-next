@@ -8,7 +8,7 @@ import {
   type CalendarExternal,
   type CalendarWeek,
   dayActivity,
-  type ExternalSpan,
+  type ExternalPiece,
   dayLabel,
   entryTone,
   formatLongDay,
@@ -34,13 +34,13 @@ type Props = {
   monthLabel: string;
   propertyId: string;
   weeks: CalendarWeek[];
-  /** Harici takvim (iCal) şeritleri: birleşik aralıklar, rezervasyon hattının altında (3.1). */
+  /** Harici takvim (iCal) şeritleri: birleşik aralığın kaynak parçaları, rezervasyon hattının altında (3.1). */
   externalWeeks: CalendarWeek[];
   /** Güvenli DTO: telefon, e-posta ve tutar içermez. */
   entries: CalendarEntry[];
-  /** Harici dolulukların kendisi (gün paneli ayrıntısı için) ve birleşik şeritleri. */
+  /** Harici dolulukların kendisi (gün paneli ayrıntısı için) ve şerit parçaları. */
   externals: CalendarExternal[];
-  spans: ExternalSpan[];
+  pieces: ExternalPiece[];
   /** Ayın kayıt listesi (sunucuda üretilir), gün panelinin yanında gösterilir. */
   children?: React.ReactNode;
 };
@@ -79,12 +79,12 @@ export function MonthCalendar({
   externalWeeks,
   entries,
   externals,
-  spans,
+  pieces,
   children,
 }: Props) {
   const sel = useCalendarSelection();
   const byId = useMemo(() => new Map(entries.map((e) => [e.id, e])), [entries]);
-  const spanById = useMemo(() => new Map(spans.map((x) => [x.id, x])), [spans]);
+  const pieceById = useMemo(() => new Map(pieces.map((x) => [x.id, x])), [pieces]);
   const extSegments = useMemo(
     () => new Map(externalWeeks.map((w) => [w.start, w.segments])),
     [externalWeeks],
@@ -255,9 +255,9 @@ export function MonthCalendar({
               );
             })}
             {(extSegments.get(w.start) ?? []).map((s) => {
-              const x = spanById.get(s.entryId);
+              const x = pieceById.get(s.entryId);
               if (!x) return null;
-              const names = [...new Set(x.items.map((i) => i.sourceName))].join(", ");
+              const names = x.names.join(", ");
               return (
                 // Harici doluluk bağlantı değildir: tıklama alttaki güne geçer, gün paneli ayrıntıyı gösterir.
                 <div
@@ -271,8 +271,9 @@ export function MonthCalendar({
                     HALF_END[s.endHalf],
                     "pointer-events-none z-10 row-start-2 mx-px mt-3 flex h-2 min-w-0 items-center self-start overflow-hidden text-[11px] font-semibold sm:mt-7 sm:h-5 sm:px-1.5",
                     EXTERNAL_BAR,
-                    s.startsHere && "rounded-l-full sm:rounded-l-md",
-                    s.endsHere && "rounded-r-full sm:rounded-r-md",
+                    // Parçalar bitişik durur; köşe yalnız birleşik aralığın başında/sonunda yuvarlanır.
+                    x.startsSpan && s.startsHere && "rounded-l-full sm:rounded-l-md",
+                    x.endsSpan && s.endsHere && "rounded-r-full sm:rounded-r-md",
                   )}
                 >
                   {s.endHalf - s.startHalf >= 2 ? (

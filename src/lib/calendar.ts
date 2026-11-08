@@ -129,6 +129,73 @@ export function mergeExternal(items: readonly CalendarExternal[]): ExternalSpan[
   return out;
 }
 
+/**
+ * Şerit parçası: birleşik aralığın, kaynak kümesi değişmeyen alt aralığı. Etiket yalnız o
+ * günleri gerçekten kapatan kaynakları gösterir (ör. Booking 19–22 + Airbnb 20–21 → 19–20
+ * "Booking.com", 20–21 "Airbnb, Booking.com", 21–22 "Booking.com").
+ */
+export type ExternalPiece = {
+  id: string;
+  spanId: string;
+  checkIn: string;
+  checkOut: string;
+  /** Bu parçayı kapatan kaynak adları (tekil, alfabetik). */
+  names: string[];
+  /** Parça birleşik aralığın başında/sonunda mı (köşe yuvarlama). */
+  startsSpan: boolean;
+  endsSpan: boolean;
+};
+
+const NAME_ORDER = new Intl.Collator("tr");
+
+export function splitExternal(spans: readonly ExternalSpan[]): ExternalPiece[] {
+  const out: ExternalPiece[] = [];
+  for (const span of spans) {
+    const bounds = [
+      ...new Set([
+        span.checkIn,
+        span.checkOut,
+        ...span.items.flatMap((i) => [i.checkIn, i.checkOut]),
+      ]),
+    ].sort();
+    let cur: ExternalPiece | null = null;
+    for (let i = 0; i + 1 < bounds.length; i++) {
+      const a = bounds[i]!;
+      const b = bounds[i + 1]!;
+      const names = [
+        ...new Set(
+          span.items.filter((it) => it.checkIn <= a && it.checkOut >= b).map((it) => it.sourceName),
+        ),
+      ].sort(NAME_ORDER.compare);
+      if (names.length === 0) {
+        cur = null;
+        continue;
+      }
+      if (cur && cur.checkOut === a && cur.names.join("\n") === names.join("\n")) {
+        cur.checkOut = b;
+        continue;
+      }
+      cur = {
+        id: `${span.id}:${a}`,
+        spanId: span.id,
+        checkIn: a,
+        checkOut: b,
+        names,
+        startsSpan: false,
+        endsSpan: false,
+      };
+      out.push(cur);
+    }
+  }
+  const spanOf = new Map(spans.map((s) => [s.id, s]));
+  for (const p of out) {
+    const s = spanOf.get(p.spanId)!;
+    p.startsSpan = p.checkIn === s.checkIn;
+    p.endsSpan = p.checkOut === s.checkOut;
+  }
+  return out;
+}
+
 /* ── Ay anahtarı ("YYYY-MM") ─────────────────────────────────────────────── */
 
 const MONTH_KEY = /^(\d{4})-(0[1-9]|1[0-2])$/;

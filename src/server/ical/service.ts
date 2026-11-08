@@ -30,6 +30,7 @@ import {
 } from "@/lib/ical-meta";
 import { zodFieldErrors } from "@/lib/result";
 import { type ICAL_SOURCE_AUDIT_FIELDS, recordAudit } from "@/server/audit/record";
+import { isBlockedHost } from "@/server/ical/fetch";
 import { canManageProperties, isUuid } from "@/server/properties/service";
 
 export const canManageIcal = canManageProperties;
@@ -199,6 +200,15 @@ export const sourceInput = z.object({
         ctx.addIssue({
           code: "custom",
           message: "Geçerli bir iCal adresi girin (https:// veya webcal:// ile başlayan).",
+        });
+        return z.NEVER;
+      }
+      // SSRF: yerel/özel adresler kayıttan önce reddedilir (indirme anındaki denetim ayrıca sürer).
+      if (isBlockedHost(new URL(n).hostname)) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "Yerel veya özel ağ adresleri (localhost, 127.0.0.1, 192.168.x.x vb.) eklenemez; platformun herkese açık iCal bağlantısını girin.",
         });
         return z.NEVER;
       }

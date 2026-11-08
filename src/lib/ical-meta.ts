@@ -148,3 +148,16 @@ const SYNC_TIME_FMT = new Intl.DateTimeFormat("tr-TR", {
 /** Senkron zamanı (Europe/Istanbul): "8 Kasım 2026 14:05"; yoksa "Henüz yok". */
 export const formatSyncTime = (v: Date | string | null) =>
   v === null ? "Henüz yok" : SYNC_TIME_FMT.format(new Date(v));
+
+/**
+ * Hata kutusundaki ek açıklama. Hiç başarılı senkronu olmayan kaynakta "tarihler korunuyor"
+ * denmez; çünkü korunacak tarih yoktur.
+ */
+export function icalFailureNote(consecutiveFailures: number, hasSuccess: boolean): string {
+  const tail = hasSuccess
+    ? "son başarılı senkronun tarihleri korunuyor"
+    : "henüz başarılı senkron olmadığından bu takvimden tarih alınmadı";
+  return consecutiveFailures > 1
+    ? ` (${consecutiveFailures} denemedir başarısız; ${tail}.)`
+    : ` ${tail.charAt(0).toLocaleUpperCase("tr")}${tail.slice(1)}.`;
+}
