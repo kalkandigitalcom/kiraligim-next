@@ -214,7 +214,7 @@ describe("yetkiler", () => {
       "workspace_members:INSERT:id,role,user_id,workspace_id",
       "workspace_members:UPDATE:role",
       "workspaces:INSERT:created_by,id,name,slug",
-      "workspaces:UPDATE:name,slug",
+      "workspaces:UPDATE:contact_whatsapp,name,slug",
     ]);
   });
 

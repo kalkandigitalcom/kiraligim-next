@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
+import { WHATSAPP_PATTERN } from "../../lib/public-profile-meta";
+
 import { users } from "./auth";
 
 /**
@@ -32,6 +34,8 @@ export const workspaces = pgTable(
     name: text().notNull(),
     slug: text().notNull(),
     status: text({ enum: WORKSPACE_STATUSES }).notNull().default("active"),
+    /** Müşteriye açık villa sayfalarındaki WhatsApp iletişim numarası (+905321234567); yalnız owner. */
+    contactWhatsapp: text(),
     createdBy: uuid()
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -42,6 +46,10 @@ export const workspaces = pgTable(
     check("workspaces_name_length", sql`length(btrim(${t.name})) between 2 and 120`),
     check("workspaces_slug_format", sql`${t.slug} ~ '^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$'`),
     check("workspaces_status_check", sql`${t.status} in ('active', 'suspended')`),
+    check(
+      "workspaces_contact_whatsapp_format",
+      sql`${t.contactWhatsapp} is null or ${t.contactWhatsapp} ~ '${sql.raw(WHATSAPP_PATTERN)}'`,
+    ),
   ],
 );
 

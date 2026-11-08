@@ -6,10 +6,15 @@ import { getDb } from "@/db/client";
 import { withTenant } from "@/db/tenant";
 import { isAppError } from "@/lib/errors";
 import { requireUser } from "@/server/auth/session";
+import { formatWhatsapp } from "@/lib/public-profile-meta";
 import { getEntitlements } from "@/server/billing/entitlements";
 import { getPropertyUsage } from "@/server/properties/service";
 import { resolveActiveWorkspace } from "@/server/workspaces/active";
+import { getWorkspaceWhatsapp } from "@/server/workspaces/contact";
 import { listWorkspaceMembers } from "@/server/workspaces/service";
+
+import { updateWhatsappAction } from "./actions";
+import { WhatsappForm } from "./whatsapp-form";
 
 export const metadata: Metadata = { title: "Panel" };
 
@@ -27,7 +32,15 @@ const UPCOMING = [
   { title: "Takvim", text: "Doluluk ve müsaitlik görünümü." },
 ] as const;
 
-export default async function PanelPage() {
+const CONTACT_NOTICES: Record<string, string> = {
+  kaydedildi: "WhatsApp numarası kaydedildi.",
+  "degisiklik-yok": "Değişiklik yapılmadı.",
+};
+
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+export default async function PanelPage({ searchParams }: Props) {
+  const sp = await searchParams;
   const user = await requireUser();
   const active = await resolveActiveWorkspace(user.id);
   if (active.kind === "none") redirect("/isletme-olustur");
@@ -45,6 +58,7 @@ export default async function PanelPage() {
         memberCount: (await listWorkspaceMembers(tx)).length,
         plan: await getEntitlements(tx),
         usage: await getPropertyUsage(tx),
+        whatsapp: await getWorkspaceWhatsapp(tx),
       }),
     );
   } catch (err) {
@@ -86,6 +100,39 @@ export default async function PanelPage() {
             </dd>
           </div>
         </dl>
+      </section>
+
+      <section
+        id="iletisim"
+        aria-labelledby="iletisim-baslik"
+        className="scroll-mt-24 rounded-2xl border border-border bg-white p-6 shadow-sm"
+      >
+        <h2 id="iletisim-baslik" className="text-base font-semibold text-navy-900">
+          Müşteri iletişimi
+        </h2>
+        {typeof sp.iletisim === "string" && CONTACT_NOTICES[sp.iletisim] ? (
+          <p
+            role="status"
+            className="mt-3 rounded-lg bg-turquoise-50 px-4 py-2 text-sm text-turquoise-700"
+          >
+            {CONTACT_NOTICES[sp.iletisim]}
+          </p>
+        ) : null}
+        <div className="mt-4">
+          {view.role === "owner" ? (
+            <WhatsappForm action={updateWhatsappAction} initial={view.whatsapp ?? ""} />
+          ) : (
+            <dl className="text-sm">
+              <dt className="text-muted-foreground">WhatsApp numarası</dt>
+              <dd className="mt-1 font-medium text-navy-900" data-testid="whatsapp-readonly">
+                {view.whatsapp ? formatWhatsapp(view.whatsapp) : "Tanımlı değil"}
+              </dd>
+              <dd className="mt-1 text-muted-foreground">
+                Numarayı işletme sahibi değiştirebilir.
+              </dd>
+            </dl>
+          )}
+        </div>
       </section>
 
       <section
