@@ -88,6 +88,61 @@ describe("olanak kataloğu", () => {
       }
   });
 
+  it("Revizyon 2: 'Genel' kategorisi yok; anahtar kümesi değişmedi (kayıtlı olanaklar kaybolmaz)", () => {
+    expect(AMENITY_GROUPS.map((g) => g.key)).toEqual([
+      "konfor",
+      "eglence",
+      "mutfak",
+      "banyo",
+      "havuz",
+      "dis-alan",
+      "manzara",
+      "aile",
+      "guvenlik",
+    ]);
+    expect(AMENITY_GROUPS.map((g) => g.label as string)).not.toContain("Genel");
+    for (const g of AMENITY_GROUPS) expect(g.items.length, g.key).toBeGreaterThan(0);
+    // Revizyon öncesi 35 anahtarın tamamı (veritabanında saklanan değerler) katalogda kalır.
+    const before = [
+      "wifi",
+      "klima",
+      "isitma",
+      "somine",
+      "televizyon",
+      "calisma-alani",
+      "camasir-makinesi",
+      "kurutma-makinesi",
+      "utu",
+      "sac-kurutma",
+      "havlu-nevresim",
+      "tam-mutfak",
+      "bulasik-makinesi",
+      "firin",
+      "mikrodalga",
+      "kahve-makinesi",
+      "buzdolabi",
+      "bahce",
+      "teras",
+      "barbeku",
+      "sezlong",
+      "dis-dus",
+      "otopark",
+      "jakuzi",
+      "sauna",
+      "deniz-manzarasi",
+      "doga-manzarasi",
+      "muhafazakar",
+      "bebek-yatagi",
+      "mama-sandalyesi",
+      "evcil-hayvan",
+      "guvenlik-kamerasi",
+      "yangin-sondurucu",
+      "ilk-yardim",
+      "duman-dedektoru",
+    ];
+    expect([...AMENITY_KEYS].sort()).toEqual([...before].sort());
+  });
+
   it("havuzlar katalogda yok (mevcut havuz alanlarından gelir)", () => {
     expect(AMENITY_KEYS.some((k) => k.includes("havuz"))).toBe(false);
   });
@@ -196,10 +251,11 @@ describe("sayfa ayarları formu", () => {
       checkInTime: "16:00",
       checkOutTime: null,
       houseRules: "Evcil hayvan yok.\nSessizlik 23:00",
-      cancellationPolicy: null,
-      paymentTerms: "%30 ön ödeme",
       confirmSlugChange: false,
     });
+    // Revizyon 2: iptal / ödeme koşulları kaldırıldı; gelse de çıktıda yer almaz.
+    expect(v).not.toHaveProperty("cancellationPolicy");
+    expect(v).not.toHaveProperty("paymentTerms");
   });
 
   it("boş adres serbest (taslak)", () => {
@@ -213,8 +269,7 @@ describe("sayfa ayarları formu", () => {
     [{ checkInTime: "25:00" }, "checkInTime"],
     [{ checkOutTime: "10.00" }, "checkOutTime"],
     [{ houseRules: "x".repeat(2001) }, "houseRules"],
-    [{ paymentTerms: "x".repeat(1001) }, "paymentTerms"],
-    [{ cancellationPolicy: "kötü\u0007karakter" }, "cancellationPolicy"],
+    [{ houseRules: "kötü\u0007karakter" }, "houseRules"],
   ])("geçersiz %o → %s alanında hata", (over, field) => {
     const r = publicProfileInput.safeParse({ ...base, ...over });
     expect(r.success).toBe(false);

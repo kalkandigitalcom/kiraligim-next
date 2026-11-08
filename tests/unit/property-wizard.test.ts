@@ -14,7 +14,7 @@ import {
   WIZARD_STEPS,
   wizardFormValues,
 } from "@/lib/property-wizard";
-import { DISTANCE_KEYS } from "@/lib/villa-extras";
+import { DISTANCE_KEYS, DISTANCE_UNIT_FIELDS } from "@/lib/villa-extras";
 import { STAY_LIST_FIELDS, STAY_TEXT_FIELDS } from "@/server/properties/public-profile-schema";
 import { PROPERTY_FIELDS } from "@/server/properties/schema";
 
@@ -55,14 +55,34 @@ describe("adım alanları", () => {
   });
 
   it("harita ve mesafeler 1. adımda, video 2. adımda; eski gizli alanlar hiçbir adımda yok", () => {
-    for (const k of ["mapLocation", ...DISTANCE_KEYS]) expect(BASICS_FIELDS).toContain(k);
+    for (const k of [
+      "mapMode",
+      "mapLocation",
+      "mapPinLat",
+      "mapPinLng",
+      ...DISTANCE_KEYS,
+      ...DISTANCE_UNIT_FIELDS,
+    ])
+      expect(BASICS_FIELDS).toContain(k);
+    expect(STEP_STAY_FIELDS.konaklama).toEqual([
+      "checkInTime",
+      "checkOutTime",
+      "houseRuleKeys",
+      "houseRules",
+      "priceIncludes",
+    ]);
     expect(STEP_PROPERTY_FIELDS.aciklama).toEqual(["description", "youtubeUrl"]);
     const all = Object.values(STEP_PROPERTY_FIELDS).flat();
     for (const k of ["addressLine", "postalCode", "latitude", "longitude", "bedsDouble"]) {
       expect(all, k).not.toContain(k);
     }
     expect(Object.keys(EMPTY_PROPERTY_VALUES).sort()).toEqual([...PROPERTY_FIELDS].sort());
-    expect(EMPTY_PROPERTY_VALUES).toMatchObject({ poolSwimming: "no", description: "" });
+    expect(EMPTY_PROPERTY_VALUES).toMatchObject({
+      poolSwimming: "no",
+      description: "",
+      mapMode: "google",
+      distanceMarketUnit: "km",
+    });
   });
 
   it("hata alanı → adım", () => {
@@ -76,7 +96,12 @@ describe("adım alanları", () => {
     expect(stepOfField("description")).toBe("aciklama");
     expect(stepOfField("poolKidsDepth")).toBe("olanaklar");
     expect(stepOfField("amenities")).toBe("olanaklar");
-    expect(stepOfField("paymentTerms")).toBe("konaklama");
+    // Revizyon 2: iptal / ödeme koşulları kaldırıldı.
+    expect(stepOfField("paymentTerms")).toBeNull();
+    expect(stepOfField("cancellationPolicy")).toBeNull();
+    expect(stepOfField("mapMode")).toBe("temel");
+    expect(stepOfField("mapPinLat")).toBe("temel");
+    expect(stepOfField("distanceMarketUnit")).toBe("temel");
     expect(stepOfField("publicSlug")).toBeNull();
   });
 });

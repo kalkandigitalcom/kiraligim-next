@@ -476,17 +476,26 @@ describe("veritabanı güvenliği", () => {
     ]);
     const villaCols: string[] = cols.app_public_villa;
     // Revizyon (0025): yatak kolonları çıktı; harita, 7 mesafe, kurallar ve dahil olanlar eklendi.
-    expect(villaCols).toHaveLength(43);
+    // Revizyon 2 (0026): harita yöntemi + iğne (3) ve 7 mesafe birimi eklendi; iptal ve ödeme
+    // koşulları çıktı (43 + 10 − 2).
+    expect(villaCols).toHaveLength(51);
     expect(villaCols).toEqual(
       expect.arrayContaining([
+        "map_mode",
         "map_embed_url",
+        "map_pin_lat",
+        "map_pin_lng",
         "distance_market_km",
+        "distance_market_unit",
         "distance_health_km",
+        "distance_health_unit",
         "house_rule_keys",
         "price_includes",
       ]),
     );
     for (const forbidden of [
+      "cancellation_policy",
+      "payment_terms",
       "beds_double",
       "beds_single",
       "beds_sofa",

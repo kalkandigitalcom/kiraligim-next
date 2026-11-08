@@ -190,13 +190,15 @@ describe("varsayılanlar ve yetkiler (0022, 0023)", () => {
 describe("sayfa ayarları", () => {
   it("owner kaydeder; denetim kaydında yalnız alan adları", async () => {
     const r = await as(O, wsA, (tx, ctx) => updatePublicProfile(tx, ctx, propA, profile()));
-    expect(r.changed).toBe(7);
+    expect(r.changed).toBe(5);
     expect(await rowOf(propA)).toMatchObject({
       public_slug: `villa-a-${tag}`,
-      amenities: ["wifi", "klima", "otopark"],
+      amenities: ["klima", "wifi", "otopark"], // katalog sırası (Revizyon 2 kategorileri)
       cin: "16:00:00",
       cout: "10:00:00",
-      payment_terms: "%30 ön ödeme.",
+      // Revizyon 2: iptal / ödeme koşulları artık yazılmaz (gönderilse de yok sayılır).
+      cancellation_policy: null,
+      payment_terms: null,
       is_public: false,
     });
     const audit = (await auditOf(wsA, "property.public_profile_updated")).at(-1);
@@ -207,8 +209,6 @@ describe("sayfa ayarları", () => {
       "check_in_time",
       "check_out_time",
       "house_rules",
-      "cancellation_policy",
-      "payment_terms",
     ]);
     expect(JSON.stringify(audit.metadata)).not.toMatch(/villa-a|Evcil|%30/);
   });
@@ -298,7 +298,7 @@ describe("sayfa ayarları", () => {
     );
     expect(await rowOf(propA)).toMatchObject({
       public_slug: `villa-a-${tag}`,
-      amenities: ["wifi", "klima", "otopark"],
+      amenities: ["klima", "wifi", "otopark"], // katalog sırası (Revizyon 2 kategorileri)
       cout: "11:00:00",
     });
   });

@@ -7,7 +7,16 @@ import { AppError, forbidden, validationError } from "@/lib/errors";
 import { POOL_KINDS, type PropertyStatus, type PropertyType } from "@/lib/property-meta";
 import { plainTextToHtml } from "@/lib/rich-text";
 import { zodFieldErrors } from "@/lib/result";
-import { DISTANCE_COLUMNS, DISTANCE_KEYS, type DistanceKey } from "@/lib/villa-extras";
+import { effectiveMapMode, isMapMode, type MapMode, type MapPin } from "@/lib/map-pin";
+import {
+  DISTANCE_COLUMNS,
+  DISTANCE_KEYS,
+  DISTANCE_UNIT_COLUMNS,
+  type DistanceKey,
+  type DistanceUnit,
+  distanceFormUnit,
+  isDistanceUnit,
+} from "@/lib/villa-extras";
 import { type PROPERTY_AUDIT_FIELDS, recordAudit } from "@/server/audit/record";
 import {
   ALLOWANCE_MESSAGES,
@@ -18,6 +27,8 @@ import {
 
 import { sanitizeDescription } from "./description";
 import {
+  type DistancesInput,
+  type MapInput,
   type PoolsInput,
   poolsFromRaw,
   parsePropertyInput,
@@ -72,10 +83,16 @@ export type Property = PropertySummary & {
   pools: PropertyPools;
   countryCode: string;
   neighborhood: string | null;
-  /** Doğrulanmış Google Haritalar gömme adresi (misafire gösterilir); yoksa null. */
+  /** Seçili harita yöntemi; NULL: harita yok veya Revizyon 2 öncesi kayıt (bkz. effectiveMapMode). */
+  mapMode: MapMode | null;
+  /** Doğrulanmış Google Haritalar gömme adresi; yoksa null. */
   mapEmbedUrl: string | null;
+  /** Haritada bırakılan iğne (OpenStreetMap); yoksa null. */
+  mapPin: MapPin | null;
   /** Yakın yerlere mesafeler (km); girilmemişse null. */
   distances: Record<DistanceKey, number | null>;
+  /** Mesafelerin giriş/gösterim birimi; NULL: girilmemiş veya eski kayıt (otomatik). */
+  distanceUnits: Record<DistanceKey, DistanceUnit | null>;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -93,7 +110,17 @@ type Row = {
   description: string | null;
   country_code: string;
   neighborhood: string | null;
+  map_mode: MapMode | null;
   map_embed_url: string | null;
+  map_pin_lat: string | null;
+  map_pin_lng: string | null;
+  distance_market_unit: DistanceUnit | null;
+  distance_restaurant_unit: DistanceUnit | null;
+  distance_center_unit: DistanceUnit | null;
+  distance_beach_unit: DistanceUnit | null;
+  distance_airport_ayt_unit: DistanceUnit | null;
+  distance_airport_dlm_unit: DistanceUnit | null;
+  distance_health_unit: DistanceUnit | null;
   distance_market_km: string | null;
   distance_restaurant_km: string | null;
   distance_center_km: string | null;
@@ -163,6 +190,21 @@ function rowDistances(r: Row): Record<DistanceKey, number | null> {
   return out;
 }
 
+function rowDistanceUnits(r: Row): Record<DistanceKey, DistanceUnit | null> {
+  const out = {} as Record<DistanceKey, DistanceUnit | null>;
+  for (const k of DISTANCE_KEYS) {
+    const u = r[DISTANCE_UNIT_COLUMNS[k] as keyof Row];
+    out[k] = isDistanceUnit(u) ? u : null;
+  }
+  return out;
+}
+
+function rowPin(r: Row): MapPin | null {
+  const lat = num(r.map_pin_lat);
+  const lng = num(r.map_pin_lng);
+  return lat !== null && lng !== null ? { lat, lng } : null;
+}
+
 const toProperty = (r: Row): Property => ({
   ...toSummary(r),
   description: r.description,
@@ -172,8 +214,11 @@ const toProperty = (r: Row): Property => ({
   pools: rowPools(r),
   countryCode: r.country_code,
   neighborhood: r.neighborhood,
+  mapMode: isMapMode(r.map_mode) ? r.map_mode : null,
   mapEmbedUrl: r.map_embed_url,
+  mapPin: rowPin(r),
   distances: rowDistances(r),
+  distanceUnits: rowDistanceUnits(r),
   createdAt: new Date(r.created_at),
   updatedAt: new Date(r.updated_at),
 });
@@ -254,19 +299,28 @@ const columnsOf = (v: PropertyInput) => ({
   province: v.province,
   district: v.district,
   neighborhood: v.neighborhood ?? null,
-  map_embed_url: v.mapLocation,
-  distances: Object.fromEntries(DISTANCE_KEYS.map((k) => [k, v[k]])) as Record<
-    DistanceKey,
-    number | null
-  >,
+  map: v.map,
+  distances: v.distances,
 });
 
-/** Mesafe kolonlarının değerleri, DISTANCE_KEYS sırasıyla. */
-const distanceValues = (d: Record<DistanceKey, number | null>) =>
+/** Mesafe kolonlarının değerleri, DISTANCE_KEYS sırasıyla (km kolonları, sonra birim kolonları). */
+const distanceValues = (d: DistancesInput) =>
   sql.join(
-    DISTANCE_KEYS.map((k) => sql`${d[k]}`),
+    [...DISTANCE_KEYS.map((k) => sql`${d.km[k]}`), ...DISTANCE_KEYS.map((k) => sql`${d.unit[k]}`)],
     sql`, `,
   );
+
+/** Mesafe kolon listesi (distanceValues ile aynı sıra). */
+const DISTANCE_COLUMN_LIST = sql.raw(
+  [
+    ...DISTANCE_KEYS.map((k) => DISTANCE_COLUMNS[k]),
+    ...DISTANCE_KEYS.map((k) => DISTANCE_UNIT_COLUMNS[k]),
+  ].join(", "),
+);
+
+/** Harita kolonlarının değerleri: map_mode, map_embed_url, map_pin_lat, map_pin_lng. */
+const mapValues = (m: MapInput) =>
+  sql`${m.mode}, ${m.embedUrl}, ${m.pin?.lat ?? null}, ${m.pin?.lng ?? null}`;
 
 /** Yeni mülk (owner/manager). Limit ve abonelik, eklemeden önce ve veritabanında denetlenir. */
 export async function createProperty(tx: Tx, ctx: TenantContext, input: unknown): Promise<string> {
@@ -283,9 +337,9 @@ export async function createProperty(tx: Tx, ctx: TenantContext, input: unknown)
       insert into properties (
         id, workspace_id, created_by, name, property_type, description,
         max_guests, bedrooms, bathrooms,
-        province, district, neighborhood, map_embed_url,
-        distance_market_km, distance_restaurant_km, distance_center_km, distance_beach_km,
-        distance_airport_ayt_km, distance_airport_dlm_km, distance_health_km,
+        province, district, neighborhood,
+        map_mode, map_embed_url, map_pin_lat, map_pin_lng,
+        ${DISTANCE_COLUMN_LIST},
         description_html, tourism_license_no, youtube_video_ids,
         pool_swimming, pool_swimming_depth, pool_swimming_width, pool_swimming_length,
         pool_swimming_protected,
@@ -294,7 +348,8 @@ export async function createProperty(tx: Tx, ctx: TenantContext, input: unknown)
       values (
         ${id}, app_current_workspace_id(), app_current_user_id(), ${c.name}, ${c.property_type},
         ${c.description}, ${c.max_guests}, ${c.bedrooms}, ${c.bathrooms},
-        ${c.province}, ${c.district}, ${c.neighborhood}, ${c.map_embed_url},
+        ${c.province}, ${c.district}, ${c.neighborhood},
+        ${mapValues(c.map)},
         ${distanceValues(c.distances)},
         ${c.description_html}, ${c.tourism_license_no}, ${sql.param(c.youtube_video_ids)}::text[],
         ${poolValues(c.pools)})`);
@@ -335,6 +390,31 @@ const samePools = (a: PropertyPools, b: PropertyPools) =>
       a[k].length === b[k].length,
   );
 
+/**
+ * Harita karşılaştırması: misafirin gördüğü yöntem + iki yöntemin verisi. Eski kayıtta yöntem
+ * NULL ve Google adresi varken "google" yazılması değişiklik sayılmaz (görünen aynı).
+ */
+function sameMap(before: Property, m: MapInput): boolean {
+  const pinEq = (a: MapPin | null, b: MapPin | null) =>
+    a === b || (a !== null && b !== null && a.lat === b.lat && a.lng === b.lng);
+  return (
+    effectiveMapMode(before.mapMode, before.mapEmbedUrl, before.mapPin) ===
+      effectiveMapMode(m.mode, m.embedUrl, m.pin) &&
+    before.mapEmbedUrl === m.embedUrl &&
+    pinEq(before.mapPin, m.pin)
+  );
+}
+
+/** Mesafe karşılaştırması; eski kayıtta (birim NULL) otomatik birim esas alınır. */
+function sameDistances(before: Property, d: DistancesInput): boolean {
+  return DISTANCE_KEYS.every((k) => {
+    const km = before.distances[k];
+    if (km !== d.km[k]) return false;
+    if (km === null) return true;
+    return distanceFormUnit(km, before.distanceUnits[k]) === d.unit[k];
+  });
+}
+
 /** Değişen alanların adları (denetim kaydı için; değerler yazılmaz). */
 function changedFields(
   before: Property,
@@ -353,10 +433,10 @@ function changedFields(
     ["province", before.province, c.province],
     ["district", before.district, c.district],
     ["neighborhood", before.neighborhood, c.neighborhood],
-    ["map", before.mapEmbedUrl, c.map_embed_url],
   ];
   for (const [field, a, b] of pairs) if (a !== b) out.push(field);
-  if (DISTANCE_KEYS.some((k) => before.distances[k] !== c.distances[k])) out.push("distances");
+  if (!sameMap(before, c.map)) out.push("map");
+  if (!sameDistances(before, c.distances)) out.push("distances");
   if (!samePools(before.pools, c.pools)) out.push("pools");
   return out;
 }
@@ -387,10 +467,8 @@ export async function updateProperty(
           name = ${c.name}, property_type = ${c.property_type}, description = ${c.description},
           max_guests = ${c.max_guests}, bedrooms = ${c.bedrooms}, bathrooms = ${c.bathrooms},
           province = ${c.province}, district = ${c.district}, neighborhood = ${c.neighborhood},
-          map_embed_url = ${c.map_embed_url},
-          (distance_market_km, distance_restaurant_km, distance_center_km, distance_beach_km,
-           distance_airport_ayt_km, distance_airport_dlm_km, distance_health_km) =
-            (${distanceValues(c.distances)}),
+          (map_mode, map_embed_url, map_pin_lat, map_pin_lng) = (${mapValues(c.map)}),
+          (${DISTANCE_COLUMN_LIST}) = (${distanceValues(c.distances)}),
           description_html = ${c.description_html}, tourism_license_no = ${c.tourism_license_no},
           youtube_video_ids = ${sql.param(c.youtube_video_ids)}::text[],
           (pool_swimming, pool_swimming_depth, pool_swimming_width, pool_swimming_length,

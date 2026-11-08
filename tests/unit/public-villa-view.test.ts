@@ -39,9 +39,11 @@ describe("villa sayfası gösterimi", () => {
 
   it("olanaklar katalog grup sırasıyla; boş grup ve katalog dışı anahtar yok", () => {
     const g = amenityGroups(["otopark", "wifi", "bilinmeyen", "klima", "wifi"]);
-    expect(g.map((x) => x.key)).toEqual(["genel", "dis-alan"]);
-    expect(g[0]!.items.map((i) => i.key)).toEqual(["wifi", "klima"]);
-    expect(g[1]!.items).toEqual([{ key: "otopark", label: "Otopark" }]);
+    // Revizyon 2: "Genel" yok; klima İklimlendirme'de, Wi-Fi İnternet ve eğlence'de.
+    expect(g.map((x) => x.key)).toEqual(["konfor", "eglence", "dis-alan"]);
+    expect(g[0]!.items.map((i) => i.key)).toEqual(["klima"]);
+    expect(g[1]!.items.map((i) => i.key)).toEqual(["wifi"]);
+    expect(g[2]!.items).toEqual([{ key: "otopark", label: "Otopark" }]);
     expect(amenityGroups([])).toEqual([]);
   });
 

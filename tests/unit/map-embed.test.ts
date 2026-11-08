@@ -5,8 +5,13 @@ import { buildCsp } from "@/lib/security-headers";
 import {
   DISTANCE_KEYS,
   DISTANCE_LABELS,
+  distanceFormUnit,
+  distanceToInput,
   formatDistance,
   HOUSE_RULES,
+  parseDistanceInput,
+  RETIRED_HOUSE_RULES,
+  RETIRED_PRICE_INCLUDES,
   orderHouseRules,
   orderPriceIncludes,
   PRICE_INCLUDES,
@@ -164,6 +169,8 @@ describe("kayıtlı adresin gösterimden önce doğrulanması", () => {
   it("CSP: iframe yalnız https://www.google.com'dan; diğer yönergeler değişmedi", () => {
     const csp = buildCsp("n", { isDev: false });
     expect(csp).toContain("frame-src https://www.google.com;");
+    // Revizyon 2: yalnız OSM karo kökeni eklendi (joker / başka köken yok).
+    expect(csp).toContain("img-src 'self' blob: data: https://tile.openstreetmap.org;");
     expect(csp).toContain("default-src 'self';");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");
@@ -181,6 +188,51 @@ describe("mesafeler, kurallar, fiyata dahil olanlar", () => {
       "Dalaman Havalimanı",
       "Sağlık Merkezi",
     ]);
+  });
+
+  it("mesafe gösterimi (Revizyon 2): seçilen birimle; birimsiz eski kayıtta otomatik", () => {
+    expect(formatDistance(0.5, "m")).toBe("500 m");
+    expect(formatDistance(1.25, "m")).toBe("1.250 m");
+    expect(formatDistance(2, "km")).toBe("2 km");
+    expect(formatDistance(1.5, "km")).toBe("1,5 km");
+    expect(formatDistance(0.35, "km")).toBe("0,35 km");
+    expect(formatDistance(112.25, "km")).toBe("112,25 km");
+    expect(formatDistance(0.35, null)).toBe("350 m");
+  });
+
+  it("mesafe girişi: birim başına sınırlar, km'ye çeviri, form gösterimi", () => {
+    expect(parseDistanceInput("500", "m")).toEqual({ ok: true, km: 0.5 });
+    expect(parseDistanceInput("1,5", "km")).toEqual({ ok: true, km: 1.5 });
+    expect(parseDistanceInput("", "m")).toEqual({ ok: true, km: null });
+    expect(parseDistanceInput("1,5", "m")).toEqual({ ok: false, error: "format" });
+    expect(parseDistanceInput("0", "km")).toEqual({ ok: false, error: "zero" });
+    expect(parseDistanceInput("100000", "m")).toEqual({ ok: false, error: "format" });
+    expect(distanceToInput(0.5, "m")).toBe("500");
+    expect(distanceToInput(1.5, "km")).toBe("1,5");
+    expect(distanceFormUnit(0.4, null)).toBe("m");
+    expect(distanceFormUnit(2.5, null)).toBe("km");
+    expect(distanceFormUnit(0.4, "km")).toBe("km");
+    expect(distanceFormUnit(null, null)).toBe("km");
+  });
+
+  it("Revizyon 2: kaldırılan kural ve dahil olanlar katalogda yok; eski kayıtta gösterilmez", () => {
+    const rules = HOUSE_RULES.map(([k]) => k as string);
+    const incl = PRICE_INCLUDES.map(([k]) => k as string);
+    for (const k of RETIRED_HOUSE_RULES) expect(rules).not.toContain(k);
+    for (const k of RETIRED_PRICE_INCLUDES) expect(incl).not.toContain(k);
+    expect(rules).toEqual([
+      "evcil-hayvan-yok",
+      "sigara-icilmez",
+      "parti-yok",
+      "cocuklar-uygun",
+      "sessizlik-saatleri",
+      "ziyaretci-yok",
+    ]);
+    expect(incl).toEqual(["elektrik", "su", "internet", "havuz-bakimi", "bahce-bakimi", "klima"]);
+    expect(
+      orderHouseRules(["kimlik-zorunlu", "parti-yok", "havuz-gozetim"]).map((r) => r.key),
+    ).toEqual(["parti-yok"]);
+    expect(orderPriceIncludes(["temizlik", "su", "isitma"]).map((r) => r.key)).toEqual(["su"]);
   });
 
   it("mesafe gösterimi: 1 km altı metre, 10 km altı bir ondalık", () => {

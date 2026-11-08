@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
 import { formatMeters, POOL_KINDS, POOL_LABELS, PROPERTY_TYPE_LABELS } from "@/lib/property-meta";
+import { effectiveMapMode, MAP_MODE_LABELS } from "@/lib/map-pin";
 import { type EditStep, stepHref, WIZARD_STEP_LABELS } from "@/lib/property-wizard";
 import { AMENITY_LABELS, orderAmenities } from "@/lib/public-profile-meta";
 import {
@@ -41,13 +42,18 @@ export function missingItems(p: Property, pp: PublicProfile): Missing[] {
   if (!pp.checkInTime || !pp.checkOutTime) {
     out.push({ step: "konaklama", text: "Giriş ve çıkış saatlerini girin" });
   }
-  if (!p.mapEmbedUrl) out.push({ step: "temel", text: "Haritada villanızın yerini ekleyin" });
+  if (!effectiveMapMode(p.mapMode, p.mapEmbedUrl, p.mapPin))
+    out.push({ step: "temel", text: "Haritada villanızın yerini ekleyin" });
   if (pp.houseRuleKeys.length === 0 && !pp.houseRules) {
     out.push({ step: "konaklama", text: "Ev kurallarını işaretleyin" });
   }
-  if (!pp.cancellationPolicy) out.push({ step: "konaklama", text: "İptal koşullarını yazın" });
-  if (!pp.paymentTerms) out.push({ step: "konaklama", text: "Ödeme koşullarını yazın" });
   return out;
+}
+
+/** Misafirin göreceği harita yöntemi. */
+function mapSummary(p: Property): string {
+  const mode = effectiveMapMode(p.mapMode, p.mapEmbedUrl, p.mapPin);
+  return mode ? `${MAP_MODE_LABELS[mode]} ile eklendi` : "—";
 }
 
 const dash = (v: string | null | undefined) => (v && v.trim() ? v : "—");
@@ -131,7 +137,7 @@ export function ReviewStep({ property: p, profile: pp, canManage, statusAction }
   const place = [p.neighborhood, p.district, p.province].filter(Boolean).join(", ");
   const distances = DISTANCE_KEYS.flatMap((key) => {
     const km = p.distances[key];
-    return km === null ? [] : [{ key, km }];
+    return km === null ? [] : [{ key, km, unit: p.distanceUnits[key] }];
   });
   const published = pp.visibility.state === "published";
 
@@ -203,11 +209,13 @@ export function ReviewStep({ property: p, profile: pp, canManage, statusAction }
         <Row label="Kapasite">
           {p.maxGuests} kişi · {p.bedrooms} yatak odası · {p.bathrooms} banyo
         </Row>
-        <Row label="Harita">{p.mapEmbedUrl ? "Eklendi" : "—"}</Row>
+        <Row label="Harita">{mapSummary(p)}</Row>
         <Row label="Mesafeler">
           {distances.length === 0
             ? "—"
-            : distances.map((d) => `${DISTANCE_LABELS[d.key]} ${formatDistance(d.km)}`).join(" · ")}
+            : distances
+                .map((d) => `${DISTANCE_LABELS[d.key]} ${formatDistance(d.km, d.unit)}`)
+                .join(" · ")}
         </Row>
         <Row label="Belge no">{dash(p.tourismLicenseNo)}</Row>
       </Summary>
@@ -258,8 +266,6 @@ export function ReviewStep({ property: p, profile: pp, canManage, statusAction }
             <Chips labels={pp.priceIncludes.map((k) => PRICE_INCLUDE_LABELS[k] ?? k)} />
           )}
         </Row>
-        <Row label="İptal koşulları">{excerpt(pp.cancellationPolicy)}</Row>
-        <Row label="Ödeme koşulları">{excerpt(pp.paymentTerms)}</Row>
       </Summary>
 
       <section

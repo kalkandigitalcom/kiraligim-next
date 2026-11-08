@@ -43,3 +43,55 @@ export function ChoiceCards({
     </div>
   );
 }
+
+/**
+ * Bir seçim grubunu topluca işaretleme / kaldırma (yalnız o grup: data-group). Kutular
+ * kontrolsüz olduğu için DOM'da değiştirilir; kaydedilmemiş değişiklik uyarısı formu FormData ile
+ * karşılaştırdığı için bunu da görür. `onDone` sayaç gibi gösterimleri günceller.
+ */
+export function BulkSelect({
+  group,
+  label,
+  disabled,
+  onDone,
+}: {
+  group: string;
+  /** Ekran okuyucu için grup adı (ör. "Mutfak"). */
+  label: string;
+  disabled?: boolean;
+  onDone?: () => void;
+}) {
+  const setAll = (btn: HTMLButtonElement, checked: boolean) => {
+    const form = btn.closest("form") ?? document;
+    form
+      .querySelectorAll<HTMLInputElement>(`[data-group="${group}"] input[type="checkbox"]`)
+      .forEach((i) => {
+        if (!i.disabled) i.checked = checked;
+      });
+    onDone?.();
+  };
+  const cls =
+    "inline-flex h-8 items-center rounded-lg border border-border px-2.5 text-xs font-semibold text-navy-900 transition-colors hover:bg-mist focus-visible:ring-3 focus-visible:ring-turquoise-500/30 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+  return (
+    <div className="flex shrink-0 flex-wrap justify-end gap-1.5" data-testid={`bulk-${group}`}>
+      <button
+        type="button"
+        className={cls}
+        disabled={disabled}
+        onClick={(e) => setAll(e.currentTarget, true)}
+        data-testid={`select-all-${group}`}
+      >
+        Tümünü Seç<span className="sr-only">: {label}</span>
+      </button>
+      <button
+        type="button"
+        className={cls}
+        disabled={disabled}
+        onClick={(e) => setAll(e.currentTarget, false)}
+        data-testid={`clear-all-${group}`}
+      >
+        Tümünü Kaldır<span className="sr-only">: {label}</span>
+      </button>
+    </div>
+  );
+}

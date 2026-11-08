@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";
 import { uuidv7 } from "uuidv7";
@@ -24,6 +25,8 @@ import {
   updatePublicSlug,
 } from "@/server/properties/public-profile";
 import { createProperty, getProperty } from "@/server/properties/service";
+import { getPublicVilla } from "@/server/public/villa";
+import { createMemoryStorage } from "@/server/storage/memory";
 import { updateWorkspaceWhatsapp } from "@/server/workspaces/contact";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
@@ -54,7 +57,9 @@ const row = async (id: string) =>
   (
     await admin.query(
       `select name, property_type, province, district, neighborhood, max_guests, bedrooms, bathrooms,
-              map_embed_url, distance_market_km::text, distance_beach_km::text,
+              map_mode, map_embed_url, map_pin_lat::text, map_pin_lng::text,
+              distance_market_km::text, distance_market_unit, distance_beach_km::text,
+              distance_beach_unit,
               distance_airport_dlm_km::text, tourism_license_no, description, description_html,
               youtube_video_ids, house_rule_keys, price_includes,
               pool_swimming, pool_swimming_depth::text, pool_swimming_width::text,
@@ -139,9 +144,12 @@ describe("1. adım ile yeni mülk", () => {
       max_guests: 8,
       map_embed_url:
         "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3196.1!2d29.414301!3d36.265512!2m3!1f0!2f0!3f0",
-      distance_market_km: "0.40",
-      distance_beach_km: "1.20",
-      distance_airport_dlm_km: "112.00",
+      map_mode: "google",
+      map_pin_lat: null,
+      distance_market_km: "0.400",
+      distance_market_unit: "km",
+      distance_beach_km: "1.200",
+      distance_airport_dlm_km: "112.000",
       tourism_license_no: "07-1234",
       house_rule_keys: [],
       price_includes: [],
@@ -260,18 +268,21 @@ describe("her adım yalnız kendi alanlarını kaydeder", () => {
         ["checkInTime", "15:00"],
         ["checkOutTime", "10:00"],
         ["houseRules", "Sessiz saatler 23:00 sonrası."],
-        ["cancellationPolicy", ""],
+        // Revizyon 2: kaldırılan alanlar; gönderilse de okunmaz/yazılmaz.
+        ["cancellationPolicy", "Sızan iptal metni"],
         ["paymentTerms", "%30 ön ödeme."],
         ["amenities", "jakuzi"], // başka adımın alanı: okunmaz
       ]),
     );
+    expect(values).not.toHaveProperty("cancellationPolicy");
     const r = await as(O, ws, (tx, ctx) => saveWizardStep(tx, ctx, prop, "konaklama", values));
-    expect(r.changed).toBe(2);
+    expect(r.changed).toBe(1);
     const after = await row(prop);
-    expect(diff(before, after)).toEqual(["cancellation_policy", "check_in_time"]);
+    expect(diff(before, after)).toEqual(["check_in_time"]);
     expect(after).toMatchObject({
       check_in_time: "15:00:00",
       cancellation_policy: null,
+      payment_terms: null,
       amenities: ["wifi", "otopark"],
       public_slug: `a3-villa-${tag}`,
     });
@@ -287,7 +298,12 @@ describe("her adım yalnız kendi alanlarını kaydeder", () => {
     );
     const r = await as(M, ws, (tx, ctx) => saveWizardStep(tx, ctx, prop, "temel", values));
     expect(r.changed).toBe(2); // kapasite + mesafeler (tek denetim alanı)
-    expect(diff(before, await row(prop))).toEqual(["distance_market_km", "max_guests"]);
+    // Mesafe boşaltılınca birimi de kalkar.
+    expect(diff(before, await row(prop))).toEqual([
+      "distance_market_km",
+      "distance_market_unit",
+      "max_guests",
+    ]);
     expect((await audits(ws, "property.updated")).at(-1)).toEqual({
       fields: ["max_guests", "distances"],
     });
@@ -386,7 +402,7 @@ describe("revizyon: kurallar, fiyata dahil olanlar, harita, eski veriler", () =>
       }),
     );
     expect(await row(prop)).toMatchObject({
-      amenities: ["wifi", "klima", "otopark"],
+      amenities: ["klima", "wifi", "otopark"], // katalog sırası (Revizyon 2 kategorileri)
       house_rule_keys: before.house_rule_keys,
       price_includes: before.price_includes,
     });
@@ -557,7 +573,7 @@ describe("hata ve yetki", () => {
     await as(O, ws, (tx, ctx) => updateWorkspaceWhatsapp(tx, ctx, "0532 111 22 33"));
     await as(O, ws, (tx, ctx) => publishProperty(tx, ctx, prop));
     await as(M, ws, (tx, ctx) =>
-      saveWizardStep(tx, ctx, prop, "konaklama", { cancellationPolicy: "14 gün önce ücretsiz." }),
+      saveWizardStep(tx, ctx, prop, "konaklama", { houseRules: "14 gün önce haber verin." }),
     );
     await as(M, ws, (tx, ctx) =>
       saveWizardStep(tx, ctx, prop, "temel", Object.fromEntries(BASICS)),
@@ -565,7 +581,7 @@ describe("hata ve yetki", () => {
     expect(await row(prop)).toMatchObject({
       is_public: true,
       public_slug: `a3-villa-${tag}`,
-      cancellation_policy: "14 gün önce ücretsiz.",
+      house_rules: "14 gün önce haber verin.",
       max_guests: 8,
     });
   });
@@ -605,5 +621,353 @@ describe("eski açıklama biçimi", () => {
     expect(after.description).toContain("Eski <kayıt> & not.");
     expect(after).toMatchObject({ bathrooms: 4, house_rules: "Eski açıklama testi." });
     expect((await audits(ws, "property.updated")).at(-1)).toEqual({ fields: ["bathrooms"] });
+  });
+});
+
+describe("Revizyon 2: harita yöntemi, mesafe birimleri, kaldırılan alanlar ve eski kayıtlar", () => {
+  const storage = createMemoryStorage("https://img.test.invalid");
+  const GOOGLE =
+    "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3196.1!2d29.414301!3d36.265512!2m3!1f0!2f0!3f0";
+  let p2: string;
+  let O2: U, S2: U, ws2: string;
+  const slug = () => `rev2-${tag}`;
+  const villa = () => getPublicVilla(app, storage, slug());
+  const basics = (over: Record<string, string> = {}) => ({
+    ...Object.fromEntries(BASICS),
+    name: "Rev2 Villa",
+    ...over,
+  });
+  const r2 = async () =>
+    (
+      await admin.query(
+        `select map_mode, map_embed_url, map_pin_lat::text, map_pin_lng::text,
+                distance_market_km::text, distance_market_unit, distance_beach_km::text,
+                distance_beach_unit, distance_center_km::text, distance_center_unit,
+                distance_health_km::text, distance_health_unit,
+                house_rule_keys, price_includes, cancellation_policy, payment_terms
+           from properties where id = $1`,
+        [p2],
+      )
+    ).rows[0] as Record<string, unknown>;
+
+  beforeAll(async () => {
+    // Ayrı işletme: deneme paketinin mülk sınırı ilk işletmede dolu.
+    O2 = await mkUser("rev2owner");
+    S2 = await mkUser("rev2staff");
+    ws2 = (await createWorkspace(app, { userId: O2.id, name: "Rev2 İşletme", slug: `rev2-${tag}` }))
+      .id;
+    await as(O2, ws2, (tx, ctx) => addWorkspaceMember(tx, ctx, { userId: S2.id, role: "staff" }));
+    await as(O2, ws2, (tx, ctx) => updateWorkspaceWhatsapp(tx, ctx, "0532 111 22 44"));
+    p2 = await as(O2, ws2, (tx, ctx) =>
+      createProperty(tx, ctx, { ...EMPTY_PROPERTY_VALUES, ...basics({ name: "Rev2 Villa" }) }),
+    );
+    const photo = uuidv7();
+    await admin.query(
+      `insert into property_photos (id, workspace_id, property_id, created_by, storage_prefix, width, height,
+         quality, bytes_400, bytes_1200, bytes_2000, is_cover)
+       values ($1,$2,$3,$4,$5,1800,1200,82,1,1,1,true)`,
+      [photo, ws2, p2, O2.id, photoPrefix(ws2, p2, photo)],
+    );
+    await as(O2, ws2, (tx, ctx) =>
+      updatePublicSlug(tx, ctx, p2, { publicSlug: slug(), confirmSlugChange: false }),
+    );
+    await as(O2, ws2, (tx, ctx) => publishProperty(tx, ctx, p2));
+  });
+
+  it("harita: Google → iğne → Google; iki yöntemin verisi korunur, misafire seçili olan gider", async () => {
+    expect(await r2()).toMatchObject({ map_mode: "google", map_embed_url: GOOGLE });
+    expect((await villa())?.map).toMatchObject({ kind: "google", embedUrl: GOOGLE });
+
+    // İğne yöntemi seçilir, iğne bırakılır (Google kodu formda kalır).
+    await as(O2, ws2, (tx, ctx) =>
+      saveWizardStep(
+        tx,
+        ctx,
+        p2,
+        "temel",
+        basics({ mapMode: "pin", mapPinLat: "36.2655", mapPinLng: "29.414712" }),
+      ),
+    );
+    expect(await r2()).toMatchObject({
+      map_mode: "pin",
+      map_embed_url: GOOGLE,
+      map_pin_lat: "36.265500",
+      map_pin_lng: "29.414712",
+    });
+    expect((await audits(ws2, "property.updated")).at(-1)).toEqual({ fields: ["map"] });
+    const v = await villa();
+    expect(v?.map).toEqual({
+      kind: "pin",
+      lat: 36.2655,
+      lng: 29.414712,
+      openUrl: "https://www.google.com/maps/search/?api=1&query=36.265500,29.414712",
+    });
+    expect(JSON.stringify(v)).not.toContain("maps/embed");
+
+    // Kayıtlı iğne forma geri gelir (sihirbaz yeniden açılınca).
+    const raw = propertyToRaw((await as(O2, ws2, (tx) => getProperty(tx, p2)))!);
+    expect(raw).toMatchObject({ mapMode: "pin", mapPinLat: "36.2655", mapPinLng: "29.414712" });
+
+    // İğne sürüklendi: yalnız koordinat değişir.
+    await as(O2, ws2, (tx, ctx) =>
+      saveWizardStep(tx, ctx, p2, "temel", { ...raw, mapPinLat: "36.2701", mapPinLng: "29.4" }),
+    );
+    expect(await r2()).toMatchObject({ map_pin_lat: "36.270100", map_pin_lng: "29.400000" });
+
+    // Google'a dönülür: eski kod hâlâ kayıtlı; iğne de korunur.
+    await as(O2, ws2, (tx, ctx) =>
+      saveWizardStep(tx, ctx, p2, "temel", {
+        ...raw,
+        mapMode: "google",
+        mapPinLat: "36.2701",
+        mapPinLng: "29.4",
+      }),
+    );
+    expect(await r2()).toMatchObject({
+      map_mode: "google",
+      map_embed_url: GOOGLE,
+      map_pin_lat: "36.270100",
+    });
+    expect((await villa())?.map).toMatchObject({ kind: "google" });
+
+    // İğne yöntemi seçili ama iğne kaldırıldı → harita gösterilmez.
+    await as(O2, ws2, (tx, ctx) =>
+      saveWizardStep(tx, ctx, p2, "temel", {
+        ...raw,
+        mapMode: "pin",
+        mapPinLat: "",
+        mapPinLng: "",
+      }),
+    );
+    expect(await r2()).toMatchObject({ map_mode: "pin", map_pin_lat: null, map_embed_url: GOOGLE });
+    expect((await villa())?.map).toBeNull();
+
+    // Geçersiz koordinat: alan hatası, hiçbir şey yazılmaz.
+    const before = await r2();
+    const e = await failure(
+      as(O2, ws2, (tx, ctx) =>
+        saveWizardStep(tx, ctx, p2, "temel", {
+          ...raw,
+          mapMode: "pin",
+          mapPinLat: "95",
+          mapPinLng: "29",
+        }),
+      ),
+    );
+    expect(Object.keys(e?.fieldErrors ?? {})).toEqual(["mapPinLat"]);
+    expect(await r2()).toEqual(before);
+    await as(O2, ws2, (tx, ctx) => saveWizardStep(tx, ctx, p2, "temel", basics()));
+  });
+
+  it("mesafeler: her alanın birimi bağımsız; kayıt km, misafire seçilen birimle", async () => {
+    await as(O2, ws2, (tx, ctx) =>
+      saveWizardStep(
+        tx,
+        ctx,
+        p2,
+        "temel",
+        basics({
+          distanceMarketKm: "500",
+          distanceMarketUnit: "m",
+          distanceBeachKm: "2",
+          distanceBeachUnit: "km",
+          distanceCenterKm: "1,5",
+          distanceCenterUnit: "km",
+          distanceHealthKm: "1250",
+          distanceHealthUnit: "m",
+        }),
+      ),
+    );
+    expect(await r2()).toMatchObject({
+      distance_market_km: "0.500",
+      distance_market_unit: "m",
+      distance_beach_km: "2.000",
+      distance_beach_unit: "km",
+      distance_center_km: "1.500",
+      distance_center_unit: "km",
+      distance_health_km: "1.250",
+      distance_health_unit: "m",
+    });
+    const d = (await villa())!.distances;
+    expect(d.find((x) => x.key === "distanceMarketKm")).toEqual({
+      key: "distanceMarketKm",
+      km: 0.5,
+      unit: "m",
+    });
+    expect(d.find((x) => x.key === "distanceBeachKm")).toEqual({
+      key: "distanceBeachKm",
+      km: 2,
+      unit: "km",
+    });
+    const raw = propertyToRaw((await as(O2, ws2, (tx) => getProperty(tx, p2)))!);
+    expect(raw).toMatchObject({
+      distanceMarketKm: "500",
+      distanceMarketUnit: "m",
+      distanceBeachKm: "2",
+      distanceBeachUnit: "km",
+      distanceCenterKm: "1,5",
+      distanceHealthKm: "1250",
+      distanceHealthUnit: "m",
+    });
+    // Yalnız bir alanın birimi değişir: diğerleri aynı kalır; denetimde yalnız "distances".
+    await as(O2, ws2, (tx, ctx) =>
+      saveWizardStep(tx, ctx, p2, "temel", {
+        ...raw,
+        distanceBeachKm: "2000",
+        distanceBeachUnit: "m",
+      }),
+    );
+    expect(await r2()).toMatchObject({
+      distance_beach_km: "2.000",
+      distance_beach_unit: "m",
+      distance_market_unit: "m",
+      distance_center_unit: "km",
+    });
+    expect((await audits(ws2, "property.updated")).at(-1)).toEqual({ fields: ["distances"] });
+  });
+
+  it("eski kayıt (Revizyon 2 öncesi): yöntem ve birim NULL; görünüm aynı, başka adım kaydı değişiklik saymaz", async () => {
+    await admin.query(
+      `update properties set map_mode = null, map_pin_lat = null, map_pin_lng = null,
+              distance_market_km = 0.35, distance_market_unit = null,
+              distance_beach_km = 2.5, distance_beach_unit = null,
+              distance_center_km = null, distance_center_unit = null,
+              distance_health_km = null, distance_health_unit = null,
+              cancellation_policy = 'Eski iptal metni', payment_terms = 'Eski ödeme metni'
+        where id = $1`,
+      [p2],
+    );
+    const v = (await villa())!;
+    expect(v.map).toMatchObject({ kind: "google", embedUrl: GOOGLE });
+    expect(v.distances).toEqual([
+      { key: "distanceMarketKm", km: 0.35, unit: null },
+      { key: "distanceBeachKm", km: 2.5, unit: null },
+      { key: "distanceAirportDlmKm", km: 112, unit: "km" },
+    ]);
+    expect(v).not.toHaveProperty("cancellationPolicy");
+    expect(v).not.toHaveProperty("paymentTerms");
+    expect(JSON.stringify(v)).not.toMatch(/Eski iptal|Eski ödeme/);
+    const raw = propertyToRaw((await as(O2, ws2, (tx) => getProperty(tx, p2)))!);
+    expect(raw).toMatchObject({
+      mapMode: "google",
+      distanceMarketKm: "350",
+      distanceMarketUnit: "m",
+      distanceBeachKm: "2,5",
+      distanceBeachUnit: "km",
+    });
+    // Başka adımın kaydı: mülk satırı yazılsa da harita/mesafe "değişti" sayılmaz.
+    const n = (await audits(ws2, "property.updated")).length;
+    await as(O2, ws2, (tx, ctx) =>
+      saveWizardStep(tx, ctx, p2, "aciklama", { description: "<p>Rev2</p>", youtubeUrl: "" }),
+    );
+    const last = (await audits(ws2, "property.updated")).slice(n);
+    expect(last).toEqual([{ fields: ["description"] }]);
+    // Değerler korunur (km aynı); birim artık açıkça yazılı ve görünüm değişmez.
+    expect(await r2()).toMatchObject({
+      map_mode: "google",
+      distance_market_km: "0.350",
+      distance_market_unit: "m",
+      distance_beach_km: "2.500",
+      distance_beach_unit: "km",
+      // Kaldırılan alanların verisi bu aşamada veritabanında durur (daraltma migration'ı ayrı).
+      cancellation_policy: "Eski iptal metni",
+      payment_terms: "Eski ödeme metni",
+    });
+    const pp = (await as(O2, ws2, (tx) => getPublicProfile(tx, p2)))!;
+    expect(pp).not.toHaveProperty("cancellationPolicy");
+  });
+
+  it("kaldırılan kural ve dahil olan anahtarlar: eski kayıtta gösterilmez, yeni kayıtta kabul edilmez, 4. adım kaydıyla düşer", async () => {
+    await admin.query(
+      `update properties set house_rule_keys = '{kimlik-zorunlu,parti-yok,havuz-gozetim}',
+              price_includes = '{temizlik,su,isitma}' where id = $1`,
+      [p2],
+    );
+    const pp = (await as(O2, ws2, (tx) => getPublicProfile(tx, p2)))!;
+    expect(pp.houseRuleKeys).toEqual(["parti-yok"]);
+    expect(pp.priceIncludes).toEqual(["su"]);
+    const v = (await villa())!;
+    expect(v.houseRuleKeys).toEqual(["parti-yok"]);
+    expect(v.priceIncludes).toEqual(["su"]);
+    // Başka adımın kaydı listelere dokunmaz.
+    await as(O2, ws2, (tx, ctx) =>
+      saveWizardStep(tx, ctx, p2, "olanaklar", {
+        amenities: ["wifi"],
+        poolSwimming: "no",
+        poolIndoor: "no",
+        poolKids: "no",
+      }),
+    );
+    expect(await r2()).toMatchObject({
+      house_rule_keys: ["kimlik-zorunlu", "parti-yok", "havuz-gozetim"],
+    });
+    // Kaldırılan anahtar yeni kayıtta reddedilir.
+    for (const [field, key] of [
+      ["houseRuleKeys", "kimlik-zorunlu"],
+      ["houseRuleKeys", "havuz-gozetim"],
+      ["priceIncludes", "temizlik"],
+      ["priceIncludes", "isitma"],
+    ] as const) {
+      const e = await failure(
+        as(O2, ws2, (tx, ctx) => saveWizardStep(tx, ctx, p2, "konaklama", { [field]: [key] })),
+      );
+      expect(Object.keys(e?.fieldErrors ?? {}), key).toEqual([field]);
+    }
+    // 4. adım formu yalnız katalogdakileri gönderir → eski anahtarlar düşer.
+    const values = wizardFormValues(
+      "konaklama",
+      form([
+        ["houseRuleKeys", "parti-yok"],
+        ["priceIncludes", "su"],
+      ]),
+    );
+    await as(O2, ws2, (tx, ctx) => saveWizardStep(tx, ctx, p2, "konaklama", values));
+    expect(await r2()).toMatchObject({ house_rule_keys: ["parti-yok"], price_includes: ["su"] });
+  });
+
+  it("veritabanı kısıtları: yöntem/iğne/birim tutarlılığı (uygulama dışı yazma da reddedilir)", async () => {
+    const bad = [
+      "map_mode = 'uydu'",
+      "map_mode = ''",
+      "map_pin_lat = 36.2, map_pin_lng = null",
+      "map_pin_lat = 0, map_pin_lng = 0",
+      "map_pin_lat = 91, map_pin_lng = 29",
+      "distance_market_unit = 'mil'",
+      "distance_center_km = null, distance_center_unit = 'km'",
+    ];
+    for (const set of bad) {
+      const code = await admin.query(`update properties set ${set} where id = $1`, [p2]).then(
+        () => "ok",
+        (e: { code?: string }) => e.code,
+      );
+      expect(code, set).toBe("23514");
+    }
+  });
+
+  it("yetkiler: app_user yeni kolonlara INSERT + UPDATE; staff yazamaz (RLS değişmedi)", async () => {
+    const res = await admin.query(`
+      select c.col,
+             has_column_privilege('app_user', 'public.properties', c.col, 'UPDATE') as upd,
+             has_column_privilege('app_user', 'public.properties', c.col, 'INSERT') as ins
+        from unnest(array['map_mode', 'map_pin_lat', 'map_pin_lng', 'distance_market_unit',
+                          'distance_restaurant_unit', 'distance_center_unit', 'distance_beach_unit',
+                          'distance_airport_ayt_unit', 'distance_airport_dlm_unit',
+                          'distance_health_unit']) as c(col)`);
+    expect(res.rows).toHaveLength(10);
+    for (const r of res.rows) expect(r, r.col).toMatchObject({ upd: true, ins: true });
+    const e = await failure(
+      as(S2, ws2, (tx, ctx) => saveWizardStep(tx, ctx, p2, "temel", basics({ mapMode: "pin" }))),
+    );
+    expect(e?.code).toBe("FORBIDDEN");
+    // Staff doğrudan SQL ile de yazamaz: RLS satırı göstermez (0 satır) ya da yetki hatası.
+    const before = await r2();
+    const raw = await as(S2, ws2, (tx) =>
+      tx.execute(sql`update properties set map_mode = null where id = ${p2}`),
+    ).then(
+      (r) => r.rowCount ?? 0,
+      () => 0,
+    );
+    expect(raw).toBe(0);
+    expect(await r2()).toEqual(before);
   });
 });

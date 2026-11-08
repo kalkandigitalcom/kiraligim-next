@@ -141,7 +141,8 @@ describe("oluşturma", () => {
       created_by: O.id,
       status: "active",
       map_embed_url: "https://www.google.com/maps?q=36.265100,29.414300&z=16&output=embed",
-      distance_beach_km: "1.50",
+      // Revizyon 2 (0026): numeric(8,3) — 1 m çözünürlük.
+      distance_beach_km: "1.500",
       distance_market_km: null,
       country_code: "TR",
     });

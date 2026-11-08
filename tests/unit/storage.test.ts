@@ -269,7 +269,9 @@ describe("CSP: fotoğraf CDN'i", () => {
     const origin = mediaOriginForCsp({ R2_PUBLIC_BASE_URL: "https://img.kiraligim.com/" });
     expect(origin).toBe("https://img.kiraligim.com");
     const csp = buildCsp("n", { isDev: false, imgOrigins: [origin!] });
-    expect(csp).toContain("img-src 'self' blob: data: https://img.kiraligim.com;");
+    expect(csp).toContain(
+      "img-src 'self' blob: data: https://tile.openstreetmap.org https://img.kiraligim.com;",
+    );
     expect(csp).toContain("connect-src 'self';");
     expect(csp).toContain("default-src 'self';");
   });
@@ -283,7 +285,7 @@ describe("CSP: fotoğraf CDN'i", () => {
       isDev: false,
       imgOrigins: ["https://*.ornek.com", "'unsafe-inline'"],
     });
-    expect(csp).toContain("img-src 'self' blob: data:;");
+    expect(csp).toContain("img-src 'self' blob: data: https://tile.openstreetmap.org;");
   });
 });
 

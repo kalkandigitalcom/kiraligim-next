@@ -1,13 +1,24 @@
 "use client";
 
-import { Baby, House, ShieldCheck, Trees, UtensilsCrossed, Waves } from "lucide-react";
+import {
+  Baby,
+  Bath,
+  Mountain,
+  ShieldCheck,
+  Snowflake,
+  Sun,
+  Trees,
+  Tv,
+  UtensilsCrossed,
+  Waves,
+} from "lucide-react";
 import { useRef, useState } from "react";
 
 import { AMENITY_GROUPS } from "@/lib/public-profile-meta";
 
 import type { WizardFormState, WizardValues } from "../../actions";
 import { type PoolFormValues, PoolFields } from "../pool-fields";
-import { ChoiceCards } from "./choice-cards";
+import { BulkSelect, ChoiceCards } from "./choice-cards";
 import { StepCard } from "./step-card";
 import { type WizardAction, WizardFooter, WizardForm, useWizardForm } from "./wizard-form";
 
@@ -22,15 +33,20 @@ type Props = {
 };
 
 const ICONS: Record<string, React.ReactNode> = {
-  genel: <House className="size-4" />,
+  konfor: <Snowflake className="size-4" />,
+  eglence: <Tv className="size-4" />,
   mutfak: <UtensilsCrossed className="size-4" />,
+  banyo: <Bath className="size-4" />,
+  havuz: <Sun className="size-4" />,
   "dis-alan": <Trees className="size-4" />,
+  manzara: <Mountain className="size-4" />,
   aile: <Baby className="size-4" />,
   guvenlik: <ShieldCheck className="size-4" />,
 };
 
 /**
- * 3. adım: olanak kategorileri (kart + seçim kutuları) ve havuz bilgileri.
+ * 3. adım: olanak kategorileri (kart + seçim kutuları; her kartta yalnız o kategoriyi etkileyen
+ * "Tümünü Seç / Tümünü Kaldır") ve havuz bilgileri.
  * Onay kutuları kontrolsüzdür (defaultChecked): React 19 form eylemi sonrası formu sıfırlar ve
  * varsayılanları son değerlerden alır. Kart sayaçları yalnız gösterim içindir (Aşama 2 düzeltmesi).
  */
@@ -72,12 +88,15 @@ export function AmenitiesStep({ action, initial, readOnly, prevHref, nextHref }:
               title={g.label}
               icon={ICONS[g.key]}
               aside={
-                <span
-                  className="shrink-0 rounded-full bg-mist px-2.5 py-0.5 text-xs font-semibold text-navy-900"
-                  data-testid={`count-${g.key}`}
-                >
-                  {count(g.key)} seçili
-                </span>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <span
+                    className="rounded-full bg-mist px-2.5 py-0.5 text-xs font-semibold text-navy-900"
+                    data-testid={`count-${g.key}`}
+                  >
+                    {count(g.key)} seçili
+                  </span>
+                  <BulkSelect group={g.key} label={g.label} disabled={readOnly} onDone={recount} />
+                </div>
               }
             >
               <ChoiceCards

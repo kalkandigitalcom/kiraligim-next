@@ -9,12 +9,24 @@ import {
   PROPERTY_TYPES,
 } from "@/lib/property-meta";
 import { MAP_INPUT_MAX, MAP_PARSE_MESSAGES, parseMapInput } from "@/lib/map-embed";
+import {
+  isMapMode,
+  type MapMode,
+  type MapPin,
+  PIN_PARSE_MESSAGES,
+  parsePinInput,
+} from "@/lib/map-pin";
 import { TR_PROVINCES } from "@/lib/tr-provinces";
 import {
   DISTANCE_KEYS,
   DISTANCE_LABELS,
-  DISTANCE_LIMITS,
+  DISTANCE_PARSE_MESSAGES,
+  DISTANCE_UNIT_FIELDS,
+  DISTANCE_UNIT_KEYS,
   type DistanceKey,
+  type DistanceUnit,
+  isDistanceUnit,
+  parseDistanceInput,
 } from "@/lib/villa-extras";
 import { parseYouTubeId } from "@/lib/youtube";
 
@@ -59,45 +71,99 @@ const int = (min: number, max: number, label: string) =>
       .max(max, `${label} en fazla ${max} olabilir.`),
   );
 
-/**
- * Mesafe (km): boş → null; "2,5" / "2.5" → 2.5; en fazla 4 basamak ve 2 ondalık; 0'dan büyük.
- * Veritabanı numeric(6,2) ve CHECK ile aynı sınırlar.
- */
-const distance = (label: string) =>
-  z.preprocess(
-    (v) => {
-      if (typeof v !== "string") return v;
-      const t = v.trim().replace(",", ".");
-      if (!t) return undefined;
-      return /^[0-9]{1,4}(\.[0-9]{1,2})?$/.test(t) ? Number(t) : Number.NaN;
-    },
-    z
-      .number({ error: `${label}: km cinsinden, en fazla 2 ondalıklı bir sayı girin (ör. 2,5).` })
-      .gt(DISTANCE_LIMITS.min, `${label}: 0'dan büyük olmalı.`)
-      .max(DISTANCE_LIMITS.max, `${label}: en fazla ${DISTANCE_LIMITS.max} km olabilir.`)
-      .optional()
-      .transform((n) => n ?? null),
-  );
-
-const distanceFields = Object.fromEntries(
-  DISTANCE_KEYS.map((k) => [k, distance(DISTANCE_LABELS[k])]),
-) as Record<DistanceKey, ReturnType<typeof distance>>;
+type Issue = { path: string[]; message: string };
 
 /**
- * Harita: Google Haritalar "Haritayı yerleştir" kodu veya tam paylaşım bağlantısı. Yalnız güvenli
- * gömme adresi çıkarılır (src/lib/map-embed.ts); boş → null (harita gösterilmez).
+ * Mesafeler (Revizyon 2): her alanın kendi birimi (km / m). Değer ve birim birlikte denetlenir;
+ * kayda km yazılır (numeric(8,3)), birim ayrı kolonda. Boş değer → mesafe ve birim yok (NULL).
  */
-const mapLocation = z
-  .preprocess(blankToUndefined, z.string().max(MAP_INPUT_MAX, "Harita kodu çok uzun.").optional())
-  .transform((raw, ctx) => {
-    if (raw === undefined) return null;
-    const r = parseMapInput(raw);
-    if (!r.ok) {
-      ctx.addIssue({ code: "custom", message: MAP_PARSE_MESSAGES[r.error] });
-      return z.NEVER;
+export type DistancesInput = {
+  km: Record<DistanceKey, number | null>;
+  unit: Record<DistanceKey, DistanceUnit | null>;
+};
+
+function distanceUnitOf(raw: Record<string, unknown>, k: DistanceKey): DistanceUnit | undefined {
+  const u = raw[DISTANCE_UNIT_KEYS[k]];
+  if (u === undefined || u === null || u === "") return "km";
+  return isDistanceUnit(u) ? u : undefined;
+}
+
+function distanceIssues(raw: Record<string, unknown>): Issue[] {
+  const out: Issue[] = [];
+  for (const k of DISTANCE_KEYS) {
+    const label = DISTANCE_LABELS[k];
+    const unit = distanceUnitOf(raw, k);
+    if (!unit) {
+      out.push({ path: [DISTANCE_UNIT_KEYS[k]], message: `${label}: birim km veya m olmalı.` });
+      continue;
     }
-    return r.url;
-  });
+    const r = parseDistanceInput(raw[k], unit);
+    if (!r.ok)
+      out.push({ path: [k], message: `${label}: ${DISTANCE_PARSE_MESSAGES[unit][r.error]}` });
+  }
+  return out;
+}
+
+/** Ham mesafe alanları → km + birim (yalnız hatasız girdide çağrılır). */
+export function distancesFromRaw(raw: Record<string, unknown>): DistancesInput {
+  const out: DistancesInput = {
+    km: {} as DistancesInput["km"],
+    unit: {} as DistancesInput["unit"],
+  };
+  for (const k of DISTANCE_KEYS) {
+    const unit = distanceUnitOf(raw, k) ?? "km";
+    const r = parseDistanceInput(raw[k], unit);
+    const km = r.ok ? r.km : null;
+    out.km[k] = km;
+    out.unit[k] = km === null ? null : unit;
+  }
+  return out;
+}
+
+/**
+ * Harita (Revizyon 2): iki yöntem.
+ *   google: "Haritayı yerleştir" kodu veya tam paylaşım bağlantısı → yalnız güvenli gömme adresi
+ *           (src/lib/map-embed.ts; kurallar değişmedi). Boş → yok.
+ *   pin:    enlem/boylam (Leaflet haritasında iğne). Boş → yok.
+ * Seçili yöntemin girdisi hatalıysa hata gösterilir; seçili OLMAYAN yöntemin hatalı girdisi
+ * (gizli sekmede kalmış) hata vermez ve saklanmaz. Seçilen yöntem her zaman açıkça kaydedilir;
+ * verisi yoksa misafire harita gösterilmez. Diğer yöntemin geçerli verisi korunur (geri dönülebilir).
+ */
+export type MapInput = { mode: MapMode | null; embedUrl: string | null; pin: MapPin | null };
+
+function chosenMapMode(raw: Record<string, unknown>): MapMode | undefined {
+  const m = raw.mapMode;
+  if (m === undefined || m === null || m === "") return "google";
+  return isMapMode(m) ? m : undefined;
+}
+
+function googleOf(raw: Record<string, unknown>): { url: string | null; error?: string } {
+  const t = typeof raw.mapLocation === "string" ? raw.mapLocation.trim() : "";
+  if (!t) return { url: null };
+  if (t.length > MAP_INPUT_MAX) return { url: null, error: "Harita kodu çok uzun." };
+  const r = parseMapInput(t);
+  return r.ok ? { url: r.url } : { url: null, error: MAP_PARSE_MESSAGES[r.error] };
+}
+
+function mapIssues(raw: Record<string, unknown>): Issue[] {
+  const mode = chosenMapMode(raw);
+  if (!mode) return [{ path: ["mapMode"], message: "Harita yöntemini seçin." }];
+  if (mode === "google") {
+    const g = googleOf(raw);
+    return g.error ? [{ path: ["mapLocation"], message: g.error }] : [];
+  }
+  const p = parsePinInput(raw.mapPinLat, raw.mapPinLng);
+  return p.ok ? [] : [{ path: ["mapPinLat"], message: PIN_PARSE_MESSAGES[p.error] }];
+}
+
+/** Ham harita alanları → kaydedilecek değerler (yalnız hatasız girdide çağrılır). */
+export function mapFromRaw(raw: Record<string, unknown>): MapInput {
+  const chosen = chosenMapMode(raw) ?? "google";
+  const embedUrl = googleOf(raw).url;
+  const p = parsePinInput(raw.mapPinLat, raw.mapPinLng);
+  const pin = p.ok ? p.pin : null;
+  return { mode: chosen, embedUrl, pin };
+}
 
 /**
  * Biçimlendirilmiş açıklama: HTML sunucuda temizlenir (description.ts); sınırlar temiz HTML'e ve
@@ -168,8 +234,8 @@ export type PoolInput = {
 export type PoolsInput = Record<PoolKind, PoolInput> & { swimmingProtected: boolean };
 
 /** "Var" seçilen havuzların ölçü hataları (alan yollarıyla). */
-function poolIssues(raw: Record<string, unknown>): { path: string[]; message: string }[] {
-  const out: { path: string[]; message: string }[] = [];
+function poolIssues(raw: Record<string, unknown>): Issue[] {
+  const out: Issue[] = [];
   for (const k of POOL_KINDS) {
     if (raw[poolField(k)] !== "yes") continue;
     for (const [d, label, min, max] of POOL_DIMENSIONS) {
@@ -207,6 +273,29 @@ const rawPoolFields = {
   poolKidsLength: z.unknown().optional(),
 };
 
+const rawMapFields = {
+  mapMode: z.unknown().optional(),
+  mapLocation: z.unknown().optional(),
+  mapPinLat: z.unknown().optional(),
+  mapPinLng: z.unknown().optional(),
+};
+const rawDistanceFields = Object.fromEntries(
+  [...DISTANCE_KEYS, ...DISTANCE_UNIT_FIELDS].map((k) => [k, z.unknown().optional()]),
+) as Record<DistanceKey | (typeof DISTANCE_UNIT_FIELDS)[number], z.ZodOptional<z.ZodUnknown>>;
+
+const RAW_MAP_DISTANCE_KEYS = [
+  ...(Object.keys(rawMapFields) as (keyof typeof rawMapFields)[]),
+  ...DISTANCE_KEYS,
+  ...DISTANCE_UNIT_FIELDS,
+] as const;
+
+/** Alanlar arası denetimler: havuz ölçüleri, harita yöntemi, mesafe + birim. */
+const crossIssues = (raw: Record<string, unknown>): Issue[] => [
+  ...poolIssues(raw),
+  ...mapIssues(raw),
+  ...distanceIssues(raw),
+];
+
 export const propertyInput = z
   .object({
     name: text(L.nameMin, L.nameMax, "Mülk adı"),
@@ -230,11 +319,22 @@ export const propertyInput = z
     province: z.enum(TR_PROVINCES, { error: "İl seçin." }),
     district: text(2, L.placeMax, "İlçe"),
     neighborhood: optionalText(L.neighborhoodMax, "Mahalle / köy"),
-    mapLocation,
-    ...distanceFields,
+    // Harita ve mesafeler: ham alanlar; denetim ve çeviri nesne düzeyinde (aşağıda).
+    ...rawMapFields,
+    ...rawDistanceFields,
   })
   .superRefine((v, ctx) => {
-    for (const issue of poolIssues(v)) ctx.addIssue({ code: "custom", ...issue });
+    for (const issue of crossIssues(v)) ctx.addIssue({ code: "custom", ...issue });
+  })
+  // Ham harita/mesafe alanları çıktıda yer almaz; yerlerine çevrilmiş `map` ve `distances` gelir.
+  .transform((v) => {
+    const out: Record<string, unknown> = { ...v };
+    for (const k of RAW_MAP_DISTANCE_KEYS) delete out[k];
+    return {
+      ...(out as Omit<typeof v, (typeof RAW_MAP_DISTANCE_KEYS)[number]>),
+      map: mapFromRaw(v),
+      distances: distancesFromRaw(v),
+    };
   });
 
 /** Ham havuz alanları → yapılandırılmış havuz bilgisi ("yok" iken ölçüler yok sayılır). */
@@ -253,15 +353,15 @@ export function poolsFromRaw(raw: Record<string, unknown>): PoolsInput {
 export type PropertyInput = z.infer<typeof propertyInput>;
 
 /**
- * propertyInput.safeParse + havuz hataları. Zod, alan hatası varken nesne düzeyindeki denetimi
- * çalıştırmaz; havuz ölçü hataları da diğer hatalarla birlikte tek seferde gösterilsin diye
+ * propertyInput.safeParse + alanlar arası hatalar. Zod, alan hatası varken nesne düzeyindeki
+ * denetimi çalıştırmaz; havuz, harita ve mesafe hataları da diğer hatalarla tek seferde gösterilsin diye
  * başarısız sonuca eklenir.
  */
 export function parsePropertyInput(input: unknown) {
   const result = propertyInput.safeParse(input);
   if (result.success || typeof input !== "object" || input === null) return result;
   const seen = new Set(result.error.issues.map((i) => i.path.join(".")));
-  for (const issue of poolIssues(input as Record<string, unknown>)) {
+  for (const issue of crossIssues(input as Record<string, unknown>)) {
     if (!seen.has(issue.path.join("."))) {
       result.error.issues.push({ code: "custom", input: undefined, ...issue });
     }
@@ -282,8 +382,12 @@ export const PROPERTY_FIELDS = [
   "province",
   "district",
   "neighborhood",
+  "mapMode",
   "mapLocation",
+  "mapPinLat",
+  "mapPinLng",
   ...DISTANCE_KEYS,
+  ...DISTANCE_UNIT_FIELDS,
   "poolSwimming",
   "poolSwimmingDepth",
   "poolSwimmingWidth",
@@ -297,7 +401,7 @@ export const PROPERTY_FIELDS = [
   "poolKidsDepth",
   "poolKidsWidth",
   "poolKidsLength",
-] as const satisfies readonly (keyof PropertyInput)[];
+] as const satisfies readonly (keyof z.input<typeof propertyInput>)[];
 
 export type PropertyField = (typeof PROPERTY_FIELDS)[number];
 

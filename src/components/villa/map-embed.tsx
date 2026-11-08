@@ -2,32 +2,50 @@
 
 import { useState } from "react";
 
+import { LazyLeafletMap } from "@/components/map/lazy-leaflet-map";
 import { useHydrated } from "@/components/ui/use-hydrated";
-import { mapOpenUrl } from "@/lib/map-embed";
+import type { PublicMap } from "@/lib/public-villa";
 
 type Props = {
-  /** Sunucuda yeniden doğrulanmış gömme adresi (safeMapEmbedUrl). */
-  src: string;
+  /** Sunucuda hazırlanmış harita (Google adresi yeniden doğrulanmış; iğne aralıkta). */
+  map: PublicMap;
   name: string;
 };
 
+const FRAME = "aspect-[4/3] w-full rounded-2xl border border-border bg-mist sm:aspect-[16/9]";
+
 /**
- * Villa konumu (Google Haritalar). Misafir "Haritayı göster"e basmadan Google'a hiçbir istek
- * gitmez (KVKK / üçüncü taraf çerezleri; YouTube kararıyla aynı yaklaşım). Ham iframe kodu yoktur:
- * `src` yalnız doğrulanmış iki kalıptan biridir; iframe sandbox ile üst sayfayı yönlendiremez,
- * form gönderemez. CSP: frame-src yalnız https://www.google.com.
+ * Villa konumu: sahibin seçtiği yöntem.
+ *  - Google Haritalar: ham iframe kodu yoktur; `src` yalnız doğrulanmış iki kalıptan biridir;
+ *    iframe sandbox ile üst sayfayı yönlendiremez, form gönderemez. CSP: frame-src www.google.com.
+ *  - İğne: OpenStreetMap (Leaflet), yalnız tıklanınca yüklenen ayrı paket. CSP: img-src
+ *    tile.openstreetmap.org.
+ * İki yöntemde de misafir "Haritayı göster"e basmadan üçüncü tarafa hiçbir istek gitmez (KVKK /
+ * üçüncü taraf çerezleri; YouTube kararıyla aynı yaklaşım).
  */
-export function MapEmbed({ src, name }: Props) {
+export function MapEmbed({ map, name }: Props) {
   const hydrated = useHydrated();
   const [shown, setShown] = useState(false);
-  const openUrl = mapOpenUrl(src);
+  const openUrl = map.openUrl;
+  const notice =
+    map.kind === "google"
+      ? "Harita Google Haritalar'dan yüklenir."
+      : "Harita OpenStreetMap'ten yüklenir.";
   return (
-    <div className="flex flex-col gap-3" data-testid="villa-map">
-      {shown ? (
+    <div className="flex flex-col gap-3" data-testid="villa-map" data-kind={map.kind}>
+      {shown && map.kind === "pin" ? (
+        <div className={`${FRAME} relative isolate overflow-hidden`}>
+          <LazyLeafletMap
+            pin={{ lat: map.lat, lng: map.lng }}
+            label={`${name} konumu (OpenStreetMap haritası)`}
+            className="size-full"
+          />
+        </div>
+      ) : shown && map.kind === "google" ? (
         <iframe
-          src={src}
+          src={map.embedUrl}
           title={`${name} konumu (Google Haritalar)`}
-          className="aspect-[4/3] w-full rounded-2xl border border-border bg-mist sm:aspect-[16/9]"
+          className={FRAME}
           loading="lazy"
           referrerPolicy="strict-origin-when-cross-origin"
           sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
@@ -36,9 +54,7 @@ export function MapEmbed({ src, name }: Props) {
       ) : (
         <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-mist/70 px-6 text-center sm:aspect-[16/9]">
           <MapPinIcon />
-          <p className="max-w-sm text-[15px] text-navy-900/70">
-            Harita Google Haritalar&apos;dan yüklenir.
-          </p>
+          <p className="max-w-sm text-[15px] text-navy-900/70">{notice}</p>
           <button
             type="button"
             onClick={() => setShown(true)}

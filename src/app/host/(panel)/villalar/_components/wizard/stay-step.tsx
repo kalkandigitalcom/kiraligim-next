@@ -7,19 +7,13 @@ import { PUBLIC_PROFILE_LIMITS as L } from "@/lib/public-profile-meta";
 import { HOUSE_RULES, PRICE_INCLUDES } from "@/lib/villa-extras";
 
 import type { WizardValues } from "../../actions";
-import { ChoiceCards } from "./choice-cards";
+import { BulkSelect, ChoiceCards } from "./choice-cards";
 import { StepCard } from "./step-card";
 import { type WizardAction, WizardFooter, WizardForm, useWizardForm } from "./wizard-form";
 
 export type StayValues = Pick<
   WizardValues,
-  | "checkInTime"
-  | "checkOutTime"
-  | "houseRuleKeys"
-  | "houseRules"
-  | "priceIncludes"
-  | "cancellationPolicy"
-  | "paymentTerms"
+  "checkInTime" | "checkOutTime" | "houseRuleKeys" | "houseRules" | "priceIncludes"
 >;
 
 type Props = {
@@ -31,8 +25,9 @@ type Props = {
 };
 
 /**
- * 4. adım: giriş-çıkış saatleri, ev kuralları (hazır seçenekler + ek not), fiyata dahil olanlar,
- * iptal ve ödeme koşulları.
+ * 4. adım: giriş-çıkış saatleri, ev kuralları (hazır seçenekler + ek not) ve fiyata dahil olanlar;
+ * iki seçim grubunda da "Tümünü Seç / Tümünü Kaldır". (Revizyon 2: iptal ve ödeme koşulları
+ * kaldırıldı.)
  */
 export function StayStep({ action, initial, readOnly, prevHref, nextHref }: Props) {
   const { state, formAction, pending, v, fe } = useWizardForm(action, initial);
@@ -72,12 +67,14 @@ export function StayStep({ action, initial, readOnly, prevHref, nextHref }: Prop
           title="Ev kuralları"
           icon={<ListChecks className="size-4" />}
           description="Villanız için geçerli olanları işaretleyin. Seçtikleriniz villa sayfasında listelenir."
+          aside={<BulkSelect group="houseRuleKeys" label="Ev kuralları" disabled={readOnly} />}
         >
           <ChoiceCards
             name="houseRuleKeys"
             options={HOUSE_RULES}
             selected={v.houseRuleKeys}
             labelledBy="kural-baslik"
+            group="houseRuleKeys"
           />
           {fe.houseRuleKeys ? <p className="text-sm text-destructive">{fe.houseRuleKeys}</p> : null}
           <TextareaField
@@ -96,40 +93,19 @@ export function StayStep({ action, initial, readOnly, prevHref, nextHref }: Prop
           id="dahil-baslik"
           title="Fiyata dahil olanlar"
           icon={<ReceiptText className="size-4" />}
-          description="Bilgi amaçlıdır; fiyat hesabını değiştirmez. Fiyat dönemlerinde temizlik ücreti girdiyseniz Temizlik'i işaretlemeyin."
+          description="Bilgi amaçlıdır; fiyat hesabını değiştirmez."
+          aside={
+            <BulkSelect group="priceIncludes" label="Fiyata dahil olanlar" disabled={readOnly} />
+          }
         >
           <ChoiceCards
             name="priceIncludes"
             options={PRICE_INCLUDES}
             selected={v.priceIncludes}
             labelledBy="dahil-baslik"
+            group="priceIncludes"
           />
           {fe.priceIncludes ? <p className="text-sm text-destructive">{fe.priceIncludes}</p> : null}
-        </StepCard>
-
-        <StepCard
-          id="kosul-baslik"
-          title="İptal ve ödeme koşulları"
-          description="Bu metinler villa sayfasında misafire aynen gösterilir."
-        >
-          <TextareaField
-            id="cancellationPolicy"
-            name="cancellationPolicy"
-            label="İptal koşulları (isteğe bağlı)"
-            defaultValue={v.cancellationPolicy}
-            maxLength={L.cancellationPolicyMax}
-            error={fe.cancellationPolicy}
-            placeholder="Ör. Girişten 30 gün öncesine kadar yapılan iptallerde ön ödeme iade edilir."
-          />
-          <TextareaField
-            id="paymentTerms"
-            name="paymentTerms"
-            label="Ön ödeme ve ödeme koşulları (isteğe bağlı)"
-            defaultValue={v.paymentTerms}
-            maxLength={L.paymentTermsMax}
-            error={fe.paymentTerms}
-            placeholder="Ör. Rezervasyon onayında toplam tutarın %30'u ön ödeme olarak alınır."
-          />
         </StepCard>
       </WizardForm>
       <WizardFooter

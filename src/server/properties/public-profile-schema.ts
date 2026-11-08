@@ -92,8 +92,8 @@ const stayShape = {
   checkInTime: timeField("Giriş saati"),
   checkOutTime: timeField("Çıkış saati"),
   houseRules: textField("Ek not", L.houseRulesMax),
-  cancellationPolicy: textField("İptal koşulları", L.cancellationPolicyMax),
-  paymentTerms: textField("Ön ödeme ve ödeme koşulları", L.paymentTermsMax),
+  // Revizyon 2: iptal ve ödeme koşulları kaldırıldı. Eski istemciden gelse de şema bilinmeyen
+  // alanları atar; kolonlar ayrı daraltma migration'ına kadar veritabanında yalnız durur.
 };
 
 const slugShape = {
@@ -109,8 +109,6 @@ const stayOut = (v: {
   checkInTime?: string;
   checkOutTime?: string;
   houseRules?: string;
-  cancellationPolicy?: string;
-  paymentTerms?: string;
 }) => ({
   amenities: v.amenities,
   // Gönderilmeyen liste çıktıda hiç yer almaz: birleştirmede kayıttaki değer korunur.
@@ -119,8 +117,6 @@ const stayOut = (v: {
   checkInTime: v.checkInTime ?? null,
   checkOutTime: v.checkOutTime ?? null,
   houseRules: v.houseRules ?? null,
-  cancellationPolicy: v.cancellationPolicy ?? null,
-  paymentTerms: v.paymentTerms ?? null,
 });
 
 /** Birleşik villa sayfası ayarları (F1; updatePublicProfile — uyumluluk için korunur). */
@@ -148,8 +144,6 @@ export const PUBLIC_PROFILE_FIELDS = [
   "checkInTime",
   "checkOutTime",
   "houseRules",
-  "cancellationPolicy",
-  "paymentTerms",
 ] as const;
 export type PublicProfileTextField = (typeof PUBLIC_PROFILE_FIELDS)[number];
 
@@ -158,13 +152,7 @@ export type PublicProfileFormRaw = Record<PublicProfileTextField, string> & {
   confirmSlugChange: boolean;
 };
 
-export const STAY_TEXT_FIELDS = [
-  "checkInTime",
-  "checkOutTime",
-  "houseRules",
-  "cancellationPolicy",
-  "paymentTerms",
-] as const;
+export const STAY_TEXT_FIELDS = ["checkInTime", "checkOutTime", "houseRules"] as const;
 export type StayDetailsFormRaw = Record<(typeof STAY_TEXT_FIELDS)[number], string> & {
   amenities: string[];
   houseRuleKeys: string[];

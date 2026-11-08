@@ -1,15 +1,22 @@
 "use client";
 
-import { CircleCheck, MapPin, Route } from "lucide-react";
-import { useState } from "react";
+import { MapPin, Route } from "lucide-react";
 
-import { Field, SelectField, TextareaField } from "@/components/ui/field";
-import { MAP_INPUT_MAX, MAP_PARSE_MESSAGES, parseMapInput } from "@/lib/map-embed";
+import { Field, FIELD_CONTROL_CLASS, SelectField } from "@/components/ui/field";
 import { PROPERTY_LIMITS as L, PROPERTY_TYPE_LABELS, PROPERTY_TYPES } from "@/lib/property-meta";
 import { TR_PROVINCES_SORTED } from "@/lib/tr-provinces";
-import { DISTANCE_KEYS, DISTANCE_LABELS, type DistanceKey } from "@/lib/villa-extras";
+import { cn } from "@/lib/utils";
+import {
+  DISTANCE_KEYS,
+  DISTANCE_LABELS,
+  DISTANCE_UNIT_KEYS,
+  type DistanceKey,
+  type DistanceUnitKey,
+  isDistanceUnit,
+} from "@/lib/villa-extras";
 
 import type { WizardValues } from "../../actions";
+import { MapLocationField } from "./map-location-field";
 import { StepCard } from "./step-card";
 import { type WizardAction, WizardFooter, WizardForm, useWizardForm } from "./wizard-form";
 
@@ -21,11 +28,15 @@ export type BasicsValues = Pick<
   | "province"
   | "district"
   | "neighborhood"
+  | "mapMode"
   | "mapLocation"
+  | "mapPinLat"
+  | "mapPinLng"
   | "maxGuests"
   | "bedrooms"
   | "bathrooms"
   | DistanceKey
+  | DistanceUnitKey
 >;
 
 type Props = {
@@ -64,34 +75,65 @@ function NumberField(props: {
   );
 }
 
-/** Yapıştırılan harita kodunun anında kontrolü (asıl doğrulama sunucuda ve veritabanında). */
-function MapStatus({ text }: { text: string }) {
-  if (!text.trim()) return null;
-  const r = parseMapInput(text);
-  return r.ok ? (
-    <p
-      className="flex items-center gap-1.5 text-sm font-medium text-turquoise-700"
-      data-testid="map-status"
-      data-ok="true"
-    >
-      <CircleCheck aria-hidden className="size-4" />
-      Konum tanındı. Kaydedince villa sayfanızda harita olarak görünür.
-    </p>
-  ) : (
-    <p className="text-sm text-amber-800" data-testid="map-status" data-ok="false">
-      {MAP_PARSE_MESSAGES[r.error]}
-    </p>
+/**
+ * Mesafe: sayı + birim (km / m), her alan için ayrı. Birim kontrolsüz <select>; React form
+ * sıfırlaması <select>'i yeni varsayılana döndürmediği için değer değişince yeniden kurulur.
+ */
+function DistanceField({
+  k,
+  value,
+  unit,
+  error,
+}: {
+  k: DistanceKey;
+  value: string;
+  unit: string;
+  error: string | undefined;
+}) {
+  const unitKey = DISTANCE_UNIT_KEYS[k];
+  const u = isDistanceUnit(unit) ? unit : "km";
+  const hintId = `${k}-hata`;
+  return (
+    <div className="flex flex-col gap-1.5" data-testid={`distance-${k}`}>
+      <label htmlFor={k} className="text-sm font-medium text-navy-900">
+        {DISTANCE_LABELS[k]}
+      </label>
+      <div className="flex gap-2">
+        <input
+          id={k}
+          name={k}
+          inputMode="decimal"
+          maxLength={8}
+          autoComplete="off"
+          defaultValue={value}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? hintId : undefined}
+          className={cn(FIELD_CONTROL_CLASS, "h-11 min-w-0 flex-1")}
+        />
+        <select
+          key={`${unitKey}-${u}`}
+          id={unitKey}
+          name={unitKey}
+          defaultValue={u}
+          aria-label={`${DISTANCE_LABELS[k]} birimi`}
+          className={cn(FIELD_CONTROL_CLASS, "h-11 w-20 shrink-0 appearance-auto pr-6")}
+        >
+          <option value="km">km</option>
+          <option value="m">m</option>
+        </select>
+      </div>
+      {error ? (
+        <p id={hintId} className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
-/** 1. adım: villa, konum ve harita, kapasite, yakın yerlere mesafeler. */
+/** 1. adım: villa, konum ve harita (iki yöntem), kapasite, yakın yerlere mesafeler (km / m). */
 export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, cancel }: Props) {
   const { state, formAction, pending, v, fe } = useWizardForm(action, initial);
-  // Yalnız anında geri bildirim için izlenir; değer formdan gönderilir.
-  const [mapText, setMapText] = useState(v.mapLocation);
-  // Kullanıcı alanı değiştirdiyse sunucunun önceki hatası yerine anında kontrol gösterilir.
-  const mapEdited = mapText !== v.mapLocation;
-  const mapError = mapEdited ? undefined : fe.mapLocation;
 
   return (
     <>
@@ -177,31 +219,9 @@ export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, canc
           id="harita-baslik"
           title="Harita (isteğe bağlı)"
           icon={<MapPin className="size-4" />}
-          description="Villanızın yeri misafirlerinize villa sayfasında harita olarak gösterilir."
+          description="Villanızın yeri misafirlerinize villa sayfasında harita olarak gösterilir. İki yöntemden birini seçin."
         >
-          <ol className="-mt-1 flex list-decimal flex-col gap-1 pl-5 text-sm text-navy-900/80">
-            <li>Google Haritalar&apos;da villanızı bulun.</li>
-            <li>
-              <strong>Paylaş</strong> → <strong>Haritayı yerleştir</strong>&apos;i seçin ve{" "}
-              <strong>HTML&apos;yi kopyala</strong>&apos;ya basın.
-            </li>
-            <li>Kopyaladığınızı aşağıya yapıştırın.</li>
-          </ol>
-          <TextareaField
-            id="mapLocation"
-            name="mapLocation"
-            label="Harita kodu veya bağlantısı"
-            hint="Tarayıcının adres çubuğundaki Google Haritalar bağlantısını da yapıştırabilirsiniz. Haritayı kaldırmak için alanı boşaltın."
-            maxLength={MAP_INPUT_MAX}
-            spellCheck={false}
-            autoComplete="off"
-            className="min-h-24 font-mono text-[13px]"
-            defaultValue={v.mapLocation}
-            onChange={(e) => setMapText(e.target.value)}
-            error={mapError}
-            placeholder='<iframe src="https://www.google.com/maps/embed?pb=…"></iframe>'
-          />
-          {mapError ? null : <MapStatus text={mapText} />}
+          <MapLocationField v={v} fe={fe} state={state} readOnly={readOnly} />
         </StepCard>
 
         <StepCard id="kapasite-baslik" title="Kapasite ve odalar">
@@ -237,20 +257,16 @@ export function BasicsStep({ action, initial, readOnly, prevHref, nextHref, canc
           id="mesafe-baslik"
           title="Yakın yerlere mesafeler (isteğe bağlı)"
           icon={<Route className="size-4" />}
-          description="Kilometre olarak yazın; bilmediklerinizi boş bırakın. Ör. 1,5"
+          description="Her mesafe için birimi seçin (km veya m); bilmediklerinizi boş bırakın. Ör. Market 500 m, Plaj 2 km, Merkez 1,5 km."
         >
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
             {DISTANCE_KEYS.map((k) => (
-              <Field
+              <DistanceField
                 key={k}
-                id={k}
-                name={k}
-                label={`${DISTANCE_LABELS[k]} (km)`}
-                inputMode="decimal"
-                maxLength={8}
-                autoComplete="off"
-                defaultValue={v[k]}
-                error={fe[k]}
+                k={k}
+                value={v[k]}
+                unit={v[DISTANCE_UNIT_KEYS[k]]}
+                error={fe[k] ?? fe[DISTANCE_UNIT_KEYS[k]]}
               />
             ))}
           </div>

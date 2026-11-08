@@ -197,7 +197,8 @@ describe("veritabanı satırlarından public biçime", () => {
 
   it("sayfa nesnesi anahtar listesi sabit (yeni alan eklemek bilinçli bir değişiklik olmalı)", () => {
     // Revizyon: yataklar çıktı; harita, mesafeler, hazır kurallar ve fiyata dahil olanlar eklendi;
-    // çoklu video tek videoya indi.
+    // çoklu video tek videoya indi. Revizyon 2: harita iki yöntemli `map` oldu; iptal ve ödeme
+    // koşulları çıktı.
     expect([...PUBLIC_VILLA_KEYS]).toEqual([
       "slug",
       "name",
@@ -209,7 +210,7 @@ describe("veritabanı satırlarından public biçime", () => {
       "bedrooms",
       "bathrooms",
       "location",
-      "mapEmbedUrl",
+      "map",
       "distances",
       "pools",
       "amenities",
@@ -218,8 +219,6 @@ describe("veritabanı satırlarından public biçime", () => {
       "houseRuleKeys",
       "houseRules",
       "priceIncludes",
-      "cancellationPolicy",
-      "paymentTerms",
       "whatsapp",
       "photos",
       "rates",

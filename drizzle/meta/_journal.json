@@ -183,6 +183,13 @@
       "when": 1794149619261,
       "tag": "0025_villa_details_expand",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794155544670,
+      "tag": "0026_villa_details_rev2",
+      "breakpoints": true
     }
   ]
 }
