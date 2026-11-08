@@ -195,3 +195,27 @@ export function stayWhatsappText(opts: {
 export function whatsappLink(number: string, text: string): string {
   return `https://wa.me/${number.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`;
 }
+
+/**
+ * Temizlik ücreti açıklaması (yalnız gösterim; hesap quoteStay'dedir ve değişmez). Giriş gecesinin
+ * dönemi esas alınır:
+ *  - "free": dönemde ücret var ama konaklama ücretsiz temizlik sınırını karşılıyor;
+ *  - "charged": ücret alınıyor; `freeFromNights` varsa o gece sayısından itibaren ücretsiz;
+ *  - null: dönemde temizlik ücreti yok.
+ */
+export function cleaningNote(
+  quote: Quote,
+  rates: readonly RatePeriod[],
+):
+  | { kind: "free"; freeFromNights: number }
+  | { kind: "charged"; freeFromNights: number | null }
+  | null {
+  const first = rates.find((r) => r.startDate <= quote.checkIn && quote.checkIn < r.endDate);
+  const fee = first?.cleaningFeeMinor ?? null;
+  if (!first || fee === null || fee <= 0) return null;
+  const freeFrom = first.cleaningFeeFreeNights ?? null;
+  if (quote.cleaningFee) return { kind: "charged", freeFromNights: freeFrom };
+  if (freeFrom !== null && quote.nights >= freeFrom)
+    return { kind: "free", freeFromNights: freeFrom };
+  return null;
+}

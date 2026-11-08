@@ -9,6 +9,7 @@ import { requireUser } from "@/server/auth/session";
 import { formatWhatsapp } from "@/lib/public-profile-meta";
 import { getEntitlements } from "@/server/billing/entitlements";
 import { getPropertyUsage } from "@/server/properties/service";
+import { countPendingWebRequests } from "@/server/reservations/service";
 import { resolveActiveWorkspace } from "@/server/workspaces/active";
 import { getWorkspaceWhatsapp } from "@/server/workspaces/contact";
 import { listWorkspaceMembers } from "@/server/workspaces/service";
@@ -54,6 +55,7 @@ export default async function PanelPage({ searchParams }: Props) {
         plan: await getEntitlements(tx),
         usage: await getPropertyUsage(tx),
         whatsapp: await getWorkspaceWhatsapp(tx),
+        pendingRequests: await countPendingWebRequests(tx),
       }),
     );
   } catch (err) {
@@ -71,6 +73,30 @@ export default async function PanelPage({ searchParams }: Props) {
           Hoş geldiniz, {firstName}
         </h1>
       </div>
+
+      {view.pendingRequests > 0 ? (
+        <section
+          aria-labelledby="talep-baslik"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-5"
+          data-testid="pending-requests"
+        >
+          <div>
+            <h2 id="talep-baslik" className="text-base font-semibold text-navy-900">
+              {view.pendingRequests} rezervasyon talebi onay bekliyor
+            </h2>
+            <p className="mt-0.5 text-sm text-navy-900/75">
+              Villa sayfanızdan gelen talepler beklemede; onaylayana ya da iptal edene kadar
+              tarihler kapalı görünür.
+            </p>
+          </div>
+          <Link
+            href="/rezervasyonlar"
+            className="inline-flex h-10 items-center rounded-lg bg-navy-900 px-4 text-sm font-semibold text-white hover:bg-navy-800"
+          >
+            Rezervasyonlara git
+          </Link>
+        </section>
+      ) : null}
 
       <section
         aria-labelledby="isletme-baslik"

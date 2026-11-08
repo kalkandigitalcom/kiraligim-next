@@ -8,6 +8,7 @@ import {
   formatStay,
   RESERVATION_KIND_LABELS,
   RESERVATION_SOURCE_LABELS,
+  requestReference,
 } from "@/lib/reservation-meta";
 import { canManageReservations, getReservation } from "@/server/reservations/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
@@ -133,6 +134,17 @@ export default async function ReservationPage({ params, searchParams }: Props) {
                 {r.adults} yetişkin{r.children ? `, ${r.children} çocuk` : ""}
               </Row>
               <Row label="Kaynak">{r.source ? RESERVATION_SOURCE_LABELS[r.source] : "—"}</Row>
+              {r.source === "web" ? (
+                <Row label="Talep no">
+                  <span data-testid="request-reference">{requestReference(r.id)}</span>
+                  {r.status === "pending" ? (
+                    <span className="block text-sm text-muted-foreground">
+                      Villa sayfasından gelen talep. Onaylayana kadar kesin değildir; tarihler bu
+                      sürede kapalı görünür.
+                    </span>
+                  ) : null}
+                </Row>
+              ) : null}
             </>
           )}
           <Row label={isBlock ? "Açıklama" : "Not"}>

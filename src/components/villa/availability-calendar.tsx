@@ -14,10 +14,24 @@ import { useStay } from "./stay-context";
  * bloklar ayrımsız) "Dolu" görünür ve giriş için seçilemez. Giriş seçiliyken bir sonraki dolu
  * aralığın ilk günü çıkış olarak seçilebilir (önceki misafir o sabah çıkar).
  */
-export function AvailabilityCalendar() {
+export function AvailabilityCalendar({
+  compact = false,
+  onDayPicked,
+}: {
+  /**
+   * Rezervasyon kartındaki tarih seçici: tek ay, açıklama yok. Aynı seçim durumunu (StayProvider)
+   * kullanır; burada seçilen tarih sayfadaki büyük takvimde de görünür (ve tersi).
+   */
+  compact?: boolean;
+  /** Gün seçildikten sonra (seçim güncellendikten sonra değil, aynı tıklamada) çağrılır. */
+  onDayPicked?: (date: string) => void;
+} = {}) {
   const { window: w, busy, selection, evaluation, pick, clear } = useStay();
   const range = stayMonthRange(w);
-  const [month, setMonth] = useState(range.min);
+  const [month, setMonth] = useState(() => {
+    const m = selection.checkIn ? selection.checkIn.slice(0, 7) : range.min;
+    return m < range.min ? range.min : m > range.max ? range.max : m;
+  });
   const prev = shiftMonth(month, -1);
   const next = shiftMonth(month, 1);
   const canPrev = prev >= range.min;
@@ -31,9 +45,16 @@ export function AvailabilityCalendar() {
         : "Giriş tarihini seçin. Aynı gün giriş yapılabilir.";
 
   return (
-    <div className="flex flex-col gap-4" data-testid="villa-calendar">
+    <div
+      className={cn("flex flex-col", compact ? "gap-3" : "gap-4")}
+      data-testid={compact ? "booking-calendar" : "villa-calendar"}
+    >
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[15px] text-navy-900/75" aria-live="polite" data-testid="calendar-hint">
+        <p
+          className={cn("text-navy-900/75", compact ? "text-sm" : "text-[15px]")}
+          aria-live="polite"
+          data-testid={compact ? "booking-calendar-hint" : "calendar-hint"}
+        >
           {hint}
         </p>
         {selection.checkIn && (
@@ -47,39 +68,56 @@ export function AvailabilityCalendar() {
         )}
       </div>
 
-      <div className="relative rounded-3xl border border-border p-3 sm:p-5">
-        <div className="absolute top-3 right-3 left-3 flex justify-between sm:top-5 sm:right-5 sm:left-5">
+      <div
+        className={cn(
+          "relative border border-border",
+          compact ? "rounded-2xl p-2" : "rounded-3xl p-3 sm:p-5",
+        )}
+      >
+        <div
+          className={cn(
+            "absolute flex justify-between",
+            compact ? "top-2 right-2 left-2" : "top-3 right-3 left-3 sm:top-5 sm:right-5 sm:left-5",
+          )}
+        >
           <NavButton dir="prev" disabled={!canPrev} onClick={() => setMonth(prev)} />
           <NavButton dir="next" disabled={!canNext} onClick={() => setMonth(next)} />
         </div>
-        <div className="grid gap-8 md:grid-cols-2">
-          {renderMonth(month)}
-          {/* Masaüstünde ikinci ay; ufkun ötesindeyse gösterilmez. */}
-          <div className="hidden md:block">{next <= range.max ? renderMonth(next) : null}</div>
-        </div>
+        {compact ? (
+          renderMonth(month)
+        ) : (
+          <div className="grid gap-8 md:grid-cols-2">
+            {renderMonth(month)}
+            {/* Masaüstünde ikinci ay; ufkun ötesindeyse gösterilmez. */}
+            <div className="hidden md:block">{next <= range.max ? renderMonth(next) : null}</div>
+          </div>
+        )}
       </div>
-
-      <ul
-        className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-navy-900/70"
-        aria-label="Takvim açıklaması"
-      >
-        <li className="flex items-center gap-2">
-          <span className="size-4 rounded border border-border bg-white" aria-hidden="true" />
-          Müsait
-        </li>
-        <li className="flex items-center gap-2">
-          <span className="size-4 rounded cal-block" aria-hidden="true" />
-          Dolu
-        </li>
-        <li className="flex items-center gap-2">
-          <span className="size-4 rounded bg-navy-900" aria-hidden="true" />
-          Seçili giriş / çıkış
-        </li>
-      </ul>
-      <p className="sr-only">
-        Bugün: {formatDay(w.today)}. Takvimde{" "}
-        {busy.length > 0 ? "dolu geceler işaretlidir" : "dolu gece yok"}.
-      </p>
+      {compact ? null : (
+        <>
+          <ul
+            className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-navy-900/70"
+            aria-label="Takvim açıklaması"
+          >
+            <li className="flex items-center gap-2">
+              <span className="size-4 rounded border border-border bg-white" aria-hidden="true" />
+              Müsait
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="size-4 rounded cal-block" aria-hidden="true" />
+              Dolu
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="size-4 rounded bg-navy-900" aria-hidden="true" />
+              Seçili giriş / çıkış
+            </li>
+          </ul>
+          <p className="sr-only">
+            Bugün: {formatDay(w.today)}. Takvimde{" "}
+            {busy.length > 0 ? "dolu geceler işaretlidir" : "dolu gece yok"}.
+          </p>
+        </>
+      )}
     </div>
   );
 
@@ -144,7 +182,10 @@ export function AvailabilityCalendar() {
         type="button"
         // Seçili giriş/çıkış günü (dolu aralığın başı olsa da) odaklanabilir ve okunur kalır.
         disabled={!v.selectable && v.role === null}
-        onClick={() => pick(date)}
+        onClick={() => {
+          pick(date);
+          onDayPicked?.(date);
+        }}
         aria-label={`${formatLongDay(date)}, ${status}${roleLabel}`}
         aria-pressed={v.role === "checkin" || v.role === "checkout"}
         data-date={date}
@@ -152,7 +193,9 @@ export function AvailabilityCalendar() {
           v.role ?? (v.busy ? "busy" : v.outside ? "outside" : v.selectable ? "free" : "closed")
         }
         className={cn(
-          "relative flex aspect-square w-full items-center justify-center rounded-lg text-[15px] font-medium transition-colors focus-visible:ring-3 focus-visible:ring-turquoise-500/60 focus-visible:outline-none",
+          "relative flex aspect-square w-full items-center justify-center rounded-lg font-medium transition-colors",
+          compact ? "text-sm" : "text-[15px]",
+          "focus-visible:ring-3 focus-visible:ring-turquoise-500/60 focus-visible:outline-none",
           v.role === "checkin" || v.role === "checkout"
             ? "bg-navy-900 text-white"
             : v.role === "inside"

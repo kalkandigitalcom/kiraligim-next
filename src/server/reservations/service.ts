@@ -215,6 +215,19 @@ export async function listReservations(
   return { items: rows.slice(0, limit), hasMore: rows.length > limit };
 }
 
+/**
+ * Villa sayfasından gelen, ev sahibi onayı bekleyen talepler (kaynak "web", beklemede, çıkışı
+ * bugünden sonra). Genel Bakış'taki hatırlatma için; RLS yalnız bağlamdaki işletmeyi gösterir.
+ */
+export async function countPendingWebRequests(tx: Tx): Promise<number> {
+  const res = await tx.execute<{ n: number }>(sql`
+    select count(*)::int as n from reservations r
+     where r.workspace_id = app_current_workspace_id()
+       and r.kind = 'reservation' and r.status = 'pending' and r.source = 'web'
+       and r.check_out > ${TODAY}`);
+  return res.rows[0]?.n ?? 0;
+}
+
 /** Takvim: mülkün [from, to) aralığıyla kesişen AKTİF kayıtları (rezervasyon + blok). */
 export async function listCalendarEntries(
   tx: Tx,

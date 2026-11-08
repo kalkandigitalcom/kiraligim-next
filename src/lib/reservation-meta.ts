@@ -15,8 +15,34 @@ export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
 /** Tarihleri kapatan (çakışma denetimine giren) durumlar. */
 export const ACTIVE_RESERVATION_STATUSES = ["pending", "confirmed"] as const;
 
-export const RESERVATION_SOURCES = ["direct", "phone", "airbnb", "booking", "other"] as const;
+export const RESERVATION_SOURCES = [
+  "direct",
+  "phone",
+  "airbnb",
+  "booking",
+  "other",
+  "web",
+] as const;
 export type ReservationSource = (typeof RESERVATION_SOURCES)[number];
+
+/**
+ * Panelde elle seçilebilen kaynaklar. "web" yalnız villa sayfasındaki rezervasyon talebi
+ * formundan gelir (drizzle/0027); elle eklenen kayıtta seçenek olarak sunulmaz.
+ */
+export const MANUAL_RESERVATION_SOURCES = [
+  "direct",
+  "phone",
+  "airbnb",
+  "booking",
+  "other",
+] as const;
+
+/**
+ * Misafire gösterilen talep numarası: kaydın kimliğinin son 8 onaltılık hanesi (UUID v7'de
+ * rastgele kısım; ilk haneler zaman damgasıdır ve aynı dakikada tekrar edebilir). "TLP-3FA9C21B".
+ */
+export const requestReference = (id: string) =>
+  `TLP-${id.replace(/-/g, "").slice(-8).toUpperCase()}`;
 
 export const CURRENCIES = ["TRY", "EUR", "USD", "GBP"] as const;
 export type Currency = (typeof CURRENCIES)[number];
@@ -38,6 +64,7 @@ export const RESERVATION_SOURCE_LABELS: Record<ReservationSource, string> = {
   airbnb: "Airbnb",
   booking: "Booking.com",
   other: "Diğer",
+  web: "Web sitesi talebi",
 };
 
 export const RESERVATION_LIMITS = {

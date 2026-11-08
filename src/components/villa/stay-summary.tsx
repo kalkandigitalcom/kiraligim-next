@@ -2,7 +2,8 @@
 
 import { formatNights } from "@/lib/rate-meta";
 import { segmentFormula, unpricedSummary } from "@/lib/pricing";
-import { STAY_INVALID_MESSAGES, type StayEvaluation } from "@/lib/public-stay";
+import { cleaningNote, STAY_INVALID_MESSAGES, type StayEvaluation } from "@/lib/public-stay";
+import type { RatePeriod } from "@/lib/rate-meta";
 import { startingNightly } from "@/lib/public-villa-view";
 import { formatDay, formatMoney, formatStay } from "@/lib/reservation-meta";
 import { cn } from "@/lib/utils";
@@ -14,18 +15,26 @@ import { useStay } from "./stay-context";
  * konaklama karşılanmıyorsa veya fiyatsız gece varsa toplam GÖSTERİLMEZ. Hiçbir şey kaydedilmez.
  */
 export function StayQuote() {
-  const { evaluation: e, maxGuests, guests, setGuests, whatsappHref } = useStay();
+  const {
+    evaluation: e,
+    maxGuests,
+    guests,
+    setGuests,
+    whatsappHref,
+    rates,
+    requestEnabled,
+  } = useStay();
+  const canRequest = e.state === "quote" || e.state === "unpriced";
   return (
     <div className="flex flex-col gap-4" data-testid="stay-quote" data-state={e.state}>
       <label className="flex max-w-xs flex-col gap-1.5 text-sm font-medium">
-        Kişi sayısı (isteğe bağlı)
+        Kişi sayısı
         <select
-          value={guests ?? ""}
-          onChange={(ev) => setGuests(ev.target.value ? Number(ev.target.value) : null)}
+          value={guests}
+          onChange={(ev) => setGuests(Number(ev.target.value))}
           className="h-11 rounded-lg border border-border bg-white px-3 text-[15px] focus-visible:ring-3 focus-visible:ring-turquoise-500/40 focus-visible:outline-none"
           data-testid="stay-guests"
         >
-          <option value="">Seçilmedi</option>
           {Array.from({ length: maxGuests }, (_, i) => i + 1).map((n) => (
             <option key={n} value={n}>
               {n} kişi
@@ -36,24 +45,48 @@ export function StayQuote() {
 
       {/* Seçim değiştikçe sonuç ekran okuyuculara duyurulur. */}
       <div aria-live="polite">
-        <QuoteBody e={e} />
+        <QuoteBody e={e} rates={rates} />
       </div>
 
       {e.state !== "empty" && e.state !== "checkout" && (
-        <WaLink
-          href={whatsappHref}
-          className="inline-flex h-12 items-center justify-center gap-2 self-start rounded-xl bg-[#1f7a4d] px-5 text-[15px] font-semibold text-white transition-colors hover:bg-[#186540] focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none"
-          testId="stay-whatsapp"
-        >
-          <WhatsAppIcon />
-          {e.state === "quote" ? "Bu tarihler için WhatsApp'tan sorun" : "WhatsApp'tan sorun"}
-        </WaLink>
+        <div className="flex flex-wrap gap-2">
+          {canRequest && requestEnabled ? (
+            <a
+              href="#rezervasyon"
+              className="inline-flex h-12 items-center justify-center rounded-xl bg-navy-900 px-5 text-[15px] font-semibold text-white transition-colors hover:bg-navy-800 focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none"
+              data-testid="stay-to-request"
+            >
+              Rezervasyon talebi gönder
+            </a>
+          ) : null}
+          <WaLink
+            href={whatsappHref}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[#1f7a4d] px-5 text-[15px] font-semibold text-white transition-colors hover:bg-[#186540] focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none"
+            testId="stay-whatsapp"
+          >
+            <WhatsAppIcon />
+            {e.state === "quote" ? "Bu tarihler için WhatsApp'tan sorun" : "WhatsApp'tan sorun"}
+          </WaLink>
+        </div>
       )}
     </div>
   );
 }
 
-function QuoteBody({ e }: { e: StayEvaluation }) {
+/**
+ * Seçimin sonucu: uyarı ya da fiyat dökümü. Hem rezervasyon kartında hem sayfadaki hesaplayıcıda
+ * aynı bileşen kullanılır (tek fiyat gösterimi). `compact`: kartta daha sıkı yerleşim ve kartın
+ * kendi açıklaması.
+ */
+export function QuoteBody({
+  e,
+  rates,
+  compact = false,
+}: {
+  e: StayEvaluation;
+  rates: readonly RatePeriod[];
+  compact?: boolean;
+}) {
   switch (e.state) {
     case "empty":
       return null;
@@ -67,7 +100,7 @@ function QuoteBody({ e }: { e: StayEvaluation }) {
       return <Notice tone="warn">{STAY_INVALID_MESSAGES[e.reason]}</Notice>;
     case "min-nights":
       return (
-        <Notice tone="warn" testId="stay-min-nights">
+        <Notice tone="warn" testId={compact ? "booking-min-nights" : "stay-min-nights"}>
           {formatStay(e.checkIn, e.checkOut)} ({e.nights} gece): bu tarihlerde en az {e.required}{" "}
           gece konaklama gerekir. Daha uzun bir aralık seçin ya da ev sahibine yazın.
         </Notice>
@@ -75,7 +108,7 @@ function QuoteBody({ e }: { e: StayEvaluation }) {
     case "unpriced": {
       const missing = unpricedSummary(e.quote);
       return (
-        <Notice tone="info" testId="stay-unpriced">
+        <Notice tone="info" testId={compact ? "booking-unpriced" : "stay-unpriced"}>
           {formatStay(e.checkIn, e.checkOut)} ({e.nights} gece) için toplam tutar hesaplanamıyor
           {missing ? `: ${missing} için fiyat girilmemiş` : ""}. Fiyat bilgisini ev sahibinden
           isteyebilirsiniz.
@@ -85,15 +118,19 @@ function QuoteBody({ e }: { e: StayEvaluation }) {
     case "quote": {
       const q = e.quote;
       const c = q.currency!;
+      const cleaning = cleaningNote(q, rates);
       return (
         <div
-          className="rounded-2xl border border-border bg-mist/50 p-4 sm:p-5"
-          data-testid="stay-total-box"
+          className={cn(
+            "rounded-2xl border border-border bg-mist/50",
+            compact ? "p-3.5 text-sm" : "p-4 sm:p-5",
+          )}
+          data-testid={compact ? "booking-price" : "stay-total-box"}
         >
           <p className="font-semibold">
             {formatStay(e.checkIn, e.checkOut)} · {e.nights} gece
           </p>
-          <dl className="mt-3 flex flex-col gap-2 text-[15px]">
+          <dl className={cn("mt-3 flex flex-col gap-2", compact ? "text-sm" : "text-[15px]")}>
             {q.segments.map((s) => (
               <div
                 key={`${s.periodId}-${s.from}`}
@@ -111,16 +148,38 @@ function QuoteBody({ e }: { e: StayEvaluation }) {
                 <dd className="font-medium">{formatMoney(q.cleaningFee.amountMinor, c)}</dd>
               </div>
             )}
-            <div className="mt-1 flex flex-wrap justify-between gap-x-4 border-t border-border pt-3 text-lg">
+            {cleaning?.kind === "free" && (
+              <div
+                className="flex flex-wrap justify-between gap-x-4"
+                data-testid={compact ? "booking-cleaning-free" : undefined}
+              >
+                <dt className="text-navy-900/70">Temizlik ücreti</dt>
+                <dd className="font-medium text-turquoise-700">
+                  Ücretsiz ({cleaning.freeFromNights}+ gece)
+                </dd>
+              </div>
+            )}
+            <div
+              className={cn(
+                "mt-1 flex flex-wrap justify-between gap-x-4 border-t border-border pt-3",
+                compact ? "text-base" : "text-lg",
+              )}
+            >
               <dt className="font-bold">Toplam</dt>
-              <dd className="font-extrabold" data-testid="stay-total">
+              <dd className="font-extrabold" data-testid={compact ? "booking-total" : "stay-total"}>
                 {formatMoney(q.totalMinor!, c)}
               </dd>
             </div>
           </dl>
+          {cleaning?.kind === "charged" && cleaning.freeFromNights !== null ? (
+            <p className="mt-2 text-sm text-navy-900/60">
+              {cleaning.freeFromNights} gece ve üzeri konaklamalarda temizlik ücreti alınmaz.
+            </p>
+          ) : null}
           <p className="mt-3 text-sm text-navy-900/60">
-            Bu tutar bilgilendirme amaçlıdır; rezervasyon oluşturmaz. Müsaitliği ve kesin fiyatı ev
-            sahibi teyit eder.
+            {compact
+              ? "Fiyat sayfadaki dönem fiyatlarına göre hesaplandı; talebiniz gönderilirken yeniden hesaplanır. Rezervasyon, ev sahibi onayladığında kesinleşir."
+              : "Bu tutar bilgilendirme amaçlıdır; rezervasyon oluşturmaz. Müsaitliği ve kesin fiyatı ev sahibi teyit eder."}
           </p>
         </div>
       );
@@ -128,7 +187,7 @@ function QuoteBody({ e }: { e: StayEvaluation }) {
   }
 }
 
-function Notice({
+export function Notice({
   tone,
   testId,
   children,
@@ -154,73 +213,14 @@ function Notice({
 }
 
 /**
- * Yan kart (masaüstü) ve içerik kartı (mobil): seçim yoksa başlangıç fiyatı; geçerli seçimde
- * tarih ve toplam. WhatsApp mesajı seçime göre hazırlanır.
+ * Mobil alt çubuk: sayfanın sonuna kadar ekranın altında kalır (sticky; alt bilgiyi örtmez).
+ * Ana eylem rezervasyon kartına götürür (tek form; kart mobilde içerikte); WhatsApp ikincil.
  */
-export function StayCard({ className }: { className?: string }) {
-  const { evaluation: e, rates, currency, maxGuests, whatsappHref } = useStay();
-  const from = currency ? startingNightly(rates, currency) : null;
-  return (
-    <div
-      className={cn(
-        "rounded-3xl border border-border bg-white p-5 shadow-xl shadow-navy-900/5 sm:p-6",
-        className,
-      )}
-      data-testid="villa-contact"
-    >
-      {e.state === "quote" ? (
-        <div className="mb-4">
-          <p className="text-sm text-navy-900/60">
-            {formatStay(e.checkIn, e.checkOut)} · {e.nights} gece
-          </p>
-          <p className="text-2xl font-extrabold tracking-tight">
-            {formatMoney(e.quote.totalMinor!, e.quote.currency!)}
-          </p>
-        </div>
-      ) : from !== null && currency ? (
-        <div className="mb-4">
-          <p className="text-sm text-navy-900/60">Gecelik başlangıç fiyatı</p>
-          <p className="text-2xl font-extrabold tracking-tight">{formatMoney(from, currency)}</p>
-        </div>
-      ) : (
-        <p className="mb-4 text-[15px] text-navy-900/75">
-          Fiyat ve müsaitlik için ev sahibine yazın.
-        </p>
-      )}
-      <WaLink
-        href={whatsappHref}
-        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#1f7a4d] px-4 text-[15px] font-semibold text-white transition-colors hover:bg-[#186540] focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none"
-        testId="villa-whatsapp"
-      >
-        <WhatsAppIcon />
-        WhatsApp&apos;tan sorun
-      </WaLink>
-      {e.state !== "quote" && (
-        <a
-          href="#musaitlik"
-          className="mt-2 inline-flex h-11 w-full items-center justify-center rounded-xl border border-border text-[15px] font-semibold hover:bg-mist focus-visible:ring-3 focus-visible:ring-turquoise-500/40 focus-visible:outline-none"
-        >
-          Tarih seçip fiyat hesaplayın
-        </a>
-      )}
-      {whatsappHref === null ? (
-        <p className="mt-2 text-sm text-amber-900" data-testid="whatsapp-missing">
-          İşletmenin WhatsApp numarası tanımlı değil; müşteri iletişim düğmesini kullanamaz.
-        </p>
-      ) : null}
-      <p className="mt-3 text-sm text-navy-900/60">
-        En fazla {maxGuests} kişi. Müsaitlik ve kesin fiyat için ev sahibiyle doğrudan iletişime
-        geçersiniz.
-      </p>
-    </div>
-  );
-}
-
-/** Mobil alt çubuk: sayfanın sonuna kadar ekranın altında kalır (sticky; alt bilgiyi örtmez). */
 export function MobileStayBar() {
   const { evaluation: e, rates, currency, whatsappHref } = useStay();
   const from = currency ? startingNightly(rates, currency) : null;
   const quote = e.state === "quote" ? e : null;
+  const ready = e.state === "quote" || e.state === "unpriced";
   return (
     <div
       className="sticky bottom-0 z-30 -mx-4 mt-10 border-t border-border bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:hidden"
@@ -246,22 +246,23 @@ export function MobileStayBar() {
             <p className="text-sm text-navy-900/75">Fiyat için ev sahibine yazın</p>
           )}
         </div>
-        {quote ? (
+        <div className="flex shrink-0 items-center gap-2">
           <WaLink
             href={whatsappHref}
-            className="inline-flex h-11 shrink-0 items-center gap-2 rounded-xl bg-[#1f7a4d] px-4 text-[15px] font-semibold text-white focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none"
+            className="inline-flex size-11 items-center justify-center rounded-xl bg-[#1f7a4d] text-white focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none"
+            testId="mobile-whatsapp"
           >
             <WhatsAppIcon />
-            Sor
+            <span className="sr-only">WhatsApp ile iletişime geç</span>
           </WaLink>
-        ) : (
           <a
-            href="#musaitlik"
-            className="inline-flex h-11 shrink-0 items-center rounded-xl bg-navy-900 px-4 text-[15px] font-semibold text-white focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none"
+            href="#rezervasyon"
+            className="inline-flex h-11 items-center rounded-xl bg-navy-900 px-4 text-[15px] font-semibold text-white focus-visible:ring-3 focus-visible:ring-turquoise-500/50 focus-visible:outline-none"
+            data-testid="mobile-to-request"
           >
-            Tarih seçin
+            {ready ? "Talep gönder" : "Tarih seçin"}
           </a>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -271,7 +272,7 @@ export function MobileStayBar() {
  * WhatsApp bağlantısı. Numara yoksa (yalnız panel önizlemesinde olabilir) bağlantı yerine devre
  * dışı görünüm ve açıklama: tıklanınca boş bir WhatsApp sohbeti açılmaz.
  */
-function WaLink({
+export function WaLink({
   href,
   className,
   testId,
