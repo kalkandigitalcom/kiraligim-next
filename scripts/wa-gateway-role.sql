@@ -3,14 +3,15 @@
 --
 -- Ağ geçidi web uygulamasının app_user rolünü KULLANMAZ. Bu rol yalnız şunları yapabilir:
 --   * veritabanına bağlanmak (CONNECT; TEMPORARY yok),
---   * public şemasındaki şu beş fonksiyonu çalıştırmak (hepsi SECURITY DEFINER, 0031/0032):
---       app_wa_heartbeat, app_wa_sync_group, app_wa_redeem_link_code,
---       app_wa_ingest_message, app_wa_purge_messages (yalnız 90–365 gün).
+--   * public şemasındaki ağ geçidi fonksiyonlarını çalıştırmak (hepsi SECURITY DEFINER, 0031–0034):
+--       app_wa_heartbeat (3 ve 4 parametreli), app_wa_sync_group (7 ve 9 parametreli),
+--       app_wa_ingest_message, app_wa_purge_messages (yalnız 90–365 gün), app_wa_verify_phone.
+--   Eski kodlu bağlama (app_wa_redeem_link_code) A1.1'de kullanılmaz; bu betik yetkisini KALDIRIR.
 -- Hiçbir tabloyu okuyamaz/yazamaz; app.user_id / app.workspace_id ayarlayarak işletme verisi
 -- göremez (tablo yetkisi yok); panel fonksiyonlarını (app_wa_unlink_group) çalıştıramaz.
 -- SUPERUSER, CREATEDB, CREATEROLE, BYPASSRLS değildir; INHERIT kapalı; en fazla 5 bağlantı.
 --
--- Ön koşul: 0030–0032 migration'ları bu veritabanında uygulanmış olmalı (fonksiyonlar yoksa durur).
+-- Ön koşul: 0030–0034 migration'ları bu veritabanında uygulanmış olmalı (fonksiyonlar yoksa durur).
 --
 -- Kullanım (parola KOMUT SATIRINDA DEĞİL, ortam değişkeninde; yalnız [A-Za-z0-9], en az 32 karakter):
 --   openssl rand -hex 24
@@ -24,7 +25,7 @@
 -- Mevcut tablolara, rollere (app_user, app_migrator) ve verilere dokunmaz.
 --
 -- Geri alma (ağ geçidi durdurulduktan sonra):
---   REVOKE EXECUTE ON FUNCTION <yukarıdaki beş fonksiyon> FROM app_wa_gateway;
+--   REVOKE EXECUTE ON FUNCTION <yukarıdaki fonksiyonlar> FROM app_wa_gateway;
 --   REVOKE USAGE ON SCHEMA public FROM app_wa_gateway;
 --   REVOKE CONNECT ON DATABASE <db> FROM app_wa_gateway; DROP ROLE app_wa_gateway;
 -- =====================================================================
@@ -69,19 +70,21 @@ SET log_statement = 'none';
 SET log_min_duration_statement = -1;
 SET log_min_error_statement = 'panic';
 
--- Ön koşul: A1 fonksiyonları var mı? (migration 0030–0032)
-SELECT count(*) = 5 AS functions_ok
+-- Ön koşul: A1 fonksiyonları var mı? (migration 0030–0034)
+SELECT count(*) = 7 AS functions_ok
   FROM pg_proc p
  WHERE p.pronamespace = 'public'::regnamespace
    AND p.oid::regprocedure::text IN (
      'app_wa_heartbeat(text,text,text)',
+     'app_wa_heartbeat(text,text,text,text)',
      'app_wa_sync_group(uuid,text,text,integer,boolean,boolean,boolean)',
-     'app_wa_redeem_link_code(uuid,text,text,text)',
+     'app_wa_sync_group(uuid,text,text,integer,boolean,boolean,boolean,text,text)',
      'app_wa_ingest_message(uuid,text,text,text,text,text,text,timestamp with time zone,text)',
-     'app_wa_purge_messages(integer)') \gset
+     'app_wa_purge_messages(integer)',
+     'app_wa_verify_phone(text,text)') \gset
 \if :functions_ok
 \else
-  \warn 'HATA: app_wa_* fonksiyonları bulunamadı; önce 0030–0032 migration''ları uygulanmalı'
+  \warn 'HATA: app_wa_* fonksiyonları bulunamadı; önce 0030–0034 migration''ları uygulanmalı'
   DO $$ BEGIN RAISE EXCEPTION 'wa-gateway-role durduruldu'; END $$;
 \endif
 
@@ -102,11 +105,15 @@ REVOKE ALL ON ALL TABLES IN SCHEMA public FROM app_wa_gateway;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM app_wa_gateway;
 GRANT EXECUTE ON FUNCTION
   public.app_wa_heartbeat(text, text, text),
+  public.app_wa_heartbeat(text, text, text, text),
   public.app_wa_sync_group(uuid, text, text, integer, boolean, boolean, boolean),
-  public.app_wa_redeem_link_code(uuid, text, text, text),
+  public.app_wa_sync_group(uuid, text, text, integer, boolean, boolean, boolean, text, text),
   public.app_wa_ingest_message(uuid, text, text, text, text, text, text, timestamptz, text),
-  public.app_wa_purge_messages(integer)
+  public.app_wa_purge_messages(integer),
+  public.app_wa_verify_phone(text, text)
   TO app_wa_gateway;
+-- Eski kodlu bağlama A1.1'de kullanılmaz (en az yetki).
+REVOKE EXECUTE ON FUNCTION public.app_wa_redeem_link_code(uuid, text, text, text) FROM app_wa_gateway;
 
 \set QUIET off
 \echo 'Tamam: app_wa_gateway rolü hazır (yalnız app_wa_* ağ geçidi fonksiyonları).'

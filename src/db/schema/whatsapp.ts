@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { users } from "./auth";
+import { properties } from "./properties";
 import { workspaceMembers, workspaces } from "./tenancy";
 
 /**
@@ -24,8 +25,16 @@ import { workspaceMembers, workspaces } from "./tenancy";
  *  - ENABLE/FORCE RLS, kolon düzeyinde yetkiler;
  *  - ağ geçidinin TEK yazma yolu SECURITY DEFINER fonksiyonlardır (app_wa_*): tabloları doğrudan
  *    okuyamaz ve yazamaz;
- *  - grup bağlama: kod + kodu üreten kişinin WhatsApp numarası doğrulanır, audit yazılır.
+ *  - grup bağlama (A1.1, drizzle/0034): kod GÖNDERİLMEZ. Kullanıcı WhatsApp numarasını bir kez
+ *    asistana özel mesajla doğrular; asistanı gruba EKLEYEN kişinin (ya da grup kurucusunun)
+ *    numarası bu doğrulanmış numarayla eşleşirse grup yalnız o kullanıcının "Bekleyen gruplar"
+ *    listesinde görünür ve bir villayla eşleştirilebilir. Numaralar yalnız özet (SHA-256) saklanır.
+ *  - eski kodlu bağlama (wa_link_codes, app_wa_redeem_link_code) geriye uyumluluk için durur;
+ *    panel ve ağ geçidi artık kullanmaz.
  */
+
+/** Telefon özeti biçimi: sha256("wa-phone:" + rakamlar), küçük harf hex. */
+const PHONE_HASH = "^[0-9a-f]{64}$";
 
 const ts = () => timestamp({ withTimezone: true, mode: "date" });
 
@@ -41,11 +50,17 @@ export const waConnections = pgTable(
     lastSeenAt: ts(),
     lastConnectedAt: ts(),
     lastErrorCode: text(),
+    /** Platformun (asistan) WhatsApp numarası; panelde wa.me bağlantısı için. Müşteri numarası değil. */
+    accountPn: text(),
     createdAt: ts().notNull().defaultNow(),
     updatedAt: ts().notNull().defaultNow(),
   },
   (t) => [
     unique("wa_connections_label_key").on(t.label),
+    check(
+      "wa_connections_account_pn_format",
+      sql`${t.accountPn} is null or ${t.accountPn} ~ '^[1-9][0-9]{6,19}$'`,
+    ),
     check("wa_connections_label_format", sql`${t.label} ~ '^[a-z0-9_-]{1,40}$'`),
     check(
       "wa_connections_status_check",
@@ -76,8 +91,14 @@ export const waGroups = pgTable(
       .notNull()
       .default("discovered"),
     workspaceId: uuid().references(() => workspaces.id, { onDelete: "restrict" }),
+    /** Eşleştirilen villa (aynı işletmenin mülkü; bileşik yabancı anahtar). Eski kodlu bağlamada boş. */
+    propertyId: uuid(),
     linkedAt: ts(),
     linkedBy: uuid().references(() => users.id, { onDelete: "set null" }),
+    /** Asistanı gruba ekleyen kişinin numarasının özeti (WhatsApp "author"). */
+    addedByHash: text(),
+    /** Grup kurucusunun numarasının özeti (WhatsApp "owner"). */
+    ownerHash: text(),
     /** Kod denemesi sınırı: pencere içindeki hatalı deneme sayısı. */
     linkFailCount: integer().notNull().default(0),
     linkFailWindowAt: ts(),
@@ -92,6 +113,27 @@ export const waGroups = pgTable(
     unique("wa_groups_scope_key").on(t.id, t.workspaceId),
     index("wa_groups_workspace_idx").on(t.workspaceId),
     index("wa_groups_linked_by_idx").on(t.linkedBy),
+    foreignKey({
+      name: "wa_groups_property_fk",
+      columns: [t.propertyId, t.workspaceId],
+      foreignColumns: [properties.id, properties.workspaceId],
+    }).onDelete("restrict"),
+    index("wa_groups_property_idx").on(t.propertyId),
+    index("wa_groups_added_by_idx")
+      .on(t.addedByHash)
+      .where(sql`${t.status} = 'discovered'`),
+    index("wa_groups_owner_hash_idx")
+      .on(t.ownerHash)
+      .where(sql`${t.status} = 'discovered'`),
+    check(
+      "wa_groups_phone_hash_format",
+      sql`(${t.addedByHash} is null or ${t.addedByHash} ~ ${sql.raw(`'${PHONE_HASH}'`)})
+        and (${t.ownerHash} is null or ${t.ownerHash} ~ ${sql.raw(`'${PHONE_HASH}'`)})`,
+    ),
+    check(
+      "wa_groups_property_workspace",
+      sql`${t.propertyId} is null or ${t.workspaceId} is not null`,
+    ),
     check("wa_groups_jid_format", sql`${t.jid} ~ '^[0-9]{6,40}(-[0-9]{6,20})?@g\\.us$'`),
     check(
       "wa_groups_status_check",
@@ -221,6 +263,63 @@ export const waInboundMessages = pgTable(
     check(
       "wa_inbound_messages_sender_pn_format",
       sql`${t.senderPn} is null or ${t.senderPn} ~ '^[1-9][0-9]{6,19}$'`,
+    ),
+  ],
+);
+
+/**
+ * Kullanıcının doğrulanmış WhatsApp numarası (kullanıcı başına bir; numara başına bir kullanıcı).
+ * Numara düz metin saklanmaz: özet + maskeli gösterim ("+90 532 *** ** 33").
+ */
+export const waVerifiedPhones = pgTable(
+  "wa_verified_phones",
+  {
+    userId: uuid()
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    phoneHash: text().notNull(),
+    phoneMasked: text().notNull(),
+    verifiedAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    unique("wa_verified_phones_phone_key").on(t.phoneHash),
+    check("wa_verified_phones_hash_format", sql`${t.phoneHash} ~ ${sql.raw(`'${PHONE_HASH}'`)}`),
+    check("wa_verified_phones_masked_length", sql`length(${t.phoneMasked}) between 3 and 32`),
+  ],
+);
+
+/**
+ * Numara doğrulama kodu: panelde üretilir, kullanıcı asistana ÖZEL mesajla gönderir (gruba değil).
+ * 10 dk geçerli, tek kullanım; kod düz metin saklanmaz (koda özel tuzla SHA-256).
+ */
+export const waPhoneChallenges = pgTable(
+  "wa_phone_challenges",
+  {
+    id: uuid().primaryKey(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Kodun üretildiği işletme (denetim kaydı için). */
+    workspaceId: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    codeSalt: text().notNull(),
+    codeHash: text().notNull(),
+    expiresAt: ts().notNull(),
+    usedAt: ts(),
+    createdAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    index("wa_phone_challenges_user_idx").on(t.userId),
+    index("wa_phone_challenges_workspace_idx").on(t.workspaceId),
+    index("wa_phone_challenges_active_idx")
+      .on(t.expiresAt)
+      .where(sql`${t.usedAt} is null`),
+    check("wa_phone_challenges_salt_format", sql`${t.codeSalt} ~ '^[0-9a-f]{32}$'`),
+    check("wa_phone_challenges_hash_format", sql`${t.codeHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "wa_phone_challenges_ttl",
+      sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '15 minutes'`,
     ),
   ],
 );

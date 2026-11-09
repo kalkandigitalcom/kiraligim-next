@@ -85,6 +85,38 @@ export function extractGroupMessage(msg: WAMessage): InboundGroupMessage | null 
   };
 }
 
+export type InboundDirectMessage = {
+  messageId: string;
+  /** Gönderenin telefonu (yalnız rakam) biliniyorsa. */
+  senderPn: string | null;
+  senderLid: string | null;
+  text: string;
+};
+
+/**
+ * Asistana gelen ÖZEL (bire bir) metin mesajı. Grup, durum, kanal ve yayın mesajları ile kendi
+ * mesajları null döner. İçerik yalnız numara doğrulama kodu için okunur; saklanmaz ve yazılmaz.
+ */
+export function extractDirectMessage(msg: WAMessage): InboundDirectMessage | null {
+  const key = msg.key;
+  const remote = key?.remoteJid ?? "";
+  if (!key || key.fromMe || !key.id || !remote) return null;
+  if (isJidGroup(remote) || !(isPnUser(remote) || isLidUser(remote))) return null;
+  const content = normalizeMessageContent(msg.message);
+  if (!content || content.reactionMessage || content.protocolMessage) return null;
+  const text = messageText(msg);
+  if (text === null) return null;
+  const alt = key.remoteJidAlt ?? "";
+  const pnJid = isPnUser(remote) ? remote : isPnUser(alt) ? alt : null;
+  const lid = isLidUser(remote) ? remote : isLidUser(alt) ? alt : null;
+  return {
+    messageId: key.id,
+    senderPn: numberFromJid(pnJid),
+    senderLid: lid ? jidNormalizedUser(lid) : null,
+    text,
+  };
+}
+
 /** "905321112233" → "+90 532 *** ** 33" (arayüzde ve konsolda numara gizlenir). */
 export function maskNumber(num: string | null): string {
   if (!num) return "bilinmiyor";

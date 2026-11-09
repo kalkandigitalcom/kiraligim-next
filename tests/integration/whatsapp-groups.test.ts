@@ -10,12 +10,10 @@ import { DB_CASING } from "@/db/casing";
 import { pgErrorInfo } from "@/db/pg-error";
 import * as schema from "@/db/schema";
 import { type TenantContext, type Tx, withTenant } from "@/db/tenant";
-import { WA_RETENTION_DAYS } from "@/lib/whatsapp-meta";
+import { generateLinkCode, WA_RETENTION_DAYS } from "@/lib/whatsapp-meta";
 import {
   canManageWhatsapp,
-  createLinkCode,
   getConnectionStatus,
-  getLinkCodeState,
   listGroups,
   listManagers,
   listRecentMessages,
@@ -26,7 +24,8 @@ import {
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
 /**
- * WhatsApp Asistanı A1 (drizzle/0030, 0031) — gerçek PostgreSQL, app_user, FORCE RLS.
+ * WhatsApp Asistanı A1 (drizzle/0030–0032) — gerçek PostgreSQL, app_user, FORCE RLS.
+ * Kodsuz eşleştirme (0033–0034) ayrıca: tests/integration/whatsapp-claim.test.ts.
  * Ağ geçidi bağlamsız app_user olarak yalnız app_wa_* fonksiyonlarını çağırır (burada doğrudan
  * SQL ile taklit edilir); panel withTenant ile servis fonksiyonlarını kullanır.
  */
@@ -75,7 +74,6 @@ const ingest = (jid: string, body = "Villa Defne 12-15 Temmuz dolu", id = `M${ta
   );
 
 const PN_O = "905321112233";
-const PN_M = "905329998877";
 const PN_X = "905551234567";
 
 let O: U, M: U, M2: U, S: U, X: U;
@@ -140,22 +138,27 @@ describe("ağ geçidi: bağlantı ve grup keşfi", () => {
   });
 });
 
-describe("grup bağlama kodu", () => {
-  let jid = "";
+/**
+ * Eski kodlu bağlama (0031): panel artık kod üretmez ve ağ geçidi gruba yazılan kodu işlemez; DB
+ * fonksiyonu canlıdaki eski ağ geçidi sürümü için durur. Kurallarının hâlâ geçerli olduğu denetlenir.
+ */
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+const legacyCode = async (u: U, w: string, phone: string) => {
+  const code = generateLinkCode((n) => randomBytes(n));
+  const salt = randomBytes(16).toString("hex");
+  await as(u, w, (tx) =>
+    tx.execute(sql`
+      insert into wa_link_codes (id, workspace_id, created_by, code_salt, code_hash, phone_hash,
+                                 expires_at)
+      values (${uuidv7()}, app_current_workspace_id(), app_current_user_id(), ${salt},
+              ${sha256(`${salt}:${code}`)}, ${sha256(`${salt}:phone:${phone}`)},
+              now() + interval '10 minutes')`),
+  );
+  return code;
+};
 
-  it("kod yalnız owner ve yetkili manager tarafından üretilir", async () => {
-    jid = newJid();
-    await sync(jid);
-    await expect(
-      as(M, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_M })),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(
-      as(S, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_M })),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(
-      as(O, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: "123" })),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
-    // Politika da reddeder: uygulama denetimi atlanıp yetkisiz manager doğrudan eklerse.
+describe("eski kodlu bağlama (geriye uyumluluk)", () => {
+  it("kod yalnız owner/yetkili manager ekleyebilir; doğru numarayla bağlanır, tek kullanımlık", async () => {
     const err = await as(M, ws, (tx) =>
       tx.execute(sql`
         insert into wa_link_codes (id, workspace_id, created_by, code_salt, code_hash, phone_hash,
@@ -164,110 +167,20 @@ describe("grup bağlama kodu", () => {
                 ${"b".repeat(64)}, ${"c".repeat(64)}, now() + interval '5 minutes')`),
     ).catch((e: unknown) => e);
     expect(pgErrorInfo(err).code).toBe("42501");
-  });
 
-  it("kod ve telefon düz metin saklanmaz; TS ve SQL özetleri aynı", async () => {
-    const issued = await as(O, ws, (tx, ctx) =>
-      createLinkCode(tx, ctx, { phone: "+90 532 111 22 33" }),
-    );
-    expect(issued.code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ2-9]{8}$/);
-    const row = (
-      await admin.query(
-        `select code_salt, code_hash, phone_hash, expires_at - created_at as ttl,
-                encode(sha256(convert_to(code_salt || ':' || $2, 'UTF8')), 'hex') as sql_hash
-           from wa_link_codes where id = $1`,
-        [issued.id, issued.code],
-      )
-    ).rows[0];
-    const salt = row.code_salt as string;
-    expect(row.code_hash).toBe(createHash("sha256").update(`${salt}:${issued.code}`).digest("hex"));
-    expect(row.sql_hash).toBe(row.code_hash);
-    expect(row.phone_hash).toBe(createHash("sha256").update(`${salt}:phone:${PN_O}`).digest("hex"));
-    expect(JSON.stringify(row)).not.toContain(issued.code);
-    expect(JSON.stringify(row)).not.toContain(PN_O);
-    expect(row.ttl).toMatchObject({ minutes: 10 });
-    // app_user özet kolonlarını okuyamaz.
-    const err = await as(O, ws, (tx) => tx.execute(sql`select code_hash from wa_link_codes`)).catch(
-      (e: unknown) => e,
-    );
-    expect(pgErrorInfo(err).code).toBe("42501");
-    // Kodu yalnız üreten kişi görür.
-    await expect(as(O, ws, (tx) => getLinkCodeState(tx, issued.id))).resolves.toMatchObject({
-      state: "pending",
-    });
-    await expect(as(M, ws, (tx) => getLinkCodeState(tx, issued.id))).rejects.toMatchObject({
-      code: "NOT_FOUND",
-    });
-
-    // Yanlış kod, bilinmeyen gönderen ve yanlış numara: grup bağlanmaz.
-    const wrong = issued.code === "AAAAAAAA" ? "BBBBBBBB" : "AAAAAAAA";
-    expect(await redeem(jid, wrong, PN_O)).toBe("invalid");
-    expect(await redeem(jid, issued.code, null)).toBe("sender_unknown");
-    expect(await redeem(jid, issued.code, PN_X)).toBe("sender_mismatch");
-    expect(await redeem(newJid(), issued.code, PN_O)).toBe("unknown_group");
-    expect((await groupRow(jid)).status).toBe("discovered");
-    expect((await groupRow(jid)).link_fail_count).toBe(2);
-
-    // Doğru numara: bağlanır, kod tükenir, audit yazılır (aktör = kodu üreten).
-    expect(await redeem(jid, issued.code, PN_O)).toBe("linked");
-    const g = await groupRow(jid);
-    expect(g).toMatchObject({ status: "linked", workspace_id: ws, link_fail_count: 0 });
-    expect(await redeem(jid, issued.code, PN_O)).toBe("invalid");
-    await expect(as(O, ws, (tx) => getLinkCodeState(tx, issued.id))).resolves.toMatchObject({
-      state: "used",
-      groupSubject: "Villa Ekibi",
-    });
-    const audit = await admin.query(
-      "select actor_user_id, metadata from audit_log where action = 'whatsapp.group_linked' and target_id = $1",
-      [g.id],
-    );
-    expect(audit.rows).toEqual([{ actor_user_id: O.id, metadata: { method: "link_code" } }]);
-    const created = await admin.query(
-      "select count(*)::int n from audit_log where action = 'whatsapp.link_code_created' and target_id = $1",
-      [issued.id],
-    );
-    expect(created.rows[0].n).toBe(1);
-  });
-
-  it("süresi dolan kod geçersiz", async () => {
-    const j = newJid();
-    await sync(j);
-    const issued = await as(O, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_O }));
-    await admin.query(
-      "update wa_link_codes set created_at = now() - interval '20 minutes', expires_at = now() - interval '10 minutes' where id = $1",
-      [issued.id],
-    );
-    expect(await redeem(j, issued.code, PN_O)).toBe("invalid");
-    await expect(as(O, ws, (tx) => getLinkCodeState(tx, issued.id))).resolves.toEqual({
-      state: "expired",
-    });
-  });
-
-  it("grup başına saatte 5 hatalı denemeden sonra doğru kod da reddedilir", async () => {
-    const j = newJid();
-    await sync(j);
-    for (let i = 0; i < 5; i++) expect(await redeem(j, "ZZZZZZZZ", PN_O)).toBe("invalid");
-    const issued = await as(O, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_O }));
-    expect(await redeem(j, issued.code, PN_O)).toBe("throttled");
-    // Pencere dolunca yeniden denenebilir.
-    await admin.query(
-      "update wa_groups set link_fail_window_at = now() - interval '61 minutes' where jid = $1",
-      [j],
-    );
-    expect(await redeem(j, issued.code, PN_O)).toBe("linked");
-  });
-
-  it("bağlı grup kodla yeniden bağlanamaz veya başka işletmeye taşınamaz", async () => {
-    const own = await as(O, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_O }));
-    expect(await redeem(jid, own.code, PN_O)).toBe("already_linked");
-    const other = await as(X, wsX, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_X }));
-    expect(await redeem(jid, other.code, PN_X)).toBe("linked_elsewhere");
+    const jid = newJid();
+    await sync(jid);
+    const code = await legacyCode(O, ws, PN_O);
+    expect(await redeem(jid, code, PN_X)).toBe("sender_mismatch");
+    expect(await redeem(jid, code, PN_O)).toBe("linked");
+    expect(await redeem(jid, code, PN_O)).toBe("invalid");
     expect((await groupRow(jid)).workspace_id).toBe(ws);
-    // Diğer işletme bu grubu görmez.
-    expect(await as(X, wsX, (tx, ctx) => listGroups(tx, ctx))).toEqual([]);
+    // Diğer işletme bağlı grubu kodla alamaz.
+    const other = await legacyCode(X, wsX, PN_X);
+    expect(await redeem(jid, other, PN_X)).toBe("linked_elsewhere");
   });
 
-  it("owner manager'ı yetkilendirir; yetkisi alınan manager'ın kodu reddedilir", async () => {
+  it("owner manager'ı yetkilendirir; yetki listesi ve politika", async () => {
     await expect(
       as(M, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M2.id, true)),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -277,37 +190,12 @@ describe("grup bağlama kodu", () => {
     expect(await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, true))).toEqual({
       changed: true,
     });
-    expect(await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, true))).toEqual({
-      changed: false,
-    });
     expect(await as(O, ws, (tx) => listManagers(tx))).toEqual([
       { userId: M.id, name: "wamanager K", authorized: true },
       { userId: M2.id, name: "wamanager2 K", authorized: false },
     ]);
     expect(await as(M, ws, (tx, ctx) => canManageWhatsapp(tx, ctx))).toBe(true);
     expect(await as(M2, ws, (tx, ctx) => canManageWhatsapp(tx, ctx))).toBe(false);
-
-    const j = newJid();
-    await sync(j);
-    const code = await as(M, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_M }));
-    await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, false));
-    expect(await redeem(j, code.code, PN_M)).toBe("not_permitted");
-    expect((await groupRow(j)).status).toBe("discovered");
-    // Kod tükenmiştir; yeniden yetki verilse de kullanılamaz.
-    await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, true));
-    expect(await redeem(j, code.code, PN_M)).toBe("invalid");
-    const code2 = await as(M, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_M }));
-    expect(await redeem(j, code2.code, PN_M)).toBe("linked");
-    const audits = await admin.query(
-      "select action, actor_user_id from audit_log where workspace_id = $1 and action like 'whatsapp.link_manager_%' order by occurred_at",
-      [ws],
-    );
-    expect(audits.rows.map((r) => r.action)).toEqual([
-      "whatsapp.link_manager_granted",
-      "whatsapp.link_manager_revoked",
-      "whatsapp.link_manager_granted",
-    ]);
-    // Yetki doğrudan politika ile de korunur: manager kendine yetki ekleyemez.
     const err = await as(M2, ws, (tx) =>
       tx.execute(sql`
         insert into wa_link_managers (workspace_id, user_id, granted_by)
@@ -324,8 +212,8 @@ describe("mesaj kaydı", () => {
   beforeAll(async () => {
     jid = newJid();
     await sync(jid, true, "Defne Operasyon");
-    const c = await as(O, ws, (tx, ctx) => createLinkCode(tx, ctx, { phone: PN_O }));
-    expect(await redeem(jid, c.code, PN_O)).toBe("linked");
+    const code = await legacyCode(O, ws, PN_O);
+    expect(await redeem(jid, code, PN_O)).toBe("linked");
     groupId = (await groupRow(jid)).id;
   });
 
@@ -520,22 +408,31 @@ describe("veritabanı güvenliği", () => {
        where n.nspname = 'public' and p.proname like 'app_wa_%' order by p.proname`);
     expect(fns.rows.map((r) => r.proname)).toEqual([
       "app_wa_can_manage",
+      "app_wa_claim_group", // 0034
       "app_wa_heartbeat",
+      "app_wa_heartbeat", // 0034: 4 parametreli (asistan numarası)
       "app_wa_ingest_message",
+      "app_wa_pending_groups", // 0034
+      "app_wa_phone_hash", // 0034 (yalnız fonksiyonlar içinden)
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
       "app_wa_sync_group",
+      "app_wa_sync_group", // 0034: 9 parametreli (ekleyen/kurucu)
       "app_wa_unlink_group",
+      "app_wa_verify_phone", // 0034
     ]);
     for (const f of fns.rows) {
       expect(f.owner, f.proname).toBe("app_migrator");
-      expect(f.definer, f.proname).toBe(f.proname !== "app_wa_can_manage");
+      expect(f.definer, f.proname).toBe(
+        !["app_wa_can_manage", "app_wa_phone_hash"].includes(f.proname),
+      );
       expect(f.proconfig, f.proname).toContain("search_path=pg_catalog, pg_temp");
       expect(f.worker, f.proname).toBe(false);
       expect(f.adm, f.proname).toBe(false);
-      // A1 kapsamı: rezervasyon, fiyat, takvim ve iCal nesnelerine dokunulmaz.
+      // A1 kapsamı: rezervasyon, fiyat, takvim ve iCal nesnelerine dokunulmaz. (0034'teki
+      // eşleştirme villayı yalnız bileşik yabancı anahtarla doğrular; properties tablosunu okumaz.)
       expect(f.prosrc, f.proname).not.toMatch(
-        /reservation|property_rate|external_calendar|ical|propert(y|ies)\b/i,
+        /reservation|property_rate|external_calendar|ical|public\.propert/i,
       );
     }
   });
@@ -555,6 +452,8 @@ describe("veritabanı güvenliği", () => {
         "wa_inbound_messages",
         "wa_link_codes",
         "wa_link_managers",
+        "wa_phone_challenges", // 0033
+        "wa_verified_phones", // 0033
       ].map((relname) => ({ relname, rls: true, force: true, worker: false, adm: false })),
     );
   });

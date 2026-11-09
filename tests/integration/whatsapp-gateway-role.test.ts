@@ -7,7 +7,8 @@ import { runWaGatewayRole } from "./psql";
 
 /**
  * scripts/wa-gateway-role.sql: WhatsApp ağ geçidinin ayrı rolü (app_wa_gateway). Gerçek psql ile
- * çalıştırılır. Rol yalnız beş app_wa_* fonksiyonunu çalıştırabilmeli; hiçbir tabloyu okuyamamalı.
+ * çalıştırılır. Rol yalnız ağ geçidi app_wa_* fonksiyonlarını çalıştırabilmeli (A1.1: eski kodlu
+ * bağlama ve panel fonksiyonları hariç); hiçbir tabloyu okuyamamalı.
  * Rol küme genelinde olduğu için test sonunda yetkileri geri alınıp rol silinir (diğer testlerin
  * yetki listeleri etkilenmesin).
  */
@@ -43,10 +44,13 @@ afterAll(async () => {
       if exists (select 1 from pg_roles where rolname = 'app_wa_gateway') then
         revoke execute on function
           public.app_wa_heartbeat(text, text, text),
+          public.app_wa_heartbeat(text, text, text, text),
           public.app_wa_sync_group(uuid, text, text, integer, boolean, boolean, boolean),
+          public.app_wa_sync_group(uuid, text, text, integer, boolean, boolean, boolean, text, text),
           public.app_wa_redeem_link_code(uuid, text, text, text),
           public.app_wa_ingest_message(uuid, text, text, text, text, text, text, timestamptz, text),
-          public.app_wa_purge_messages(integer)
+          public.app_wa_purge_messages(integer),
+          public.app_wa_verify_phone(text, text)
           from app_wa_gateway;
         revoke usage on schema public from app_wa_gateway;
         execute format('revoke connect on database %I from app_wa_gateway', current_database());
@@ -100,7 +104,7 @@ describe("app_wa_gateway rol betiği", () => {
     });
 
     // Hiçbir tablo, görünüm veya dizide yetkisi yok; uygulama fonksiyonlarından (app_*) yalnız
-    // beşinde EXECUTE (btree_gist gibi eklenti fonksiyonları PUBLIC'tir; veri erişimi vermez).
+    // ağ geçidi fonksiyonlarında EXECUTE (btree_gist gibi eklenti fonksiyonları PUBLIC'tir; veri erişimi vermez).
     const tables = await admin.query(`
       select c.relname from pg_class c
        where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'v', 'm', 'S', 'p')
@@ -116,10 +120,12 @@ describe("app_wa_gateway rol betiği", () => {
        order by 1`);
     expect(fns.rows.map((r) => r.proname)).toEqual([
       "app_wa_heartbeat",
+      "app_wa_heartbeat",
       "app_wa_ingest_message",
       "app_wa_purge_messages",
-      "app_wa_redeem_link_code",
       "app_wa_sync_group",
+      "app_wa_sync_group",
+      "app_wa_verify_phone",
     ]);
   });
 
@@ -148,14 +154,36 @@ describe("app_wa_gateway rol betiği", () => {
         )
       ).rows[0].s,
     ).toBe("ignored");
+    // A1.1: yeni sürümler (4 parametreli kalp atışı, ekleyenli keşif, numara doğrulama).
     expect(
       (
-        await gw.query("select public.app_wa_redeem_link_code($1, $2, 'ABCDEFGH', null) as s", [
-          conn,
-          jid,
-        ])
+        await gw.query(
+          "select public.app_wa_heartbeat('rol-testi', 'open', null, '905350000000') as id",
+        )
+      ).rows[0].id,
+    ).toBe(conn);
+    expect(
+      (
+        await gw.query(
+          "select public.app_wa_sync_group($1, $2, 'Rol Testi', 3, false, false, true, '905399999901', null) as s",
+          [conn, jid],
+        )
       ).rows[0].s,
+    ).toBe("discovered");
+    expect(
+      (await gw.query("select public.app_wa_verify_phone('ABCDEFGH', null) as s")).rows[0].s,
     ).toBe("invalid");
+    // Eski kodlu bağlama ve panel fonksiyonları ağ geçidine kapalı.
+    for (const q of [
+      ["select public.app_wa_redeem_link_code($1, $2, 'ABCDEFGH', null)", [conn, jid]],
+      ["select * from public.app_wa_pending_groups()", []],
+      ["select public.app_wa_claim_group(gen_random_uuid(), gen_random_uuid())", []],
+      ["select public.app_wa_phone_hash('905399999901')", []],
+      ["select * from wa_verified_phones", []],
+      ["select * from wa_phone_challenges", []],
+    ] as const) {
+      expect([q[0], await code(gw.query(q[0], [...q[1]]))]).toEqual([q[0], "42501"]);
+    }
     expect(typeof (await gw.query("select public.app_wa_purge_messages(90) as n")).rows[0].n).toBe(
       "number",
     );

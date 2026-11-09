@@ -14,14 +14,29 @@ import {
   canManageWhatsapp,
   canViewWhatsappMessages,
   getConnectionStatus,
+  getMyPhone,
   listGroups,
   listManagers,
+  listPendingGroups,
+  listPropertyOptions,
   listRecentMessages,
 } from "@/server/whatsapp/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
-import { setGroupSuspendedAction, setManagerAuthorizedAction, unlinkGroupAction } from "./actions";
-import { ActionButton, LinkGroupPanel, UnlinkButton } from "./whatsapp-components";
+import {
+  removeMyPhoneAction,
+  setGroupPropertyAction,
+  setGroupSuspendedAction,
+  setManagerAuthorizedAction,
+  unlinkGroupAction,
+} from "./actions";
+import {
+  ActionButton,
+  ClaimGroupForm,
+  GroupPropertyForm,
+  PhoneVerifyPanel,
+  UnlinkButton,
+} from "./whatsapp-components";
 
 export const metadata: Metadata = { title: "WhatsApp Asistanı" };
 
@@ -39,8 +54,17 @@ const NOTICES: Record<string, { tone: "success" | "info"; text: string }> = {
     tone: "success",
     text: "Grubun bağlantısı kesildi ve kayıtlı mesajları silindi.",
   },
-  "yetki-verildi": { tone: "success", text: "Yöneticiye grup bağlama yetkisi verildi." },
-  "yetki-kaldirildi": { tone: "success", text: "Yöneticinin grup bağlama yetkisi kaldırıldı." },
+  "yetki-verildi": { tone: "success", text: "Yöneticiye grup eşleştirme yetkisi verildi." },
+  "yetki-kaldirildi": { tone: "success", text: "Yöneticinin grup eşleştirme yetkisi kaldırıldı." },
+  eslestirildi: {
+    tone: "success",
+    text: "Grup villayla eşleştirildi ve aktif; mesajları kaydedilmeye başlandı.",
+  },
+  "villa-degisti": { tone: "success", text: "Grubun villası güncellendi." },
+  "numara-kaldirildi": {
+    tone: "info",
+    text: "Doğrulanmış numaranız kaldırıldı. Bağlı gruplar etkilenmez.",
+  },
 };
 
 const TIME_FMT = new Intl.DateTimeFormat("tr-TR", {
@@ -67,8 +91,11 @@ function minutesAgo(d: Date | null): string {
 
 /**
  * WhatsApp Asistanı — A1: grup kaydı ve mesaj kuyruğu (yalnız okuma). Takvim, fiyat veya
- * rezervasyon işlemi yapılmaz. Tüm üyeler grupları görür; mesajları owner ve manager görür;
- * bağlama/askıya alma/bağlantı kesme owner ve owner'ın yetkilendirdiği manager'dadır.
+ * rezervasyon işlemi yapılmaz. Tüm üyeler bağlı grupları görür; mesajları owner ve manager görür;
+ * eşleştirme/askıya alma/bağlantı kesme owner ve owner'ın yetkilendirdiği manager'dadır.
+ *
+ * A1.1 kodsuz eşleştirme: kullanıcı numarasını bir kez doğrular (asistana özel mesaj); asistanı
+ * eklediği gruplar "Bekleyen gruplar"da görünür ve bir villa seçilerek eşleştirilir.
  */
 export default async function WhatsAppPage({ searchParams }: Props) {
   const sp = await searchParams;
@@ -78,18 +105,38 @@ export default async function WhatsAppPage({ searchParams }: Props) {
     const selected = canView
       ? groups.find((g) => g.id === one(sp.grup) && g.status !== "discovered")
       : undefined;
+    const canManage = await canManageWhatsapp(tx, ctx);
     return {
       role: ctx.role,
-      canManage: await canManageWhatsapp(tx, ctx),
+      canManage,
       canView,
       connection: await getConnectionStatus(tx),
       groups,
       selected,
       messages: selected ? await listRecentMessages(tx, ctx, selected.id) : [],
       managers: ctx.role === "owner" ? await listManagers(tx) : [],
+      myPhone: canManage ? await getMyPhone(tx) : null,
+      pending: canManage ? await listPendingGroups(tx, ctx) : [],
+      properties: canManage ? await listPropertyOptions(tx) : [],
     };
   });
-  const { role, canManage, canView, connection, groups, selected, messages, managers } = view;
+  const {
+    role,
+    canManage,
+    canView,
+    connection,
+    groups,
+    selected,
+    messages,
+    managers,
+    myPhone,
+    pending,
+    properties,
+  } = view;
+  const propertyOptions = properties.map((p) => ({
+    value: p.id,
+    label: p.active ? p.name : `${p.name} (pasif)`,
+  }));
   const notice = NOTICES[one(sp.durum) ?? ""];
   const online = connection.status === "open" && !connection.stale;
 
@@ -100,8 +147,9 @@ export default async function WhatsAppPage({ searchParams }: Props) {
           WhatsApp Asistanı
         </h1>
         <p className="mt-1 text-[15px] text-muted-foreground">
-          Kiraligim asistan numarasının bulunduğu WhatsApp gruplarını işletmenize bağlayın. Bu
-          aşamada mesajlar yalnız kaydedilir; takvim veya fiyat işlemi yapılmaz.
+          Kiraligim asistan numarasını WhatsApp grubunuza ekleyin, ardından grubu buradan bir
+          villayla eşleştirin. Gruba kod veya komut yazmanız gerekmez. Bu aşamada mesajlar yalnız
+          kaydedilir; takvim veya fiyat işlemi yapılmaz.
         </p>
       </div>
 
@@ -131,7 +179,111 @@ export default async function WhatsAppPage({ searchParams }: Props) {
         <span className="text-current/80">Son görülme: {minutesAgo(connection.lastSeenAt)}</span>
       </section>
 
-      {/* ── Gruplar ── */}
+      {/* ── Numara doğrulama ve bekleyen gruplar (owner / yetkili manager) ── */}
+      {canManage ? (
+        <section
+          aria-labelledby="wa-pending-title"
+          className="flex flex-col gap-4 rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6"
+          data-testid="wa-pending-section"
+        >
+          <div>
+            <h2 id="wa-pending-title" className="font-semibold text-navy-900">
+              Bekleyen gruplar{" "}
+              <span className="font-normal text-muted-foreground">({pending.length})</span>
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Kiraligim asistanını eklediğiniz (veya kurduğunuz) ve henüz hiçbir hesaba bağlı
+              olmayan gruplar. Eşleştirilene kadar grubun mesajları kaydedilmez.
+            </p>
+          </div>
+
+          {myPhone ? (
+            <div
+              className="border-turquoise-200 text-turquoise-900 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-turquoise-50/60 px-4 py-3 text-sm"
+              data-testid="wa-my-phone"
+            >
+              <span>
+                Doğrulanmış numaranız: <strong>{myPhone.masked}</strong>
+              </span>
+              <ActionButton
+                action={removeMyPhoneAction}
+                label="Numarayı kaldır"
+                pendingLabel="Kaldırılıyor…"
+                ariaLabel="Doğrulanmış numaramı kaldır"
+                testId="wa-my-phone-remove"
+              />
+            </div>
+          ) : (
+            <div
+              className="flex flex-col gap-3 rounded-xl border border-border bg-mist/60 p-4"
+              data-testid="wa-verify"
+            >
+              <p className="text-sm text-navy-900">
+                Hangi grupların size ait olduğunu bilebilmemiz için WhatsApp numaranızı{" "}
+                <strong>bir kez</strong> doğrulayın: asistana özel bir mesaj gönderirsiniz (gruba
+                değil). Numaranız düz metin saklanmaz.
+              </p>
+              <PhoneVerifyPanel />
+            </div>
+          )}
+
+          {myPhone && pending.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border px-5 py-6 text-center text-sm">
+              <p className="font-semibold text-navy-900">Bekleyen grup yok.</p>
+              <p className="mt-1 text-muted-foreground">
+                Kiraligim asistan numarasını WhatsApp grubunuza{" "}
+                <strong>doğrulanmış numaranızdan</strong> ekleyin; grup birkaç saniye içinde burada
+                görünür (sayfayı yenileyin).
+              </p>
+            </div>
+          ) : null}
+
+          {pending.length > 0 ? (
+            <ul
+              className="flex flex-col gap-3"
+              aria-label="Bekleyen gruplar"
+              data-testid="wa-pending"
+            >
+              {pending.map((g) => {
+                const name = g.subject ?? "(adsız grup)";
+                return (
+                  <li
+                    key={g.id}
+                    className="flex flex-col gap-3 rounded-xl border border-border p-4"
+                    data-testid="wa-pending-group"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-navy-900">{name}</p>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                          {g.participantCount} katılımcı · keşfedildi {fmt(g.discoveredAt)} ·{" "}
+                          {g.match === "added_by" ? "asistanı siz eklediniz" : "grubu siz kurdunuz"}
+                        </p>
+                      </div>
+                    </div>
+                    {propertyOptions.length === 0 ? (
+                      <Alert tone="info">
+                        Eşleştirmek için önce hesabınıza bir villa ekleyin.{" "}
+                        <Link href="/villalar/yeni" className="font-medium underline">
+                          Villa ekle
+                        </Link>
+                      </Alert>
+                    ) : (
+                      <ClaimGroupForm
+                        groupId={g.id}
+                        groupName={name}
+                        properties={propertyOptions}
+                      />
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* ── Bağlı gruplar ── */}
       <section
         aria-labelledby="wa-groups-title"
         className="flex flex-col gap-4 rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6"
@@ -139,7 +291,8 @@ export default async function WhatsAppPage({ searchParams }: Props) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 id="wa-groups-title" className="font-semibold text-navy-900">
-              Gruplar <span className="font-normal text-muted-foreground">({groups.length})</span>
+              Bağlı gruplar{" "}
+              <span className="font-normal text-muted-foreground">({groups.length})</span>
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Yalnız bağlı ve aktif grupların metin mesajları kaydedilir ve {WA_RETENTION_DAYS} gün
@@ -148,18 +301,19 @@ export default async function WhatsAppPage({ searchParams }: Props) {
           </div>
         </div>
 
-        {canManage ? (
-          <LinkGroupPanel />
-        ) : (
+        {!canManage ? (
           <Alert tone="info">
-            Grupları görüntüleyebilirsiniz; grup bağlama ve yönetme işletme sahibinde ve onun
+            Grupları görüntüleyebilirsiniz; grup eşleştirme ve yönetme işletme sahibinde ve onun
             yetkilendirdiği yöneticilerdedir.
           </Alert>
-        )}
+        ) : null}
 
         {groups.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border px-5 py-8 text-center">
             <p className="font-semibold text-navy-900">Henüz bağlı grup yok.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Bekleyen bir grubu villayla eşleştirdiğinizde burada görünür.
+            </p>
           </div>
         ) : (
           <ul className="flex flex-col gap-3" aria-label="Gruplar" data-testid="wa-groups">
@@ -174,6 +328,9 @@ export default async function WhatsAppPage({ searchParams }: Props) {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-navy-900">{name}</p>
+                      <p className="mt-0.5 text-sm text-navy-900" data-testid="wa-group-property">
+                        Villa: {g.propertyName ?? "seçilmedi"}
+                      </p>
                       <p className="mt-0.5 text-sm text-muted-foreground">
                         {g.participantCount} katılımcı
                         {g.messages7d != null ? ` · son 7 gün ${g.messages7d} mesaj` : ""}
@@ -218,6 +375,15 @@ export default async function WhatsAppPage({ searchParams }: Props) {
                           pendingLabel="Kaydediliyor…"
                           ariaLabel={`${g.status === "linked" ? "Askıya al" : "Devam ettir"}: ${name}`}
                           testId="wa-group-toggle"
+                        />
+                      ) : null}
+                      {canManage && propertyOptions.length > 0 && g.status !== "left" ? (
+                        <GroupPropertyForm
+                          action={setGroupPropertyAction.bind(null, g.id)}
+                          groupId={g.id}
+                          current={g.propertyId}
+                          groupName={name}
+                          properties={propertyOptions}
                         />
                       ) : null}
                       {canManage ? (
@@ -273,11 +439,11 @@ export default async function WhatsAppPage({ searchParams }: Props) {
         >
           <div>
             <h2 id="wa-managers-title" className="font-semibold text-navy-900">
-              Grup bağlama yetkisi
+              Grup eşleştirme yetkisi
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               İşletme sahibi her zaman yetkilidir. Yöneticiler ancak burada yetkilendirilirse grup
-              bağlayabilir, askıya alabilir veya bağlantıyı kesebilir.
+              eşleştirebilir, askıya alabilir veya bağlantıyı kesebilir.
             </p>
           </div>
           {managers.length === 0 ? (

@@ -5,8 +5,10 @@
  *  - Bu modülde metin mesajı gönderen kod YOKTUR; tek dışa yazım emoji tepkisidir.
  *  - QR ve oturum anahtarları günlüğe yazılmaz; QR yalnız bellekte tutulur, yerel arayüzde gösterilir.
  *
- * A1 biçimi (veritabanı tanımlı): grupları keşfedip kaydeder, bağlama kodunu doğrulatır (başarıda ✅),
- * yalnız bağlı grupların metin mesajlarını kaydeder (tekil), saatte bir saklama süresini uygular.
+ * A1 biçimi (veritabanı tanımlı): grupları keşfedip kaydeder (asistanı ekleyen kişi ve grup kurucusu
+ * numaralarıyla; veritabanı yalnız özetini saklar), yalnız bağlı grupların metin mesajlarını kaydeder
+ * (tekil), saatte bir saklama süresini uygular. Gruplara kod YAZILMAZ: kullanıcı numarasını bir kez
+ * asistana ÖZEL mesajla doğrular (başarıda o mesaja ✅); grup eşleştirmesi panelden yapılır.
  * Mesaj içeriği ve numara günlüğe yazılmaz. Takvim, fiyat veya rezervasyon işlemi YOKTUR.
  *
  * Faz 1 test biçimi (veritabanı yok): test grubunun mesajını konsola yazar, tepki bırakır.
@@ -18,6 +20,7 @@ import makeWASocket, {
   Browsers,
   fetchLatestBaileysVersion,
   isJidBroadcast,
+  isJidGroup,
   isJidNewsletter,
   isJidStatusBroadcast,
   makeCacheableSignalKeyStore,
@@ -29,6 +32,7 @@ import makeWASocket, {
 
 import { authDirProblem, type Config } from "./config.ts";
 import {
+  extractDirectMessage,
   extractGroupMessage,
   type InboundGroupMessage,
   istanbulTime,
@@ -36,8 +40,11 @@ import {
   numberFromJid,
 } from "./extract.ts";
 import {
+  groupPeople,
   type GroupMetaLike,
-  parseLinkMessage,
+  parseVerifyMessage,
+  personOf,
+  selfAdded,
   selfIds,
   selfRemoved,
   toGroupSync,
@@ -48,7 +55,8 @@ import type { ConnectionStatus, WaStore } from "./store.ts";
 
 /** Saklama süresi (gün); src/lib/whatsapp-meta.ts WA_RETENTION_DAYS ile aynı. */
 export const RETENTION_DAYS = 90;
-const LINK_REACTION = "✅";
+/** Tek dışa yazım: başarılı numara doğrulama mesajına tepki. */
+const VERIFY_REACTION = "✅";
 
 export type GatewayStatus = "starting" | "qr" | "connecting" | "open" | "reconnecting" | "stopped";
 
@@ -71,7 +79,8 @@ export type GatewayStats = {
   stored: number;
   duplicate: number;
   ignored: number;
-  linked: number;
+  /** Doğrulanan numara sayısı (özel mesajla gelen kod). */
+  verified: number;
   rejectedCodes: number;
   errors: number;
 };
@@ -102,7 +111,7 @@ export class WaGateway {
     stored: 0,
     duplicate: 0,
     ignored: 0,
-    linked: 0,
+    verified: 0,
     rejectedCodes: 0,
     errors: 0,
   };
@@ -130,7 +139,8 @@ export class WaGateway {
   }
 
   private heartbeat(status: ConnectionStatus, errorCode: string | null = null) {
-    void this.db("heartbeat", (s) => s.heartbeat(status, errorCode));
+    const accountPn = this.account;
+    void this.db("heartbeat", (s) => s.heartbeat(status, errorCode, accountPn));
   }
 
   private note(kind: GatewayEvent["kind"], text: string) {
@@ -198,10 +208,17 @@ export class WaGateway {
     sock.ev.on("messages.upsert", ({ messages, type }) => {
       // A1: kesinti sonrası birikim ("append") de kaydedilir ama "backlog" olarak işaretlenir.
       if (type !== "notify" && !(this.store && type === "append")) return;
-      for (const msg of messages) void this.onMessage(sock, msg, type === "append");
+      for (const msg of messages) {
+        if (this.store && !isJidGroup(msg.key?.remoteJid ?? "")) {
+          void this.onDirectMessage(sock, msg);
+        } else {
+          void this.onMessage(sock, msg, type === "append");
+        }
+      }
     });
 
     if (this.store) {
+      // Gruba katılım: bildirim meta verisi asistanı EKLEYEN kişiyi (author) içerir.
       sock.ev.on("groups.upsert", (metas) => {
         for (const meta of metas) void this.syncGroup(sock, meta);
       });
@@ -209,8 +226,11 @@ export class WaGateway {
         for (const u of updates) if (u.id) void this.refreshGroup(sock, u.id);
       });
       sock.ev.on("group-participants.update", (ev) => {
-        if (selfRemoved(ev.action, ev.participants, selfIds(sock.user))) {
+        const self = selfIds(sock.user);
+        if (selfRemoved(ev.action, ev.participants, self)) {
           void this.markLeft(ev.id);
+        } else if (selfAdded(ev.action, ev.participants, self)) {
+          void this.refreshGroup(sock, ev.id, personOf(ev.author, ev.authorPn));
         } else {
           void this.refreshGroup(sock, ev.id);
         }
@@ -313,9 +333,34 @@ export class WaGateway {
 
   /* ── A1: grup keşfi ─────────────────────────────────────────────────── */
 
-  private async syncGroup(sock: WASocket, meta: GroupMetaLike, present = true) {
+  /** Kişinin numarası: biliniyorsa doğrudan, yalnız gizli kimlik (LID) varsa eşleme tablosundan. */
+  private async resolvePn(
+    sock: WASocket,
+    person: { pn: string | null; lid: string | null },
+  ): Promise<string | null> {
+    if (person.pn || !person.lid) return person.pn;
+    try {
+      return numberFromJid(await sock.signalRepository.lidMapping.getPNForLID(person.lid));
+    } catch {
+      return null;
+    }
+  }
+
+  private async syncGroup(
+    sock: WASocket,
+    meta: GroupMetaLike,
+    present = true,
+    addedBy?: { pn: string | null; lid: string | null },
+  ) {
     const g = toGroupSync(meta, selfIds(sock.user));
-    const status = await this.db("sync_group", (s) => s.syncGroup({ ...g, present }));
+    const people = groupPeople(meta);
+    const [addedByPn, ownerPn] = await Promise.all([
+      this.resolvePn(sock, addedBy ?? people.addedBy),
+      this.resolvePn(sock, people.owner),
+    ]);
+    const status = await this.db("sync_group", (s) =>
+      s.syncGroup({ ...g, present, addedByPn, ownerPn }),
+    );
     const prev = this.groups.get(g.jid);
     this.groups.set(g.jid, {
       jid: g.jid,
@@ -326,9 +371,13 @@ export class WaGateway {
     });
   }
 
-  private async refreshGroup(sock: WASocket, jid: string) {
+  private async refreshGroup(
+    sock: WASocket,
+    jid: string,
+    addedBy?: { pn: string | null; lid: string | null },
+  ) {
     try {
-      await this.syncGroup(sock, await sock.groupMetadata(jid));
+      await this.syncGroup(sock, await sock.groupMetadata(jid), true, addedBy);
     } catch {
       /* grup meta verisi alınamadı (ör. gruptan çıkarıldı); bir sonraki olayda tekrar denenir */
     }
@@ -460,8 +509,8 @@ export class WaGateway {
   }
 
   /**
-   * A1: bağlama kodu → doğrulama (yalnız başarıda ✅); diğer metin → kayıt (veritabanı yalnız bağlı
-   * ve aktif grubun mesajını saklar). Bağlı olmayan grubun metni hiçbir yere yazılmaz.
+   * A1: grup metni → kayıt (veritabanı yalnız bağlı ve aktif grubun mesajını saklar). Bağlı olmayan
+   * grubun metni hiçbir yere yazılmaz. Gruba yazılan kodlar artık İŞLENMEZ (kodsuz eşleştirme).
    */
   private async onA1Message(
     sock: WASocket,
@@ -470,22 +519,6 @@ export class WaGateway {
     backlog: boolean,
   ) {
     const senderPn = await this.resolveSender(sock, m);
-    const code = parseLinkMessage(m.text);
-    if (code) {
-      if (backlog) return; // eski kod mesajları işlenmez
-      const out = await this.db("redeem", (s) => s.redeemLinkCode(m.groupJid, code, senderPn));
-      if (out === "linked") {
-        this.stats.linked += 1;
-        const g = this.groups.get(m.groupJid);
-        if (g) g.dbStatus = "linked";
-        this.note("info", `Grup bir işletmeye bağlandı: ${m.groupJid}.`);
-        await this.sendReaction(sock, msg, LINK_REACTION, m.messageId);
-      } else if (out) {
-        this.stats.rejectedCodes += 1;
-        this.note("info", `Bağlama kodu kabul edilmedi (${out}): ${m.groupJid}.`);
-      }
-      return;
-    }
     const out = await this.db("ingest", (s) =>
       s.ingest({
         groupJid: m.groupJid,
@@ -505,6 +538,29 @@ export class WaGateway {
         g.count += 1;
         g.lastAt = m.sentAt;
       }
+    }
+  }
+
+  /**
+   * A1.1: asistana ÖZEL mesaj. Yalnız tam "kiraligim doğrula XXXX-XXXX" mesajı işlenir: gönderenin
+   * numarası (WhatsApp'ın bildirdiği) kodu üreten kullanıcıya doğrulanmış numara olarak bağlanır;
+   * başarıda o mesaja ✅. Başka özel mesajlar okunmaz, saklanmaz, günlüğe yazılmaz, yanıtlanmaz.
+   */
+  private async onDirectMessage(sock: WASocket, msg: WAMessage) {
+    const m = extractDirectMessage(msg);
+    if (!m) return;
+    const code = parseVerifyMessage(m.text);
+    if (!code) return;
+    if (!this.seen.add(`dm|${m.messageId}`)) return;
+    const senderPn = await this.resolvePn(sock, { pn: m.senderPn, lid: m.senderLid });
+    const out = await this.db("verify_phone", (s) => s.verifyPhone(code, senderPn));
+    if (out === "verified") {
+      this.stats.verified += 1;
+      this.note("info", `Numara doğrulandı: ${maskNumber(senderPn)}.`);
+      await this.sendReaction(sock, msg, VERIFY_REACTION, m.messageId);
+    } else if (out) {
+      this.stats.rejectedCodes += 1;
+      this.note("info", `Doğrulama kodu kabul edilmedi (${out}).`);
     }
   }
 

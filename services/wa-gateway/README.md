@@ -39,9 +39,9 @@ npm start                 # http://localhost:4010
 ## A1 biçimi: grup kaydı ve mesaj kuyruğu
 
 Yalnız okuma. AI analizi, takvim, fiyat, rezervasyon ve iCal işlemi yoktur; metin mesajı gönderilmez.
-Tek tepki: başarılı grup bağlamada bağlama kodu mesajına ✅.
+Gruplara kod yazılmaz. Tek tepki: asistana özel mesajla gelen başarılı numara doğrulamasına ✅.
 
-1. Ana uygulamada migration'lar (0030, 0031) **geliştirme** veritabanına uygulanmış olmalı
+1. Ana uygulamada migration'lar (0030–0034) **geliştirme** veritabanına uygulanmış olmalı
    (Coolify → `lp-dev-web` redeploy; açılışta `node dist/migrate.js`). Production'a dokunmayın.
 2. Geliştirme veritabanına Mac'ten erişim (ör. SSH tüneli ile yerel bir porta). `.env` içinde:
    `WA_ALLOWED_NUMBER=<test numarası>`, `WA_DATABASE_URL=postgres://app_user:…@127.0.0.1:<port>/<dev-db>`.
@@ -49,13 +49,14 @@ Tek tepki: başarılı grup bağlamada bağlama kodu mesajına ✅.
    Ardından bağlantı denenir (adres/parola yazılmaz).
 3. `npm start` → arayüzde "Biçim: A1". Bağlanınca katıldığı tüm gruplar veritabanına "bağlı değil"
    olarak kaydedilir; hiçbir işletmeye görünmez, mesajları saklanmaz.
-4. Panelde **WhatsApp Asistanı → Grup bağla**: owner (veya owner'ın yetkilendirdiği manager) kendi
-   WhatsApp numarasını girer, 10 dakikalık tek kullanımlık kod alır.
-5. Aynı numaradan gruba yalnız `kiraligim XXXX-XXXX` yazılır. Kod geçerli, numara aynı ve kişi hâlâ
-   yetkiliyse grup işletmeye bağlanır ve mesaja ✅ bırakılır; aksi hâlde sessizce reddedilir (grup
-   başına saatte en fazla 5 hatalı deneme).
-6. Sonraki mesajlar panelde "Son mesajlar"da görünür (owner ve manager). Askıya alınan veya bağlantısı
-   kesilen grubun mesajı saklanmaz; bağlantı kesilince eski mesajlar silinir.
+4. Panelde **WhatsApp Asistanı → Numaramı doğrula** (bir kez): owner veya yetkili manager
+   "WhatsApp'ta aç" ile asistana `kiraligim doğrula XXXX-XXXX` özel mesajını gönderir. Ağ geçidi
+   gönderen numarasını doğrular ve mesaja ✅ bırakır. Başka özel mesajlar okunmaz/saklanmaz.
+5. Villa sahibi asistan numarasını **doğrulanmış numarasından** gruba ekler. Ağ geçidi katılımı algılar,
+   ekleyen kişinin ve kurucunun numara özetiyle grubu "bağlı değil" kaydeder.
+6. Panelde **Bekleyen gruplar** → Eşleştir → villa seç → Kaydet. Grup aktif olur; sonraki mesajlar
+   "Son mesajlar"da görünür (owner ve manager). Askıya alınan veya bağlantısı kesilen grubun mesajı
+   saklanmaz; bağlantı kesilince eski mesajlar silinir.
 
 Ağ geçidi tablolara doğrudan yazamaz; yalnız `app_wa_*` veritabanı fonksiyonlarını çağırır.
 Mesaj metni, numara ve kod günlüğe yazılmaz. Saatte bir 90 günden eski mesajlar silinir.

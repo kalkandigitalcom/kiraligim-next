@@ -129,10 +129,18 @@ export const AUDIT_ACTIONS = {
     property: z.uuid(),
     fields: z.array(z.enum(RESERVATION_AUDIT_FIELDS)).min(1),
   }),
-  // WhatsApp Asistanı (A1): grup adı, telefon, kod ve mesaj içeriği yazılmaz. group_linked ve
-  // group_unlinked kayıtlarını veritabanı fonksiyonları yazar (drizzle/0031); burada listelenir.
+  // WhatsApp Asistanı (A1): grup adı, telefon, kod ve mesaj içeriği yazılmaz. group_linked,
+  // group_unlinked ve phone_verified kayıtlarını veritabanı fonksiyonları yazar (drizzle/0031,
+  // 0034); burada listelenir. link_code_created ve method "link_code" eski kodlu bağlamadandır.
   "whatsapp.link_code_created": z.strictObject({}),
-  "whatsapp.group_linked": z.strictObject({ method: z.literal("link_code") }),
+  "whatsapp.group_linked": z.union([
+    z.strictObject({ method: z.literal("link_code") }),
+    z.strictObject({ method: z.literal("claim"), property: z.uuid() }),
+  ]),
+  "whatsapp.group_property_changed": z.strictObject({ property: z.uuid() }),
+  "whatsapp.phone_verification_created": z.strictObject({}),
+  "whatsapp.phone_verified": z.strictObject({}),
+  "whatsapp.phone_removed": z.strictObject({}),
   "whatsapp.group_suspended": z.strictObject({}),
   "whatsapp.group_resumed": z.strictObject({}),
   "whatsapp.group_unlinked": z.strictObject({}),

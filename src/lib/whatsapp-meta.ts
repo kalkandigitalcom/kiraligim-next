@@ -7,27 +7,31 @@
 /** Mesajların saklama süresi (gün). Süre dolunca mesaj satırı tümüyle silinir. */
 export const WA_RETENTION_DAYS = 90;
 
-/** Grup bağlama kodu: 10 dakika geçerli, tek kullanımlık. */
+/** Numara doğrulama kodu: 10 dakika geçerli, tek kullanımlık (asistana ÖZEL mesajla gönderilir). */
 export const WA_LINK_CODE_TTL_MINUTES = 10;
 
 /** Karışıklığa yol açan karakterler (0/O, 1/I) yok: 32 harf → 8 karakterde ~1,1 × 10^12. */
 export const WA_LINK_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const WA_LINK_CODE_LENGTH = 8;
 
-/** Gruba yazılacak tam mesaj: "kiraligim 7Q4M-2XKD" (büyük/küçük harf ve tire isteğe bağlı). */
-const LINK_MESSAGE_RE = /^\s*k[ıiİI]ral[ıiİI][gğĞ][ıiİI]m\s+([a-z2-9]{4})-?([a-z2-9]{4})\s*$/i;
+/**
+ * Asistana özel mesajla gönderilecek tam metin: "kiraligim doğrula 7Q4M-2XKD" ("doğrula", büyük/küçük
+ * harf ve tire isteğe bağlı). Gruplara kod YAZILMAZ (kodsuz eşleştirme).
+ */
+const VERIFY_MESSAGE_RE =
+  /^\s*k[ıiİI]ral[ıiİI][gğĞ][ıiİI]m\s+(?:do[gğĞ]rula\s+)?([a-z2-9]{4})-?([a-z2-9]{4})\s*$/i;
 
 export function formatLinkCode(raw: string): string {
   return `${raw.slice(0, 4)}-${raw.slice(4, 8)}`;
 }
 
-export function linkMessage(raw: string): string {
-  return `kiraligim ${formatLinkCode(raw)}`;
+export function verifyMessage(raw: string): string {
+  return `kiraligim doğrula ${formatLinkCode(raw)}`;
 }
 
-/** Mesajın tamamı bağlama kodu mu? Evet ise normalize kodu (8 büyük harf) döner. */
-export function parseLinkMessage(text: string): string | null {
-  const m = LINK_MESSAGE_RE.exec(text);
+/** Mesajın tamamı doğrulama kodu mu? Evet ise normalize kodu (8 büyük harf) döner. */
+export function parseVerifyMessage(text: string): string | null {
+  const m = VERIFY_MESSAGE_RE.exec(text);
   if (!m) return null;
   const code = `${m[1]}${m[2]}`.toUpperCase();
   return [...code].every((c) => WA_LINK_CODE_ALPHABET.includes(c)) ? code : null;
@@ -51,6 +55,15 @@ export function normalizePhone(input: string): string | null {
   if (d.startsWith("00")) d = d.slice(2);
   else if (d.startsWith("0") && d.length === 11) d = `90${d.slice(1)}`;
   return /^[1-9][0-9]{9,14}$/.test(d) ? d : null;
+}
+
+/**
+ * Asistana özel mesaj bağlantısı (WhatsApp'ta sohbeti metin hazır açar; kullanıcı yalnız gönderir).
+ * Numara geçersizse null.
+ */
+export function waMeLink(accountPn: string | null | undefined, text: string): string | null {
+  if (!accountPn || !/^[1-9][0-9]{6,19}$/.test(accountPn)) return null;
+  return `https://wa.me/${accountPn}?text=${encodeURIComponent(text)}`;
 }
 
 /** "905321112233" → "+90 532 *** ** 33". */
@@ -83,16 +96,12 @@ export const WA_CONNECTION_STATUS_LABELS: Record<WaConnectionStatus, string> = {
 /** Kalp atışı bu süreden eskiyse bağlantı "yok" sayılır (dakika). */
 export const WA_STALE_MINUTES = 15;
 
-/** Ağ geçidinin bağlama kodu sonucuna verdiği yanıtlar (yalnız `linked` için ✅). */
-export const WA_REDEEM_OUTCOMES = [
+/** Panelden grup eşleştirme sonucu (app_wa_claim_group). */
+export const WA_CLAIM_OUTCOMES = [
   "linked",
-  "invalid",
-  "sender_unknown",
-  "sender_mismatch",
-  "not_permitted",
-  "already_linked",
-  "linked_elsewhere",
-  "throttled",
-  "unknown_group",
+  "forbidden",
+  "not_verified",
+  "not_found",
+  "property_not_found",
 ] as const;
-export type WaRedeemOutcome = (typeof WA_REDEEM_OUTCOMES)[number];
+export type WaClaimOutcome = (typeof WA_CLAIM_OUTCOMES)[number];
