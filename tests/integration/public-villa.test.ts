@@ -562,6 +562,8 @@ describe("veritabanı güvenliği", () => {
       "workspaces:workspaces_insert:a:app_user",
       "workspaces:workspaces_select:r:app_user",
       "workspaces:workspaces_update:w:app_user",
+      // 0031 (A1): yalnız app.wa_fn açıkken (WhatsApp bağlama kodunda işletme durumu)
+      "workspaces:workspaces_wa_read:r:app_migrator",
     ]);
   });
 
@@ -855,6 +857,13 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_public_villa_rates",
       "app_public_villa_visible",
       "app_reservations_external_guard",
+      // 0031 (A1): WhatsApp ağ geçidi ve panelden bağlantı kesme
+      "app_wa_heartbeat",
+      "app_wa_ingest_message",
+      "app_wa_purge_messages",
+      "app_wa_redeem_link_code",
+      "app_wa_sync_group",
+      "app_wa_unlink_group",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -868,6 +877,12 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_source uuid, p_trigger text, p_limit integer": `null, 'cron', 1`,
         "p_source uuid, p_lock_token uuid, p_trigger text, p_started_at timestamp with time zone, p_events jsonb, p_error_code text": `gen_random_uuid(), gen_random_uuid(), 'cron', now(), '[]'::jsonb, null`,
         "p_token text": `'${"x".repeat(43)}'`,
+        "p_label text, p_status text, p_error text": `'yetkisiz', 'open', null`,
+        "p_connection uuid, p_jid text, p_message_id text, p_sender_jid text, p_sender_pn text, p_sender_lid text, p_body text, p_sent_at timestamp with time zone, p_kind text": `gen_random_uuid(), '120363000000000001@g.us', 'm1', 'x@lid', null, null, 'metin', now(), 'live'`,
+        "p_days integer": `90`,
+        "p_connection uuid, p_jid text, p_code text, p_sender_pn text": `gen_random_uuid(), '120363000000000001@g.us', 'AAAAAAAA', null`,
+        "p_connection uuid, p_jid text, p_subject text, p_participants integer, p_bot_is_admin boolean, p_admins_only boolean, p_present boolean": `gen_random_uuid(), '120363000000000001@g.us', null, 1, false, false, true`,
+        "p_group uuid": `gen_random_uuid()`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;

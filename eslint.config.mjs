@@ -74,7 +74,16 @@ const eslintConfig = defineConfig([
       "no-console": ["error", { allow: ["warn", "error"] }],
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", "dist/**", "coverage/**", "next-env.d.ts"]),
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "dist/**",
+    "coverage/**",
+    "next-env.d.ts",
+    // Ayrı servisler kendi tsconfig ve testleriyle denetlenir (services/*/npm run check).
+    "services/**",
+  ]),
 ]);
 
 export default eslintConfig;

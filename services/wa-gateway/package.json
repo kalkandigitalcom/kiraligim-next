@@ -1,0 +1,33 @@
+{
+  "name": "kiraligim-wa-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kiraligim WhatsApp ağ geçidi — Faz 1 test bağlantısı (yalnız test numarası, yalnız tepki).",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx --env-file-if-exists=.env src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "baileys": "7.0.0-rc14",
+    "pg": "8.23.1",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/pg": "8.23.1",
+    "@types/qrcode": "1.5.6",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  },
+  "allowScripts": {
+    "baileys@7.0.0-rc14": true,
+    "esbuild@0.28.2": true,
+    "protobufjs@7.6.6": true
+  }
+}

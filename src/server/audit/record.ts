@@ -129,6 +129,15 @@ export const AUDIT_ACTIONS = {
     property: z.uuid(),
     fields: z.array(z.enum(RESERVATION_AUDIT_FIELDS)).min(1),
   }),
+  // WhatsApp Asistanı (A1): grup adı, telefon, kod ve mesaj içeriği yazılmaz. group_linked ve
+  // group_unlinked kayıtlarını veritabanı fonksiyonları yazar (drizzle/0031); burada listelenir.
+  "whatsapp.link_code_created": z.strictObject({}),
+  "whatsapp.group_linked": z.strictObject({ method: z.literal("link_code") }),
+  "whatsapp.group_suspended": z.strictObject({}),
+  "whatsapp.group_resumed": z.strictObject({}),
+  "whatsapp.group_unlinked": z.strictObject({}),
+  "whatsapp.link_manager_granted": z.strictObject({}),
+  "whatsapp.link_manager_revoked": z.strictObject({}),
   "reservation.status_changed": z.strictObject({
     property: z.uuid(),
     from: z.enum(RESERVATION_STATUSES),
@@ -148,7 +157,9 @@ export type AuditEntry<A extends AuditAction = AuditAction> = {
     | "property_photo"
     | "property_rate"
     | "external_calendar_source"
-    | "reservation";
+    | "reservation"
+    | "whatsapp_group"
+    | "whatsapp_link_code";
   targetId?: string;
   metadata: z.input<(typeof AUDIT_ACTIONS)[A]>;
 };
