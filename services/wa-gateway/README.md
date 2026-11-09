@@ -60,6 +60,29 @@ Tek tepki: başarılı grup bağlamada bağlama kodu mesajına ✅.
 Ağ geçidi tablolara doğrudan yazamaz; yalnız `app_wa_*` veritabanı fonksiyonlarını çağırır.
 Mesaj metni, numara ve kod günlüğe yazılmaz. Saatte bir 90 günden eski mesajlar silinir.
 
+## Sunucuda çalıştırma (Coolify, konteyner)
+
+İmaj: `services/wa-gateway/Dockerfile` (Coolify'da **Base Directory** `/services/wa-gateway`). İmaj
+oturum anahtarı, `.env` veya kilit içermez (`.dockerignore`). Varsayılanlar: `WA_HTTP_HOST=0.0.0.0`,
+`WA_HTTP_PORT=4010`, `WA_REQUIRE_DATABASE=true`; süreç doğrudan `node` ile çalışır (SIGTERM'de düzgün
+kapanır), kullanıcı `app` (uid 1001).
+
+- **Veritabanı rolü:** production'da ağ geçidi `app_user`'ı KULLANMAZ. Yönetici kullanıcıyla bir kez
+  `scripts/wa-gateway-role.sql` çalıştırılır → `app_wa_gateway`: yalnız beş `app_wa_*` fonksiyonunu
+  çalıştırabilir, hiçbir tabloyu okuyamaz. Ön koşul: 0030–0032 migration'ları uygulanmış olmalı.
+- **Ortam değişkenleri:** `WA_ENV=production`, `WA_ALLOWED_NUMBER=<test numarası>`,
+  `WA_DATABASE_URL=postgres://app_wa_gateway:<parola>@<postgres-iç-host>:5432/kiraligim_prod`,
+  `WA_CONNECTION_LABEL=prod`. Servis başlarken ad (`_prod`) ve rol (`app_wa_gateway`, süper kullanıcı
+  değil) denetlenir; uymazsa başlamaz.
+- **Kalıcı oturum:** Persistent Storage → Volume Mount → Destination Path `/app/.wa-auth`. Volume
+  korundukça yeniden başlatmada QR gerekmez. Kilit (`/app/.wa-auth.lock`) volume dışındadır; konteyner
+  yeniden başlarken kendi PID'ini taşıyan eski kilit devralınır.
+- **Arayüz:** alan adı YOK. Port eşlemesi yalnız `127.0.0.1:4010:4010`; erişim Mac'ten
+  `ssh -L 4010:127.0.0.1:4010 <kullanıcı>@<sunucu>` → `http://localhost:4010`.
+- **Sağlık kontrolü:** `GET /healthz` (yalnız durum; numara, grup, QR yok). Oturum durdurulmuşsa 503.
+- **Tek kopya:** aynı oturumla iki konteyner çalışmamalı. Deploy sırasında `docker ps` ile tek ağ
+  geçidi konteyneri görüldüğünü doğrulayın; Mac'teki servis kapalı olsun.
+
 ## Güvenlik
 
 - Oturum anahtarları `.wa-auth/` klasöründe (izin 0700), `.gitignore` ile Git dışında. `WA_AUTH_DIR`

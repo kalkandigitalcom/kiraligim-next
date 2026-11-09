@@ -102,6 +102,22 @@ describe("yerel test arayüzü", () => {
     assert.equal(r.headers["cache-control"], "no-store");
   });
 
+  it("sağlık kontrolü: yalnız durum; QR, numara ve grup yok; Host denetimi sürer", async () => {
+    const r = await get("/healthz");
+    assert.equal(r.status, 200);
+    assert.deepEqual(JSON.parse(r.body), { ok: true, status: "qr" });
+    for (const secret of [QR, "905321112233", "120363025555555555"]) {
+      assert.ok(!r.body.includes(secret));
+    }
+    assert.equal((await get("/healthz", "evil.example:80")).status, 421);
+    (fake as { status: string }).status = "stopped";
+    try {
+      assert.equal((await get("/healthz")).status, 503);
+    } finally {
+      (fake as { status: string }).status = "qr";
+    }
+  });
+
   it("sıfırlama token ve aynı köken ister", async () => {
     assert.equal(await post("/reset", {}), 403);
     assert.equal(await post("/reset", { "x-test-token": "yanlis" }), 403);

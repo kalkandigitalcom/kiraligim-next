@@ -17,7 +17,12 @@ export const SERVICE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.u
 /** Oturum klasörü adı: ".wa-auth" ya da ".wa-auth-<etiket>" (yalnız küçük harf, rakam, - _). */
 const AUTH_DIR_NAME_RE = /^\.wa-auth(-[a-z0-9_-]{1,40})?$/;
 
+/** Çalışma ortamı: veritabanı adı ve veritabanı rolü kuralları buna göre denetlenir. */
+export type WaEnv = "development" | "production";
+
 export type Config = {
+  /** development (varsayılan): yalnız "*_dev"; production: yalnız "*_prod" ve app_wa_gateway rolü. */
+  env: WaEnv;
   /** Bağlanmasına izin verilen tek numara (yalnız rakam, ülke koduyla). */
   allowedNumber: string;
   /** A1: geliştirme veritabanı bağlantısı (app_user). null → Faz 1 test biçimi. */
@@ -27,6 +32,8 @@ export type Config = {
   /** Faz 1 test biçimi: tepki bırakılacak tek grup; A1'de kullanılmaz. */
   testGroupJid: string | null;
   reaction: string;
+  /** Yerel arayüz adresi: 127.0.0.1 (varsayılan) ya da konteyner içinde 0.0.0.0. */
+  httpHost: string;
   httpPort: number;
   authDir: string;
 };
@@ -56,10 +63,12 @@ export function authDirProblem(authDir: string, serviceDir: string): string | nu
 }
 
 /**
- * A1 yalnız geliştirme veritabanında çalışır: veritabanı adı "_dev" ile bitmeli ve üretim adına
- * benzememeli. Bağlantı kurulmadan önce denetlenir. Sorun yoksa null.
+ * Yanlış veritabanına bağlanmayı engeller (bağlantı kurulmadan önce):
+ *  - development: ad "_dev" ile bitmeli ve "prod" içermemeli;
+ *  - production: ad "_prod" ile bitmeli (ana uygulamadaki kuralla aynı).
+ * Sorun yoksa null. Hata mesajı adres/parola içermez (yalnız veritabanı adı).
  */
-export function databaseNameProblem(url: string): string | null {
+export function databaseNameProblem(url: string, env: WaEnv = "development"): string | null {
   let name: string;
   try {
     name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
@@ -67,6 +76,11 @@ export function databaseNameProblem(url: string): string | null {
     return "WA_DATABASE_URL geçerli bir postgres:// adresi değil.";
   }
   if (!name) return "WA_DATABASE_URL veritabanı adı içermiyor.";
+  if (env === "production") {
+    return /_prod$/.test(name)
+      ? null
+      : `WA_ENV=production iken veritabanı adı "_prod" ile bitmeli (bulunan: "${name}").`;
+  }
   if (/prod/i.test(name)) {
     return `"${name}" bir üretim veritabanına benziyor; A1 yalnız geliştirme veritabanında çalışır.`;
   }
@@ -92,10 +106,27 @@ export function loadConfig(
     );
   }
 
+  const waEnvRaw = (env.WA_ENV ?? "development").trim();
+  const waEnv: WaEnv = waEnvRaw === "production" ? "production" : "development";
+  if (waEnvRaw !== "development" && waEnvRaw !== "production") {
+    errors.push("WA_ENV yalnız development veya production olabilir.");
+  }
+
+  const requireRaw = (env.WA_REQUIRE_DATABASE ?? "").trim();
+  if (requireRaw && requireRaw !== "true" && requireRaw !== "false") {
+    errors.push("WA_REQUIRE_DATABASE yalnız true veya false olabilir.");
+  }
+  // production her zaman veritabanı ister: Faz 1 test biçimine (mesajı konsola yazan) düşmez.
+  const requireDatabase = requireRaw === "true" || waEnv === "production";
+
   const databaseUrl = env.WA_DATABASE_URL?.trim() || null;
   if (databaseUrl) {
-    const problem = databaseNameProblem(databaseUrl);
+    const problem = databaseNameProblem(databaseUrl, waEnv);
     if (problem) errors.push(problem);
+  } else if (requireDatabase) {
+    errors.push(
+      "WA_DATABASE_URL zorunlu (WA_REQUIRE_DATABASE=true veya WA_ENV=production); Faz 1 test biçimi kapalı.",
+    );
   }
 
   const connectionLabel = (env.WA_CONNECTION_LABEL ?? "primary").trim();
@@ -111,6 +142,13 @@ export function loadConfig(
   const reaction = (env.WA_TEST_REACTION ?? "✅").trim() || "✅";
   if ([...reaction].length > 4) errors.push("WA_TEST_REACTION tek bir emoji olmalı.");
 
+  // Arayüz yalnız yerel adrese ya da (konteynerde) tüm arayüzlere bağlanır; dışarıya açmak port
+  // eşlemesiyle (127.0.0.1:4010:4010) sınırlandırılır. Host başlığı denetimi her durumda sürer.
+  const httpHost = (env.WA_HTTP_HOST ?? "127.0.0.1").trim();
+  if (httpHost !== "127.0.0.1" && httpHost !== "0.0.0.0") {
+    errors.push("WA_HTTP_HOST yalnız 127.0.0.1 veya 0.0.0.0 olabilir.");
+  }
+
   const httpPort = Number(env.WA_HTTP_PORT ?? 4010);
   if (!Number.isInteger(httpPort) || httpPort < 1024 || httpPort > 65535) {
     errors.push("WA_HTTP_PORT 1024–65535 arasında olmalı.");
@@ -122,12 +160,14 @@ export function loadConfig(
 
   if (errors.length) throw new Error(`Yapılandırma hatası:\n- ${errors.join("\n- ")}`);
   return {
+    env: waEnv,
     allowedNumber,
     databaseUrl,
     connectionLabel,
     // A1 biçiminde test grubu tepkisi kapalı: tek dışa yazım bağlama kodu ✅'idir.
     testGroupJid: databaseUrl ? null : groupRaw || null,
     reaction,
+    httpHost,
     httpPort,
     authDir,
   };

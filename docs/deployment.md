@@ -639,13 +639,22 @@ işlemi YOKTUR (fonksiyonlar bu tablolara hiç referans vermez; entegrasyon test
   silinir. 0032: `app_wa_purge_messages` yalnız 90–365 gün kabul eder; daha kısa süre reddedilir
   (`app_user` yetkili bir bağlantı mesajları 90 günden erken silemez).
 - **Ağ geçidi env** (`services/wa-gateway/.env`, Git dışı): `WA_ALLOWED_NUMBER` (bağlanabilecek tek
-  numara), `WA_DATABASE_URL` (A1: `app_user` ile **geliştirme** veritabanı; adı `_dev` ile bitmeli
-  ve `prod` içermemeli; bağlantıdan önce denetlenir), `WA_CONNECTION_LABEL` (varsayılan `primary`),
+  numara), `WA_ENV` (`development`: ad `_dev` ile bitmeli ve `prod` içermemeli;
+  `production`: ad `_prod` ile bitmeli ve rol yalnız `app_wa_gateway`), `WA_DATABASE_URL` (bağlantıdan
+  önce ad, hemen sonra rol denetlenir), `WA_REQUIRE_DATABASE` (konteynerde `true`), `WA_HTTP_HOST`
+  (Mac `127.0.0.1`, konteyner `0.0.0.0`), `WA_CONNECTION_LABEL` (varsayılan `primary`),
   `WA_AUTH_DIR` (yalnız servis klasöründeki `.wa-auth` veya `.wa-auth-<etiket>`; başka yol veya
   sembolik bağlantıyla servis başlamaz). `WA_DATABASE_URL` boşsa Faz 1
   test biçimi çalışır.
-- **Ayrı DB kullanıcısı:** şimdilik `app_user`; production hazırlığında ağ geçidine yalnız `app_wa_*`
-  EXECUTE yetkili ayrı rol değerlendirilecek.
+- **Ayrı DB kullanıcısı (`app_wa_gateway`):** sunucudaki ağ geçidi `app_user`'ı kullanmaz. Migration'lar
+  (0030–0032) uygulandıktan SONRA yönetici kullanıcıyla bir kez `scripts/wa-gateway-role.sql` çalıştırılır
+  (parola ortam değişkeninde; betiğin başındaki komut). Rol yalnız beş ağ geçidi fonksiyonunu
+  çalıştırabilir; tablo okuyamaz, panel fonksiyonlarını çalıştıramaz. `WA_ENV=production` iken ağ geçidi
+  başka rolle (ör. `app_user`) ve `_prod` ile bitmeyen veritabanıyla başlamaz. Mac'te geliştirme için
+  `app_user` kabul edilir.
+- **Ağ geçidi konteyneri:** `services/wa-gateway/Dockerfile` (Base Directory `/services/wa-gateway`),
+  Persistent Storage `/app/.wa-auth`, alan adı yok, port eşlemesi yalnız `127.0.0.1:4010:4010`, QR ekranı
+  SSH tüneliyle. Ayrıntı: `services/wa-gateway/README.md` → "Sunucuda çalıştırma".
 
 **Geri alma.** 0030–0031 yalnız yeni tablo ve fonksiyon ekler (0032 yalnız saklama fonksiyonunu
 sıkılaştırır); mevcut tablolara yalnız iki dar politika

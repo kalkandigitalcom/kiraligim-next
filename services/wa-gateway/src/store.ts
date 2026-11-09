@@ -5,7 +5,7 @@
  */
 import pg from "pg";
 
-import { databaseNameProblem } from "./config.ts";
+import { databaseNameProblem, type WaEnv } from "./config.ts";
 
 export type Queryable = {
   query<R extends Record<string, unknown>>(
@@ -110,9 +110,39 @@ export class WaStore {
   }
 }
 
-/** Geliştirme veritabanı havuzu (en fazla 2 bağlantı). Üretim adına benzeyen veritabanı reddedilir. */
-export function createPool(url: string): pg.Pool {
-  const problem = databaseNameProblem(url);
+/**
+ * Bağlanılan rol ve veritabanı güvenli mi? (bağlantıdan hemen sonra, ilk iş)
+ *  - süper kullanıcı, BYPASSRLS, app_migrator ve postgres her ortamda reddedilir;
+ *  - production: yalnız app_wa_gateway (yalnız app_wa_* fonksiyonlarını çalıştırabilen ayrı rol);
+ *  - development: app_wa_gateway veya app_user.
+ * Ayrıca sunucunun bildirdiği veritabanı adı da ortam kuralına uymalı. Sorun yoksa null.
+ */
+export async function databaseRoleProblem(db: Queryable, env: WaEnv): Promise<string | null> {
+  const { rows } = await db.query<{
+    role: string;
+    db: string;
+    superuser: boolean;
+    bypassrls: boolean;
+  }>(
+    `select current_user as role, current_database() as db, r.rolsuper as superuser,
+            r.rolbypassrls as bypassrls
+       from pg_catalog.pg_roles r where r.rolname = current_user`,
+  );
+  const r = rows[0];
+  if (!r) return "Veritabanı rolü okunamadı.";
+  if (r.superuser || r.bypassrls || r.role === "postgres" || r.role === "app_migrator") {
+    return `"${r.role}" rolüyle bağlanılamaz (yetkisi gereğinden geniş).`;
+  }
+  const allowed = env === "production" ? ["app_wa_gateway"] : ["app_wa_gateway", "app_user"];
+  if (!allowed.includes(r.role)) {
+    return `WA_ENV=${env} iken veritabanı rolü ${allowed.join(" veya ")} olmalı (bulunan: "${r.role}").`;
+  }
+  return databaseNameProblem(`postgres://x@h/${encodeURIComponent(r.db)}`, env);
+}
+
+/** Veritabanı havuzu (en fazla 2 bağlantı). Ortama uymayan veritabanı adı reddedilir. */
+export function createPool(url: string, env: WaEnv = "development"): pg.Pool {
+  const problem = databaseNameProblem(url, env);
   if (problem) throw new Error(problem);
   const pool = new pg.Pool({
     connectionString: url,

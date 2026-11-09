@@ -1,0 +1,13 @@
+# Oturum anahtarları, yerel ayarlar ve kilit ASLA imaja girmez.
+.wa-auth
+.wa-auth*
+.env
+.env.*
+*.lock
+!package-lock.json
+node_modules
+test
+README.md
+Dockerfile
+.dockerignore
+.gitignore

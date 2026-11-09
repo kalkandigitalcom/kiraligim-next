@@ -1,5 +1,6 @@
 /**
- * Yerel test arayüzü: yalnız 127.0.0.1'e bağlanır. Bağlantı durumu, QR (yalnız gerektiğinde,
+ * Yerel test arayüzü: varsayılan 127.0.0.1'e bağlanır; konteynerde WA_HTTP_HOST=0.0.0.0 ile
+ * çalışır ve dışarıya yalnız sunucunun 127.0.0.1:4010 port eşlemesiyle (SSH tüneli) açılır. Bağlantı durumu, QR (yalnız gerektiğinde,
  * önbelleğe alınmadan), görülen gruplar ve son olaylar. Dış kaynak yok; CSP ile kilitli.
  * DNS rebinding'e karşı Host başlığı denetlenir; durum değiştiren istek tek kullanımlık
  * süreç token'ı ve aynı köken ister.
@@ -97,7 +98,12 @@ refresh();setInterval(refresh,2000);
 </script></body></html>`;
 }
 
-export function startServer(gw: WaGateway, port: number, testGroupJid: string | null) {
+export function startServer(
+  gw: WaGateway,
+  port: number,
+  testGroupJid: string | null,
+  host = "127.0.0.1",
+) {
   const token = randomBytes(24).toString("base64url");
   let allowedHosts = new Set<string>();
   const server = http.createServer(async (req, res) => {
@@ -118,6 +124,15 @@ export function startServer(gw: WaGateway, port: number, testGroupJid: string | 
           `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
         );
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page(token, nonce));
+        return;
+      }
+      // Sağlık kontrolü (Docker HEALTHCHECK): yalnız süreç durumu; numara, grup veya QR içermez.
+      // Oturum durdurulmuşsa (ör. telefondan çıkış) 503: yeniden QR gerektiği görünür olsun.
+      if (req.method === "GET" && url.pathname === "/healthz") {
+        const ok = gw.status !== "stopped";
+        res
+          .writeHead(ok ? 200 : 503, { "content-type": "application/json; charset=utf-8" })
+          .end(JSON.stringify({ ok, status: gw.status, mode: gw.mode }));
         return;
       }
       if (req.method === "GET" && url.pathname === "/status.json") {
@@ -155,7 +170,7 @@ export function startServer(gw: WaGateway, port: number, testGroupJid: string | 
       res.writeHead(500).end("Hata.");
     }
   });
-  server.listen(port, "127.0.0.1", () => {
+  server.listen(port, host, () => {
     const actual = (server.address() as AddressInfo).port;
     allowedHosts = new Set([`127.0.0.1:${actual}`, `localhost:${actual}`]);
     console.log(`[wa] Test arayüzü: http://localhost:${actual} (yalnız bu bilgisayardan).`);
