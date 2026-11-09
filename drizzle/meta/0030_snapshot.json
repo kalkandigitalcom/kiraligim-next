@@ -1,0 +1,4082 @@
+{
+  "id": "005c5eaf-c20b-4869-a914-4cd456762272",
+  "prevId": "82ae0e18-352c-4d03-9560-1586b45e6883",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.audit_log": {
+      "name": "audit_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_type": {
+          "name": "target_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        }
+      },
+      "indexes": {
+        "audit_log_workspace_occurred_idx": {
+          "name": "audit_log_workspace_occurred_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_log_actor_user_id_idx": {
+          "name": "audit_log_actor_user_id_idx",
+          "columns": [
+            {
+              "expression": "actor_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "audit_log_workspace_id_workspaces_id_fk": {
+          "name": "audit_log_workspace_id_workspaces_id_fk",
+          "tableFrom": "audit_log",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "audit_log_actor_user_id_users_id_fk": {
+          "name": "audit_log_actor_user_id_users_id_fk",
+          "tableFrom": "audit_log",
+          "tableTo": "users",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "audit_log_action_format": {
+          "name": "audit_log_action_format",
+          "value": "\"audit_log\".\"action\" ~ '^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$'"
+        },
+        "audit_log_target_type_format": {
+          "name": "audit_log_target_type_format",
+          "value": "\"audit_log\".\"target_type\" ~ '^[a-z][a-z_]*$'"
+        },
+        "audit_log_metadata_object": {
+          "name": "audit_log_metadata_object",
+          "value": "jsonb_typeof(\"audit_log\".\"metadata\") = 'object' and pg_column_size(\"audit_log\".\"metadata\") <= 4096"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.accounts": {
+      "name": "accounts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token_expires_at": {
+          "name": "refresh_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "accounts_user_id_idx": {
+          "name": "accounts_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "accounts_user_id_users_id_fk": {
+          "name": "accounts_user_id_users_id_fk",
+          "tableFrom": "accounts",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "accounts_provider_account_key": {
+          "name": "accounts_provider_account_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "provider_id",
+            "account_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rate_limits": {
+      "name": "rate_limits",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_request": {
+          "name": "last_request",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "rate_limits_last_request_idx": {
+          "name": "rate_limits_last_request_idx",
+          "columns": [
+            {
+              "expression": "last_request",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rate_limits_key_key": {
+          "name": "rate_limits_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sessions": {
+      "name": "sessions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "sessions_user_id_idx": {
+          "name": "sessions_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "sessions_user_id_users_id_fk": {
+          "name": "sessions_user_id_users_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "sessions_token_key": {
+          "name": "sessions_token_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_email_key": {
+          "name": "users_email_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "users_email_lowercase": {
+          "name": "users_email_lowercase",
+          "value": "\"users\".\"email\" = lower(\"users\".\"email\")"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.verifications": {
+      "name": "verifications",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "verifications_identifier_idx": {
+          "name": "verifications_identifier_idx",
+          "columns": [
+            {
+              "expression": "identifier",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.plans": {
+      "name": "plans",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max_properties": {
+          "name": "max_properties",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trial_days": {
+          "name": "trial_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "is_default": {
+          "name": "is_default",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "plans_code_key": {
+          "name": "plans_code_key",
+          "columns": [
+            {
+              "expression": "code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "plans_single_default_idx": {
+          "name": "plans_single_default_idx",
+          "columns": [
+            {
+              "expression": "is_default",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"plans\".\"is_default\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "plans_code_format": {
+          "name": "plans_code_format",
+          "value": "\"plans\".\"code\" ~ '^[a-z][a-z0-9_]{1,31}$'"
+        },
+        "plans_name_length": {
+          "name": "plans_name_length",
+          "value": "length(btrim(\"plans\".\"name\")) between 2 and 60"
+        },
+        "plans_max_properties_range": {
+          "name": "plans_max_properties_range",
+          "value": "\"plans\".\"max_properties\" between 0 and 10000"
+        },
+        "plans_trial_days_range": {
+          "name": "plans_trial_days_range",
+          "value": "\"plans\".\"trial_days\" between 0 and 90"
+        },
+        "plans_default_is_active": {
+          "name": "plans_default_is_active",
+          "value": "not \"plans\".\"is_default\" or \"plans\".\"is_active\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.workspace_subscriptions": {
+      "name": "workspace_subscriptions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "plan_id": {
+          "name": "plan_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trial_ends_at": {
+          "name": "trial_ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_period_end": {
+          "name": "current_period_end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workspace_subscriptions_workspace_id_key": {
+          "name": "workspace_subscriptions_workspace_id_key",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workspace_subscriptions_plan_id_idx": {
+          "name": "workspace_subscriptions_plan_id_idx",
+          "columns": [
+            {
+              "expression": "plan_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workspace_subscriptions_workspace_id_workspaces_id_fk": {
+          "name": "workspace_subscriptions_workspace_id_workspaces_id_fk",
+          "tableFrom": "workspace_subscriptions",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "workspace_subscriptions_plan_id_plans_id_fk": {
+          "name": "workspace_subscriptions_plan_id_plans_id_fk",
+          "tableFrom": "workspace_subscriptions",
+          "tableTo": "plans",
+          "columnsFrom": [
+            "plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "workspace_subscriptions_status_check": {
+          "name": "workspace_subscriptions_status_check",
+          "value": "\"workspace_subscriptions\".\"status\" in ('trialing', 'active', 'expired', 'canceled')"
+        },
+        "workspace_subscriptions_trial_end_required": {
+          "name": "workspace_subscriptions_trial_end_required",
+          "value": "\"workspace_subscriptions\".\"status\" <> 'trialing' or \"workspace_subscriptions\".\"trial_ends_at\" is not null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.property_photos": {
+      "name": "property_photos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "property_id": {
+          "name": "property_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "storage_prefix": {
+          "name": "storage_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quality": {
+          "name": "quality",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bytes_400": {
+          "name": "bytes_400",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bytes_1200": {
+          "name": "bytes_1200",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bytes_2000": {
+          "name": "bytes_2000",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "is_cover": {
+          "name": "is_cover",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "property_photos_storage_prefix_key": {
+          "name": "property_photos_storage_prefix_key",
+          "columns": [
+            {
+              "expression": "storage_prefix",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_photos_single_cover_idx": {
+          "name": "property_photos_single_cover_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"property_photos\".\"is_cover\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_photos_property_order_idx": {
+          "name": "property_photos_property_order_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sort_order",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_photos_workspace_idx": {
+          "name": "property_photos_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "property_photos_workspace_id_workspaces_id_fk": {
+          "name": "property_photos_workspace_id_workspaces_id_fk",
+          "tableFrom": "property_photos",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "property_photos_created_by_users_id_fk": {
+          "name": "property_photos_created_by_users_id_fk",
+          "tableFrom": "property_photos",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "property_photos_property_fk": {
+          "name": "property_photos_property_fk",
+          "tableFrom": "property_photos",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id",
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id",
+            "workspace_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "property_photos_storage_prefix_format": {
+          "name": "property_photos_storage_prefix_format",
+          "value": "\"property_photos\".\"storage_prefix\" ~ '^w/[0-9a-f-]{36}/p/[0-9a-f-]{36}/[0-9a-f-]{36}$'"
+        },
+        "property_photos_dimensions": {
+          "name": "property_photos_dimensions",
+          "value": "\"property_photos\".\"width\" between 1 and 2000 and \"property_photos\".\"height\" between 1 and 16383"
+        },
+        "property_photos_quality_range": {
+          "name": "property_photos_quality_range",
+          "value": "\"property_photos\".\"quality\" between 50 and 90"
+        },
+        "property_photos_variant_bytes": {
+          "name": "property_photos_variant_bytes",
+          "value": "\"property_photos\".\"bytes_400\" between 1 and 5242880 and \"property_photos\".\"bytes_1200\" between 1 and 5242880 and \"property_photos\".\"bytes_2000\" between 1 and 5242880"
+        },
+        "property_photos_sort_order_range": {
+          "name": "property_photos_sort_order_range",
+          "value": "\"property_photos\".\"sort_order\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.properties": {
+      "name": "properties",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "property_type": {
+          "name": "property_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description_html": {
+          "name": "description_html",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tourism_license_no": {
+          "name": "tourism_license_no",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_video_ids": {
+          "name": "youtube_video_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "max_guests": {
+          "name": "max_guests",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bedrooms": {
+          "name": "bedrooms",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bathrooms": {
+          "name": "bathrooms",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "beds_double": {
+          "name": "beds_double",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "beds_single": {
+          "name": "beds_single",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "beds_sofa": {
+          "name": "beds_sofa",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "country_code": {
+          "name": "country_code",
+          "type": "char(2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'TR'"
+        },
+        "province": {
+          "name": "province",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "district": {
+          "name": "district",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "neighborhood": {
+          "name": "neighborhood",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address_line": {
+          "name": "address_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "postal_code": {
+          "name": "postal_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_mode": {
+          "name": "map_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_embed_url": {
+          "name": "map_embed_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_pin_lat": {
+          "name": "map_pin_lat",
+          "type": "numeric(8, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_pin_lng": {
+          "name": "map_pin_lng",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_market_km": {
+          "name": "distance_market_km",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_restaurant_km": {
+          "name": "distance_restaurant_km",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_center_km": {
+          "name": "distance_center_km",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_beach_km": {
+          "name": "distance_beach_km",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_airport_ayt_km": {
+          "name": "distance_airport_ayt_km",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_airport_dlm_km": {
+          "name": "distance_airport_dlm_km",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_health_km": {
+          "name": "distance_health_km",
+          "type": "numeric(8, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_market_unit": {
+          "name": "distance_market_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_restaurant_unit": {
+          "name": "distance_restaurant_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_center_unit": {
+          "name": "distance_center_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_beach_unit": {
+          "name": "distance_beach_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_airport_ayt_unit": {
+          "name": "distance_airport_ayt_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_airport_dlm_unit": {
+          "name": "distance_airport_dlm_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_health_unit": {
+          "name": "distance_health_unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_swimming": {
+          "name": "pool_swimming",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "pool_swimming_depth": {
+          "name": "pool_swimming_depth",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_swimming_width": {
+          "name": "pool_swimming_width",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_swimming_length": {
+          "name": "pool_swimming_length",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_swimming_protected": {
+          "name": "pool_swimming_protected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "pool_indoor": {
+          "name": "pool_indoor",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "pool_indoor_depth": {
+          "name": "pool_indoor_depth",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_indoor_width": {
+          "name": "pool_indoor_width",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_indoor_length": {
+          "name": "pool_indoor_length",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_kids": {
+          "name": "pool_kids",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "pool_kids_depth": {
+          "name": "pool_kids_depth",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_kids_width": {
+          "name": "pool_kids_width",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_kids_length": {
+          "name": "pool_kids_length",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "public_slug": {
+          "name": "public_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_public": {
+          "name": "is_public",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "public_published_at": {
+          "name": "public_published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amenities": {
+          "name": "amenities",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "check_in_time": {
+          "name": "check_in_time",
+          "type": "time",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "check_out_time": {
+          "name": "check_out_time",
+          "type": "time",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "house_rules": {
+          "name": "house_rules",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "house_rule_keys": {
+          "name": "house_rule_keys",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "price_includes": {
+          "name": "price_includes",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "cancellation_policy": {
+          "name": "cancellation_policy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payment_terms": {
+          "name": "payment_terms",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "properties_workspace_status_idx": {
+          "name": "properties_workspace_status_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "properties_public_slug_key": {
+          "name": "properties_public_slug_key",
+          "columns": [
+            {
+              "expression": "public_slug",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "properties_created_by_idx": {
+          "name": "properties_created_by_idx",
+          "columns": [
+            {
+              "expression": "created_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "properties_workspace_id_workspaces_id_fk": {
+          "name": "properties_workspace_id_workspaces_id_fk",
+          "tableFrom": "properties",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "properties_created_by_users_id_fk": {
+          "name": "properties_created_by_users_id_fk",
+          "tableFrom": "properties",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "properties_id_workspace_key": {
+          "name": "properties_id_workspace_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "workspace_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "properties_name_length": {
+          "name": "properties_name_length",
+          "value": "length(btrim(\"properties\".\"name\")) between 2 and 120"
+        },
+        "properties_type_check": {
+          "name": "properties_type_check",
+          "value": "\"properties\".\"property_type\" in ('villa', 'apart', 'bungalow', 'ev')"
+        },
+        "properties_status_check": {
+          "name": "properties_status_check",
+          "value": "\"properties\".\"status\" in ('active', 'passive')"
+        },
+        "properties_description_length": {
+          "name": "properties_description_length",
+          "value": "\"properties\".\"description\" is null or length(\"properties\".\"description\") <= 5000"
+        },
+        "properties_max_guests_range": {
+          "name": "properties_max_guests_range",
+          "value": "\"properties\".\"max_guests\" between 1 and 50"
+        },
+        "properties_rooms_range": {
+          "name": "properties_rooms_range",
+          "value": "\"properties\".\"bedrooms\" between 0 and 50 and \"properties\".\"bathrooms\" between 0 and 50"
+        },
+        "properties_beds_range": {
+          "name": "properties_beds_range",
+          "value": "\"properties\".\"beds_double\" between 0 and 50 and \"properties\".\"beds_single\" between 0 and 50 and \"properties\".\"beds_sofa\" between 0 and 50"
+        },
+        "properties_country_code_format": {
+          "name": "properties_country_code_format",
+          "value": "\"properties\".\"country_code\" ~ '^[A-Z]{2}$'"
+        },
+        "properties_place_length": {
+          "name": "properties_place_length",
+          "value": "length(btrim(\"properties\".\"province\")) between 2 and 60 and length(btrim(\"properties\".\"district\")) between 2 and 60"
+        },
+        "properties_address_length": {
+          "name": "properties_address_length",
+          "value": "(\"properties\".\"neighborhood\" is null or length(\"properties\".\"neighborhood\") <= 120) and (\"properties\".\"address_line\" is null or length(\"properties\".\"address_line\") <= 300)"
+        },
+        "properties_postal_code_format": {
+          "name": "properties_postal_code_format",
+          "value": "\"properties\".\"postal_code\" is null or \"properties\".\"postal_code\" ~ '^[0-9]{5}$'"
+        },
+        "properties_description_html_length": {
+          "name": "properties_description_html_length",
+          "value": "\"properties\".\"description_html\" is null or length(\"properties\".\"description_html\") <= 20000"
+        },
+        "properties_public_slug_format": {
+          "name": "properties_public_slug_format",
+          "value": "\"properties\".\"public_slug\" is null or (\"properties\".\"public_slug\" ~ '^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$' and position('--' in \"properties\".\"public_slug\") = 0 and \"properties\".\"public_slug\" <> all (array['admin', 'api', 'app', 'www', 'villa', 'villalar', 'giris', 'kayit', 'cikis', 'panel', 'yeni', 'duzenle', 'onizleme', 'rezervasyon', 'rezervasyonlar', 'talep', 'talepler', 'takvim', 'fiyat', 'fiyatlar', 'iletisim', 'kvkk', 'gizlilik', 'kullanim-kosullari', 'cerez', 'cerezler', 'hakkimizda', 'sss', 'yardim', 'destek', 'blog', 'rehber', 'kiraligim', 'robots', 'sitemap', 'static', 'medya', 'test', 'demo', 'ornek', 'null', 'undefined']))"
+        },
+        "properties_public_requires_slug": {
+          "name": "properties_public_requires_slug",
+          "value": "not \"properties\".\"is_public\" or (\"properties\".\"public_slug\" is not null and \"properties\".\"public_published_at\" is not null)"
+        },
+        "properties_amenities": {
+          "name": "properties_amenities",
+          "value": "cardinality(\"properties\".\"amenities\") <= 40 and array_position(\"properties\".\"amenities\", null) is null and (cardinality(\"properties\".\"amenities\") = 0 or array_to_string(\"properties\".\"amenities\", ',') ~ '^[a-z][a-z0-9-]{1,31}(,[a-z][a-z0-9-]{1,31})*$')"
+        },
+        "properties_stay_times": {
+          "name": "properties_stay_times",
+          "value": "(\"properties\".\"check_in_time\" is null or extract(second from \"properties\".\"check_in_time\") = 0) and (\"properties\".\"check_out_time\" is null or extract(second from \"properties\".\"check_out_time\") = 0)"
+        },
+        "properties_public_texts": {
+          "name": "properties_public_texts",
+          "value": "(\"properties\".\"house_rules\" is null or (length(\"properties\".\"house_rules\") between 1 and 2000 and \"properties\".\"house_rules\" !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]')) and (\"properties\".\"cancellation_policy\" is null or (length(\"properties\".\"cancellation_policy\") between 1 and 2000 and \"properties\".\"cancellation_policy\" !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]')) and (\"properties\".\"payment_terms\" is null or (length(\"properties\".\"payment_terms\") between 1 and 1000 and \"properties\".\"payment_terms\" !~ '[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]'))"
+        },
+        "properties_tourism_license_format": {
+          "name": "properties_tourism_license_format",
+          "value": "\"properties\".\"tourism_license_no\" is null or (length(\"properties\".\"tourism_license_no\") between 1 and 40 and \"properties\".\"tourism_license_no\" !~ '[[:cntrl:]<>]')"
+        },
+        "properties_youtube_video_ids": {
+          "name": "properties_youtube_video_ids",
+          "value": "cardinality(\"properties\".\"youtube_video_ids\") <= 10 and array_position(\"properties\".\"youtube_video_ids\", null) is null and (cardinality(\"properties\".\"youtube_video_ids\") = 0 or array_to_string(\"properties\".\"youtube_video_ids\", ',') ~ '^[A-Za-z0-9_-]{11}(,[A-Za-z0-9_-]{11})*$')"
+        },
+        "properties_pool_swimming": {
+          "name": "properties_pool_swimming",
+          "value": "case when \"properties\".\"pool_swimming\" then \"properties\".\"pool_swimming_depth\" is not null and \"properties\".\"pool_swimming_width\" is not null and \"properties\".\"pool_swimming_length\" is not null and \"properties\".\"pool_swimming_depth\" between 0.1 and 10 and \"properties\".\"pool_swimming_width\" between 0.5 and 100 and \"properties\".\"pool_swimming_length\" between 0.5 and 100 else \"properties\".\"pool_swimming_depth\" is null and \"properties\".\"pool_swimming_width\" is null and \"properties\".\"pool_swimming_length\" is null end"
+        },
+        "properties_pool_indoor": {
+          "name": "properties_pool_indoor",
+          "value": "case when \"properties\".\"pool_indoor\" then \"properties\".\"pool_indoor_depth\" is not null and \"properties\".\"pool_indoor_width\" is not null and \"properties\".\"pool_indoor_length\" is not null and \"properties\".\"pool_indoor_depth\" between 0.1 and 10 and \"properties\".\"pool_indoor_width\" between 0.5 and 100 and \"properties\".\"pool_indoor_length\" between 0.5 and 100 else \"properties\".\"pool_indoor_depth\" is null and \"properties\".\"pool_indoor_width\" is null and \"properties\".\"pool_indoor_length\" is null end"
+        },
+        "properties_pool_kids": {
+          "name": "properties_pool_kids",
+          "value": "case when \"properties\".\"pool_kids\" then \"properties\".\"pool_kids_depth\" is not null and \"properties\".\"pool_kids_width\" is not null and \"properties\".\"pool_kids_length\" is not null and \"properties\".\"pool_kids_depth\" between 0.1 and 10 and \"properties\".\"pool_kids_width\" between 0.5 and 100 and \"properties\".\"pool_kids_length\" between 0.5 and 100 else \"properties\".\"pool_kids_depth\" is null and \"properties\".\"pool_kids_width\" is null and \"properties\".\"pool_kids_length\" is null end"
+        },
+        "properties_pool_swimming_protected": {
+          "name": "properties_pool_swimming_protected",
+          "value": "\"properties\".\"pool_swimming\" or not \"properties\".\"pool_swimming_protected\""
+        },
+        "properties_map_embed_url": {
+          "name": "properties_map_embed_url",
+          "value": "\"properties\".\"map_embed_url\" is null or (length(\"properties\".\"map_embed_url\") <= 2000 and \"properties\".\"map_embed_url\" ~ '^https://www\\.google\\.com/maps(/embed\\?pb=[A-Za-z0-9!._%:~*+-]+|\\?q=-?[0-9]{1,2}\\.[0-9]{1,6},-?[0-9]{1,3}\\.[0-9]{1,6}&z=16&output=embed)$')"
+        },
+        "properties_distances": {
+          "name": "properties_distances",
+          "value": "(\"properties\".\"distance_market_km\" is null or (\"properties\".\"distance_market_km\" > 0 and \"properties\".\"distance_market_km\" <= 9999.99)) and (\"properties\".\"distance_restaurant_km\" is null or (\"properties\".\"distance_restaurant_km\" > 0 and \"properties\".\"distance_restaurant_km\" <= 9999.99)) and (\"properties\".\"distance_center_km\" is null or (\"properties\".\"distance_center_km\" > 0 and \"properties\".\"distance_center_km\" <= 9999.99)) and (\"properties\".\"distance_beach_km\" is null or (\"properties\".\"distance_beach_km\" > 0 and \"properties\".\"distance_beach_km\" <= 9999.99)) and (\"properties\".\"distance_airport_ayt_km\" is null or (\"properties\".\"distance_airport_ayt_km\" > 0 and \"properties\".\"distance_airport_ayt_km\" <= 9999.99)) and (\"properties\".\"distance_airport_dlm_km\" is null or (\"properties\".\"distance_airport_dlm_km\" > 0 and \"properties\".\"distance_airport_dlm_km\" <= 9999.99)) and (\"properties\".\"distance_health_km\" is null or (\"properties\".\"distance_health_km\" > 0 and \"properties\".\"distance_health_km\" <= 9999.99))"
+        },
+        "properties_map_mode": {
+          "name": "properties_map_mode",
+          "value": "\"properties\".\"map_mode\" is null or \"properties\".\"map_mode\" in ('google', 'pin')"
+        },
+        "properties_map_pin": {
+          "name": "properties_map_pin",
+          "value": "(\"properties\".\"map_pin_lat\" is null and \"properties\".\"map_pin_lng\" is null) or (\"properties\".\"map_pin_lat\" is not null and \"properties\".\"map_pin_lng\" is not null and \"properties\".\"map_pin_lat\" between -90 and 90 and \"properties\".\"map_pin_lng\" between -180 and 180 and not (\"properties\".\"map_pin_lat\" = 0 and \"properties\".\"map_pin_lng\" = 0))"
+        },
+        "properties_distance_units": {
+          "name": "properties_distance_units",
+          "value": "(\"properties\".\"distance_market_unit\" is null or (\"properties\".\"distance_market_unit\" in ('km', 'm') and \"properties\".\"distance_market_km\" is not null)) and (\"properties\".\"distance_restaurant_unit\" is null or (\"properties\".\"distance_restaurant_unit\" in ('km', 'm') and \"properties\".\"distance_restaurant_km\" is not null)) and (\"properties\".\"distance_center_unit\" is null or (\"properties\".\"distance_center_unit\" in ('km', 'm') and \"properties\".\"distance_center_km\" is not null)) and (\"properties\".\"distance_beach_unit\" is null or (\"properties\".\"distance_beach_unit\" in ('km', 'm') and \"properties\".\"distance_beach_km\" is not null)) and (\"properties\".\"distance_airport_ayt_unit\" is null or (\"properties\".\"distance_airport_ayt_unit\" in ('km', 'm') and \"properties\".\"distance_airport_ayt_km\" is not null)) and (\"properties\".\"distance_airport_dlm_unit\" is null or (\"properties\".\"distance_airport_dlm_unit\" in ('km', 'm') and \"properties\".\"distance_airport_dlm_km\" is not null)) and (\"properties\".\"distance_health_unit\" is null or (\"properties\".\"distance_health_unit\" in ('km', 'm') and \"properties\".\"distance_health_km\" is not null))"
+        },
+        "properties_house_rule_keys": {
+          "name": "properties_house_rule_keys",
+          "value": "cardinality(\"properties\".\"house_rule_keys\") <= 20 and array_position(\"properties\".\"house_rule_keys\", null) is null and (cardinality(\"properties\".\"house_rule_keys\") = 0 or array_to_string(\"properties\".\"house_rule_keys\", ',') ~ '^[a-z][a-z0-9-]{1,31}(,[a-z][a-z0-9-]{1,31})*$')"
+        },
+        "properties_price_includes": {
+          "name": "properties_price_includes",
+          "value": "cardinality(\"properties\".\"price_includes\") <= 20 and array_position(\"properties\".\"price_includes\", null) is null and (cardinality(\"properties\".\"price_includes\") = 0 or array_to_string(\"properties\".\"price_includes\", ',') ~ '^[a-z][a-z0-9-]{1,31}(,[a-z][a-z0-9-]{1,31})*$')"
+        },
+        "properties_coordinates": {
+          "name": "properties_coordinates",
+          "value": "(\"properties\".\"latitude\" is null) = (\"properties\".\"longitude\" is null) and (\"properties\".\"latitude\" is null or (\"properties\".\"latitude\" between -90 and 90 and \"properties\".\"longitude\" between -180 and 180))"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.workspace_members": {
+      "name": "workspace_members",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workspace_members_user_id_idx": {
+          "name": "workspace_members_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workspace_members_workspace_id_workspaces_id_fk": {
+          "name": "workspace_members_workspace_id_workspaces_id_fk",
+          "tableFrom": "workspace_members",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "workspace_members_user_id_users_id_fk": {
+          "name": "workspace_members_user_id_users_id_fk",
+          "tableFrom": "workspace_members",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "workspace_members_workspace_user_key": {
+          "name": "workspace_members_workspace_user_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "workspace_members_role_check": {
+          "name": "workspace_members_role_check",
+          "value": "\"workspace_members\".\"role\" in ('owner', 'manager', 'staff')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.workspaces": {
+      "name": "workspaces",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "contact_whatsapp": {
+          "name": "contact_whatsapp",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "workspaces_created_by_users_id_fk": {
+          "name": "workspaces_created_by_users_id_fk",
+          "tableFrom": "workspaces",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "workspaces_slug_key": {
+          "name": "workspaces_slug_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "slug"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "workspaces_name_length": {
+          "name": "workspaces_name_length",
+          "value": "length(btrim(\"workspaces\".\"name\")) between 2 and 120"
+        },
+        "workspaces_slug_format": {
+          "name": "workspaces_slug_format",
+          "value": "\"workspaces\".\"slug\" ~ '^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$'"
+        },
+        "workspaces_status_check": {
+          "name": "workspaces_status_check",
+          "value": "\"workspaces\".\"status\" in ('active', 'suspended')"
+        },
+        "workspaces_contact_whatsapp_format": {
+          "name": "workspaces_contact_whatsapp_format",
+          "value": "\"workspaces\".\"contact_whatsapp\" is null or \"workspaces\".\"contact_whatsapp\" ~ '^\\+[1-9][0-9]{9,14}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.reservations": {
+      "name": "reservations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "property_id": {
+          "name": "property_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "check_in": {
+          "name": "check_in",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "check_out": {
+          "name": "check_out",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "guest_name": {
+          "name": "guest_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "guest_phone": {
+          "name": "guest_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "guest_email": {
+          "name": "guest_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "adults": {
+          "name": "adults",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "children": {
+          "name": "children",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_amount_minor": {
+          "name": "total_amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deposit_amount_minor": {
+          "name": "deposit_amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "balance_amount_minor": {
+          "name": "balance_amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "total_amount_minor - coalesce(deposit_amount_minor, 0)",
+            "type": "stored"
+          }
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_by": {
+          "name": "cancelled_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancel_reason": {
+          "name": "cancel_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "reservations_workspace_check_in_idx": {
+          "name": "reservations_workspace_check_in_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "check_in",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "reservations_property_check_in_idx": {
+          "name": "reservations_property_check_in_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "check_in",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "reservations_created_by_idx": {
+          "name": "reservations_created_by_idx",
+          "columns": [
+            {
+              "expression": "created_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "reservations_workspace_id_workspaces_id_fk": {
+          "name": "reservations_workspace_id_workspaces_id_fk",
+          "tableFrom": "reservations",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "reservations_cancelled_by_users_id_fk": {
+          "name": "reservations_cancelled_by_users_id_fk",
+          "tableFrom": "reservations",
+          "tableTo": "users",
+          "columnsFrom": [
+            "cancelled_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "reservations_created_by_users_id_fk": {
+          "name": "reservations_created_by_users_id_fk",
+          "tableFrom": "reservations",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "reservations_property_fk": {
+          "name": "reservations_property_fk",
+          "tableFrom": "reservations",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id",
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id",
+            "workspace_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "reservations_kind_check": {
+          "name": "reservations_kind_check",
+          "value": "\"reservations\".\"kind\" in ('reservation', 'block')"
+        },
+        "reservations_status_check": {
+          "name": "reservations_status_check",
+          "value": "\"reservations\".\"status\" in ('pending', 'confirmed', 'cancelled')"
+        },
+        "reservations_source_check": {
+          "name": "reservations_source_check",
+          "value": "\"reservations\".\"source\" is null or \"reservations\".\"source\" in ('direct', 'phone', 'airbnb', 'booking', 'other', 'web')"
+        },
+        "reservations_dates": {
+          "name": "reservations_dates",
+          "value": "\"reservations\".\"check_out\" > \"reservations\".\"check_in\" and \"reservations\".\"check_out\" - \"reservations\".\"check_in\" <= 365"
+        },
+        "reservations_reservation_fields": {
+          "name": "reservations_reservation_fields",
+          "value": "\"reservations\".\"kind\" <> 'reservation' or (\"reservations\".\"guest_name\" is not null and \"reservations\".\"source\" is not null and \"reservations\".\"adults\" is not null and \"reservations\".\"children\" is not null)"
+        },
+        "reservations_block_fields": {
+          "name": "reservations_block_fields",
+          "value": "\"reservations\".\"kind\" <> 'block' or (\"reservations\".\"status\" <> 'pending' and \"reservations\".\"guest_name\" is null and \"reservations\".\"guest_phone\" is null and \"reservations\".\"guest_email\" is null and \"reservations\".\"source\" is null and \"reservations\".\"adults\" is null and \"reservations\".\"children\" is null and \"reservations\".\"total_amount_minor\" is null and \"reservations\".\"deposit_amount_minor\" is null and \"reservations\".\"currency\" is null)"
+        },
+        "reservations_guest_name_length": {
+          "name": "reservations_guest_name_length",
+          "value": "\"reservations\".\"guest_name\" is null or length(btrim(\"reservations\".\"guest_name\")) between 2 and 120"
+        },
+        "reservations_guest_phone_format": {
+          "name": "reservations_guest_phone_format",
+          "value": "\"reservations\".\"guest_phone\" is null or \"reservations\".\"guest_phone\" ~ '^\\+?[0-9][0-9 ()-]{5,18}[0-9]$'"
+        },
+        "reservations_guest_email_format": {
+          "name": "reservations_guest_email_format",
+          "value": "\"reservations\".\"guest_email\" is null or (length(\"reservations\".\"guest_email\") <= 254 and \"reservations\".\"guest_email\" ~ '^[^@\\s<>]+@[^@\\s<>]+\\.[^@\\s<>]+$')"
+        },
+        "reservations_guests_range": {
+          "name": "reservations_guests_range",
+          "value": "(\"reservations\".\"adults\" is null or \"reservations\".\"adults\" between 1 and 50) and (\"reservations\".\"children\" is null or \"reservations\".\"children\" between 0 and 50)"
+        },
+        "reservations_amounts": {
+          "name": "reservations_amounts",
+          "value": "(\"reservations\".\"total_amount_minor\" is null or \"reservations\".\"total_amount_minor\" between 0 and 999999999999) and (\"reservations\".\"deposit_amount_minor\" is null or (\"reservations\".\"deposit_amount_minor\" >= 0 and \"reservations\".\"total_amount_minor\" is not null and \"reservations\".\"deposit_amount_minor\" <= \"reservations\".\"total_amount_minor\")) and ((\"reservations\".\"total_amount_minor\" is null) = (\"reservations\".\"currency\" is null))"
+        },
+        "reservations_currency_check": {
+          "name": "reservations_currency_check",
+          "value": "\"reservations\".\"currency\" is null or \"reservations\".\"currency\" in ('TRY', 'EUR', 'USD', 'GBP')"
+        },
+        "reservations_note_length": {
+          "name": "reservations_note_length",
+          "value": "\"reservations\".\"note\" is null or length(\"reservations\".\"note\") <= 2000"
+        },
+        "reservations_cancellation": {
+          "name": "reservations_cancellation",
+          "value": "(\"reservations\".\"status\" = 'cancelled') = (\"reservations\".\"cancelled_at\" is not null) and (\"reservations\".\"status\" = 'cancelled' or (\"reservations\".\"cancelled_by\" is null and \"reservations\".\"cancel_reason\" is null)) and (\"reservations\".\"cancel_reason\" is null or length(\"reservations\".\"cancel_reason\") <= 500)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.property_rates": {
+      "name": "property_rates",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "property_id": {
+          "name": "property_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_date": {
+          "name": "start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nightly_amount_minor": {
+          "name": "nightly_amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weekly_amount_minor": {
+          "name": "weekly_amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "min_nights": {
+          "name": "min_nights",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cleaning_fee_minor": {
+          "name": "cleaning_fee_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cleaning_fee_free_nights": {
+          "name": "cleaning_fee_free_nights",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "property_rates_property_start_idx": {
+          "name": "property_rates_property_start_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "start_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_rates_workspace_idx": {
+          "name": "property_rates_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_rates_created_by_idx": {
+          "name": "property_rates_created_by_idx",
+          "columns": [
+            {
+              "expression": "created_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "property_rates_workspace_id_workspaces_id_fk": {
+          "name": "property_rates_workspace_id_workspaces_id_fk",
+          "tableFrom": "property_rates",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "property_rates_created_by_users_id_fk": {
+          "name": "property_rates_created_by_users_id_fk",
+          "tableFrom": "property_rates",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "property_rates_property_fk": {
+          "name": "property_rates_property_fk",
+          "tableFrom": "property_rates",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id",
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id",
+            "workspace_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "property_rates_dates": {
+          "name": "property_rates_dates",
+          "value": "\"property_rates\".\"end_date\" > \"property_rates\".\"start_date\" and \"property_rates\".\"end_date\" - \"property_rates\".\"start_date\" <= 366"
+        },
+        "property_rates_amounts": {
+          "name": "property_rates_amounts",
+          "value": "(\"property_rates\".\"nightly_amount_minor\" is not null or \"property_rates\".\"weekly_amount_minor\" is not null) and (\"property_rates\".\"nightly_amount_minor\" is null or \"property_rates\".\"nightly_amount_minor\" between 1 and 999999999999) and (\"property_rates\".\"weekly_amount_minor\" is null or \"property_rates\".\"weekly_amount_minor\" between 1 and 999999999999)"
+        },
+        "property_rates_currency_check": {
+          "name": "property_rates_currency_check",
+          "value": "\"property_rates\".\"currency\" in ('TRY', 'EUR', 'USD', 'GBP')"
+        },
+        "property_rates_cleaning_fee": {
+          "name": "property_rates_cleaning_fee",
+          "value": "\"property_rates\".\"cleaning_fee_minor\" is null or \"property_rates\".\"cleaning_fee_minor\" between 0 and 999999999999"
+        },
+        "property_rates_cleaning_fee_free_nights": {
+          "name": "property_rates_cleaning_fee_free_nights",
+          "value": "\"property_rates\".\"cleaning_fee_free_nights\" is null or (\"property_rates\".\"cleaning_fee_free_nights\" between 1 and 365 and \"property_rates\".\"cleaning_fee_minor\" is not null)"
+        },
+        "property_rates_min_nights": {
+          "name": "property_rates_min_nights",
+          "value": "\"property_rates\".\"min_nights\" is null or \"property_rates\".\"min_nights\" between 1 and 365"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.external_calendar_events": {
+      "name": "external_calendar_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "property_id": {
+          "name": "property_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "uid": {
+          "name": "uid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_date": {
+          "name": "start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "external_calendar_events_property_idx": {
+          "name": "external_calendar_events_property_idx",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "start_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"external_calendar_events\".\"is_active\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "external_calendar_events_workspace_idx": {
+          "name": "external_calendar_events_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "external_calendar_events_source_fk": {
+          "name": "external_calendar_events_source_fk",
+          "tableFrom": "external_calendar_events",
+          "tableTo": "external_calendar_sources",
+          "columnsFrom": [
+            "source_id",
+            "workspace_id",
+            "property_id"
+          ],
+          "columnsTo": [
+            "id",
+            "workspace_id",
+            "property_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "external_calendar_events_source_uid_key": {
+          "name": "external_calendar_events_source_uid_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "source_id",
+            "uid"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "external_calendar_events_dates": {
+          "name": "external_calendar_events_dates",
+          "value": "\"external_calendar_events\".\"end_date\" > \"external_calendar_events\".\"start_date\""
+        },
+        "external_calendar_events_uid_length": {
+          "name": "external_calendar_events_uid_length",
+          "value": "length(\"external_calendar_events\".\"uid\") between 1 and 255"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.external_calendar_sources": {
+      "name": "external_calendar_sources",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "property_id": {
+          "name": "property_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "last_synced_at": {
+          "name": "last_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_success_at": {
+          "name": "last_success_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error_code": {
+          "name": "last_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "event_count": {
+          "name": "event_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "conflict_count": {
+          "name": "conflict_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "consecutive_failures": {
+          "name": "consecutive_failures",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "locked_until": {
+          "name": "locked_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lock_token": {
+          "name": "lock_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "external_calendar_sources_property_name_key": {
+          "name": "external_calendar_sources_property_name_key",
+          "columns": [
+            {
+              "expression": "property_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "external_calendar_sources_workspace_idx": {
+          "name": "external_calendar_sources_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "external_calendar_sources_due_idx": {
+          "name": "external_calendar_sources_due_idx",
+          "columns": [
+            {
+              "expression": "is_active",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "last_synced_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "external_calendar_sources_created_by_idx": {
+          "name": "external_calendar_sources_created_by_idx",
+          "columns": [
+            {
+              "expression": "created_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "external_calendar_sources_workspace_id_workspaces_id_fk": {
+          "name": "external_calendar_sources_workspace_id_workspaces_id_fk",
+          "tableFrom": "external_calendar_sources",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "external_calendar_sources_created_by_users_id_fk": {
+          "name": "external_calendar_sources_created_by_users_id_fk",
+          "tableFrom": "external_calendar_sources",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "external_calendar_sources_property_fk": {
+          "name": "external_calendar_sources_property_fk",
+          "tableFrom": "external_calendar_sources",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id",
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id",
+            "workspace_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "external_calendar_sources_scope_key": {
+          "name": "external_calendar_sources_scope_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "workspace_id",
+            "property_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "external_calendar_sources_name_length": {
+          "name": "external_calendar_sources_name_length",
+          "value": "length(btrim(\"external_calendar_sources\".\"name\")) between 1 and 60"
+        },
+        "external_calendar_sources_url_format": {
+          "name": "external_calendar_sources_url_format",
+          "value": "length(\"external_calendar_sources\".\"url\") <= 2048 and \"external_calendar_sources\".\"url\" ~ '^https?://[^\\s]+$'"
+        },
+        "external_calendar_sources_status_check": {
+          "name": "external_calendar_sources_status_check",
+          "value": "\"external_calendar_sources\".\"status\" in ('pending', 'ok', 'error')"
+        },
+        "external_calendar_sources_error_code_format": {
+          "name": "external_calendar_sources_error_code_format",
+          "value": "\"external_calendar_sources\".\"last_error_code\" is null or \"external_calendar_sources\".\"last_error_code\" ~ '^[a-z_]{1,40}$'"
+        },
+        "external_calendar_sources_counts": {
+          "name": "external_calendar_sources_counts",
+          "value": "\"external_calendar_sources\".\"event_count\" >= 0 and \"external_calendar_sources\".\"conflict_count\" >= 0 and \"external_calendar_sources\".\"consecutive_failures\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.external_calendar_sync_runs": {
+      "name": "external_calendar_sync_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "events_total": {
+          "name": "events_total",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "events_added": {
+          "name": "events_added",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "events_updated": {
+          "name": "events_updated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "events_deactivated": {
+          "name": "events_deactivated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "external_calendar_sync_runs_source_idx": {
+          "name": "external_calendar_sync_runs_source_idx",
+          "columns": [
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "finished_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "external_calendar_sync_runs_workspace_idx": {
+          "name": "external_calendar_sync_runs_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "external_calendar_sync_runs_source_fk": {
+          "name": "external_calendar_sync_runs_source_fk",
+          "tableFrom": "external_calendar_sync_runs",
+          "tableTo": "external_calendar_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "external_calendar_sync_runs_trigger_check": {
+          "name": "external_calendar_sync_runs_trigger_check",
+          "value": "\"external_calendar_sync_runs\".\"trigger\" in ('cron', 'manual')"
+        },
+        "external_calendar_sync_runs_outcome_check": {
+          "name": "external_calendar_sync_runs_outcome_check",
+          "value": "\"external_calendar_sync_runs\".\"outcome\" in ('ok', 'error')"
+        },
+        "external_calendar_sync_runs_error_code_format": {
+          "name": "external_calendar_sync_runs_error_code_format",
+          "value": "\"external_calendar_sync_runs\".\"error_code\" is null or \"external_calendar_sync_runs\".\"error_code\" ~ '^[a-z_]{1,40}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.property_ical_exports": {
+      "name": "property_ical_exports",
+      "schema": "",
+      "columns": {
+        "property_id": {
+          "name": "property_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "rotated_at": {
+          "name": "rotated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_fetched_at": {
+          "name": "last_fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "property_ical_exports_token_key": {
+          "name": "property_ical_exports_token_key",
+          "columns": [
+            {
+              "expression": "token",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_ical_exports_workspace_idx": {
+          "name": "property_ical_exports_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "property_ical_exports_created_by_idx": {
+          "name": "property_ical_exports_created_by_idx",
+          "columns": [
+            {
+              "expression": "created_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "property_ical_exports_created_by_users_id_fk": {
+          "name": "property_ical_exports_created_by_users_id_fk",
+          "tableFrom": "property_ical_exports",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "property_ical_exports_property_fk": {
+          "name": "property_ical_exports_property_fk",
+          "tableFrom": "property_ical_exports",
+          "tableTo": "properties",
+          "columnsFrom": [
+            "property_id",
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id",
+            "workspace_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "property_ical_exports_pkey": {
+          "name": "property_ical_exports_pkey",
+          "columns": [
+            "property_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "property_ical_exports_token_format": {
+          "name": "property_ical_exports_token_format",
+          "value": "\"property_ical_exports\".\"token\" ~ '^[A-Za-z0-9_-]{43}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.wa_connections": {
+      "name": "wa_connections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'connecting'"
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_connected_at": {
+          "name": "last_connected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error_code": {
+          "name": "last_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "wa_connections_label_key": {
+          "name": "wa_connections_label_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "label"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "wa_connections_label_format": {
+          "name": "wa_connections_label_format",
+          "value": "\"wa_connections\".\"label\" ~ '^[a-z0-9_-]{1,40}$'"
+        },
+        "wa_connections_status_check": {
+          "name": "wa_connections_status_check",
+          "value": "\"wa_connections\".\"status\" in ('connecting', 'open', 'closed', 'logged_out')"
+        },
+        "wa_connections_error_format": {
+          "name": "wa_connections_error_format",
+          "value": "\"wa_connections\".\"last_error_code\" is null or \"wa_connections\".\"last_error_code\" ~ '^[a-z0-9_]{1,40}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.wa_groups": {
+      "name": "wa_groups",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "jid": {
+          "name": "jid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "participant_count": {
+          "name": "participant_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "bot_is_admin": {
+          "name": "bot_is_admin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "admins_only": {
+          "name": "admins_only",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'discovered'"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linked_at": {
+          "name": "linked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linked_by": {
+          "name": "linked_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "link_fail_count": {
+          "name": "link_fail_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "link_fail_window_at": {
+          "name": "link_fail_window_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_message_at": {
+          "name": "last_message_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "wa_groups_workspace_idx": {
+          "name": "wa_groups_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_groups_linked_by_idx": {
+          "name": "wa_groups_linked_by_idx",
+          "columns": [
+            {
+              "expression": "linked_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "wa_groups_connection_id_wa_connections_id_fk": {
+          "name": "wa_groups_connection_id_wa_connections_id_fk",
+          "tableFrom": "wa_groups",
+          "tableTo": "wa_connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "wa_groups_workspace_id_workspaces_id_fk": {
+          "name": "wa_groups_workspace_id_workspaces_id_fk",
+          "tableFrom": "wa_groups",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "wa_groups_linked_by_users_id_fk": {
+          "name": "wa_groups_linked_by_users_id_fk",
+          "tableFrom": "wa_groups",
+          "tableTo": "users",
+          "columnsFrom": [
+            "linked_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "wa_groups_connection_jid_key": {
+          "name": "wa_groups_connection_jid_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "connection_id",
+            "jid"
+          ]
+        },
+        "wa_groups_scope_key": {
+          "name": "wa_groups_scope_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "workspace_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "wa_groups_jid_format": {
+          "name": "wa_groups_jid_format",
+          "value": "\"wa_groups\".\"jid\" ~ '^[0-9]{6,40}(-[0-9]{6,20})?@g\\.us$'"
+        },
+        "wa_groups_status_check": {
+          "name": "wa_groups_status_check",
+          "value": "\"wa_groups\".\"status\" in ('discovered', 'linked', 'suspended', 'left')"
+        },
+        "wa_groups_status_workspace": {
+          "name": "wa_groups_status_workspace",
+          "value": "(\"wa_groups\".\"status\" = 'discovered' and \"wa_groups\".\"workspace_id\" is null)\n        or (\"wa_groups\".\"status\" in ('linked', 'suspended') and \"wa_groups\".\"workspace_id\" is not null)\n        or \"wa_groups\".\"status\" = 'left'"
+        },
+        "wa_groups_subject_length": {
+          "name": "wa_groups_subject_length",
+          "value": "\"wa_groups\".\"subject\" is null or length(\"wa_groups\".\"subject\") <= 200"
+        },
+        "wa_groups_counts": {
+          "name": "wa_groups_counts",
+          "value": "\"wa_groups\".\"participant_count\" >= 0 and \"wa_groups\".\"link_fail_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.wa_inbound_messages": {
+      "name": "wa_inbound_messages",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wa_message_id": {
+          "name": "wa_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender_jid": {
+          "name": "sender_jid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender_pn": {
+          "name": "sender_pn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sender_lid": {
+          "name": "sender_lid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'received'"
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "locked_until": {
+          "name": "locked_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lock_token": {
+          "name": "lock_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "wa_inbound_messages_queue_idx": {
+          "name": "wa_inbound_messages_queue_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_inbound_messages_workspace_idx": {
+          "name": "wa_inbound_messages_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_inbound_messages_connection_idx": {
+          "name": "wa_inbound_messages_connection_idx",
+          "columns": [
+            {
+              "expression": "connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_inbound_messages_received_idx": {
+          "name": "wa_inbound_messages_received_idx",
+          "columns": [
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "wa_inbound_messages_connection_id_wa_connections_id_fk": {
+          "name": "wa_inbound_messages_connection_id_wa_connections_id_fk",
+          "tableFrom": "wa_inbound_messages",
+          "tableTo": "wa_connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "wa_inbound_messages_group_fk": {
+          "name": "wa_inbound_messages_group_fk",
+          "tableFrom": "wa_inbound_messages",
+          "tableTo": "wa_groups",
+          "columnsFrom": [
+            "group_id",
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id",
+            "workspace_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "wa_inbound_messages_dedupe_key": {
+          "name": "wa_inbound_messages_dedupe_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "group_id",
+            "wa_message_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "wa_inbound_messages_kind_check": {
+          "name": "wa_inbound_messages_kind_check",
+          "value": "\"wa_inbound_messages\".\"kind\" in ('live', 'backlog')"
+        },
+        "wa_inbound_messages_status_check": {
+          "name": "wa_inbound_messages_status_check",
+          "value": "\"wa_inbound_messages\".\"status\" in ('received')"
+        },
+        "wa_inbound_messages_lengths": {
+          "name": "wa_inbound_messages_lengths",
+          "value": "length(\"wa_inbound_messages\".\"body\") between 1 and 4000 and length(\"wa_inbound_messages\".\"wa_message_id\") between 1 and 128\n        and length(\"wa_inbound_messages\".\"sender_jid\") between 3 and 128"
+        },
+        "wa_inbound_messages_sender_pn_format": {
+          "name": "wa_inbound_messages_sender_pn_format",
+          "value": "\"wa_inbound_messages\".\"sender_pn\" is null or \"wa_inbound_messages\".\"sender_pn\" ~ '^[1-9][0-9]{6,19}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.wa_link_codes": {
+      "name": "wa_link_codes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_salt": {
+          "name": "code_salt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_hash": {
+          "name": "code_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone_hash": {
+          "name": "phone_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "used_group_id": {
+          "name": "used_group_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "wa_link_codes_workspace_idx": {
+          "name": "wa_link_codes_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_link_codes_created_by_idx": {
+          "name": "wa_link_codes_created_by_idx",
+          "columns": [
+            {
+              "expression": "created_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_link_codes_used_group_idx": {
+          "name": "wa_link_codes_used_group_idx",
+          "columns": [
+            {
+              "expression": "used_group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_link_codes_active_idx": {
+          "name": "wa_link_codes_active_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"wa_link_codes\".\"used_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "wa_link_codes_workspace_id_workspaces_id_fk": {
+          "name": "wa_link_codes_workspace_id_workspaces_id_fk",
+          "tableFrom": "wa_link_codes",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "wa_link_codes_created_by_users_id_fk": {
+          "name": "wa_link_codes_created_by_users_id_fk",
+          "tableFrom": "wa_link_codes",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "wa_link_codes_used_group_id_wa_groups_id_fk": {
+          "name": "wa_link_codes_used_group_id_wa_groups_id_fk",
+          "tableFrom": "wa_link_codes",
+          "tableTo": "wa_groups",
+          "columnsFrom": [
+            "used_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "wa_link_codes_salt_format": {
+          "name": "wa_link_codes_salt_format",
+          "value": "\"wa_link_codes\".\"code_salt\" ~ '^[0-9a-f]{32}$'"
+        },
+        "wa_link_codes_hash_format": {
+          "name": "wa_link_codes_hash_format",
+          "value": "\"wa_link_codes\".\"code_hash\" ~ '^[0-9a-f]{64}$' and \"wa_link_codes\".\"phone_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "wa_link_codes_ttl": {
+          "name": "wa_link_codes_ttl",
+          "value": "\"wa_link_codes\".\"expires_at\" > \"wa_link_codes\".\"created_at\" and \"wa_link_codes\".\"expires_at\" <= \"wa_link_codes\".\"created_at\" + interval '15 minutes'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.wa_link_managers": {
+      "name": "wa_link_managers",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "granted_by": {
+          "name": "granted_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "wa_link_managers_user_idx": {
+          "name": "wa_link_managers_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_link_managers_granted_by_idx": {
+          "name": "wa_link_managers_granted_by_idx",
+          "columns": [
+            {
+              "expression": "granted_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "wa_link_managers_granted_by_users_id_fk": {
+          "name": "wa_link_managers_granted_by_users_id_fk",
+          "tableFrom": "wa_link_managers",
+          "tableTo": "users",
+          "columnsFrom": [
+            "granted_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "wa_link_managers_member_fk": {
+          "name": "wa_link_managers_member_fk",
+          "tableFrom": "wa_link_managers",
+          "tableTo": "workspace_members",
+          "columnsFrom": [
+            "workspace_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "workspace_id",
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "wa_link_managers_pkey": {
+          "name": "wa_link_managers_pkey",
+          "columns": [
+            "workspace_id",
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

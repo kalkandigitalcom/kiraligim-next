@@ -1,0 +1,15 @@
+# Bağımlılıklar
+node_modules/
+
+# WhatsApp oturum anahtarları — ASLA Git'e girmez
+.wa-auth/
+
+# Yerel ayarlar (test numarası, grup kimliği)
+.env
+.env.*
+!.env.example
+
+# Tek kopya kilidi
+.wa-auth.lock
+*.lock
+!package-lock.json

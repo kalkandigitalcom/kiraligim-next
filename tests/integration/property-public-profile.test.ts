@@ -186,6 +186,7 @@ describe("varsayılanlar ve yetkiler (0022, 0023)", () => {
       "workspaces_public_read", // 0024 (F2a): app_migrator, yalnız SELECT
       "workspaces_select",
       "workspaces_update",
+      "workspaces_wa_read", // 0031 (A1): app_migrator, yalnız SELECT (app.wa_fn)
     ]);
   });
 });

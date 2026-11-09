@@ -613,6 +613,45 @@ DROP TABLE public.property_rates;   -- politikalar, kısıt, dizinler, tetikleyi
 Migration geçmişi kayıtları (`drizzle.__migrations`) elle silinmez; aynı sürüm yeniden deploy edilecekse
 tabloyu düşürmek yerine bırakın. Kalıcı geri alma gerekirse yeni bir ileri migration (`DROP TABLE`) yazılır.
 
+## WhatsApp Asistanı — A1 grup kaydı ve mesaj kuyruğu (0030, 0031, 0032)
+
+Yalnız okuma: bağlı gruplardaki mesajlar kaydedilir; AI analizi, takvim, fiyat, rezervasyon veya iCal
+işlemi YOKTUR (fonksiyonlar bu tablolara hiç referans vermez; entegrasyon testi denetler).
+
+- **Tablolar:** `wa_connections` (ağ geçidi etiketi + durum; numara saklanmaz), `wa_groups` (keşfedilen
+  gruplar; `discovered` → `linked` / `suspended` / `left`), `wa_link_managers` (owner'ın bağlama yetkisi
+  verdiği manager'lar), `wa_link_codes` (tuzlu SHA-256 kod ve telefon özeti; düz metin yok),
+  `wa_inbound_messages` (bağlı grubun mesajları; (grup, mesaj kimliği) tekil). Tümü FORCE RLS.
+- **Ağ geçidi** (`services/wa-gateway`) `app_user` ile bağlanır ama bağlamı yoktur: tablolara doğrudan
+  erişemez; yalnız `app_wa_heartbeat`, `app_wa_sync_group`, `app_wa_redeem_link_code`,
+  `app_wa_ingest_message`, `app_wa_purge_messages` (SECURITY DEFINER, `app.wa_fn` ayarıyla) çağrılır.
+  Mesaj kaydında `pg_notify('wa_inbound', <id>)` (ileride worker için).
+- **Panel** (`/whatsapp`, menü "WhatsApp Asistanı"): grupları tüm üyeler görür; mesajları owner ve
+  manager görür; kod üretme, askıya alma ve bağlantı kesme owner ile owner'ın yetkilendirdiği manager'a
+  açıktır (`app_wa_can_manage`, politikalarda da). Bağlantı kesilince grubun mesajları hemen silinir.
+- **Bağlama kodu:** 8 karakter (`XXXX-XXXX`), 10 dk, tek kullanım; gruba yalnız panelde verilen
+  numaradan `kiraligim XXXX-XXXX` yazılırsa kabul edilir, kodu üreten hâlâ yetkili olmalıdır. Grup başına
+  saatte en fazla 5 hatalı deneme. Bağlı grup başka işletmeye taşınamaz. Yalnız başarılı bağlamada ✅.
+- **Denetim kaydı:** `whatsapp.link_code_created`, `group_linked`, `group_suspended`, `group_resumed`,
+  `group_unlinked`, `link_manager_granted`, `link_manager_revoked` (kod, numara ve mesaj metni yazılmaz).
+- **Saklama (90 gün):** ağ geçidi saatte bir temizler; ayrıca Coolify Scheduled Task (günde bir, ör.
+  `17 3 * * *`): `node dist/wa-retention.js` (uygulamanın `DATABASE_URL`'i). 7 günden eski kodlar da
+  silinir. 0032: `app_wa_purge_messages` yalnız 90–365 gün kabul eder; daha kısa süre reddedilir
+  (`app_user` yetkili bir bağlantı mesajları 90 günden erken silemez).
+- **Ağ geçidi env** (`services/wa-gateway/.env`, Git dışı): `WA_ALLOWED_NUMBER` (bağlanabilecek tek
+  numara), `WA_DATABASE_URL` (A1: `app_user` ile **geliştirme** veritabanı; adı `_dev` ile bitmeli
+  ve `prod` içermemeli; bağlantıdan önce denetlenir), `WA_CONNECTION_LABEL` (varsayılan `primary`),
+  `WA_AUTH_DIR` (yalnız servis klasöründeki `.wa-auth` veya `.wa-auth-<etiket>`; başka yol veya
+  sembolik bağlantıyla servis başlamaz). `WA_DATABASE_URL` boşsa Faz 1
+  test biçimi çalışır.
+- **Ayrı DB kullanıcısı:** şimdilik `app_user`; production hazırlığında ağ geçidine yalnız `app_wa_*`
+  EXECUTE yetkili ayrı rol değerlendirilecek.
+
+**Geri alma.** 0030–0031 yalnız yeni tablo ve fonksiyon ekler (0032 yalnız saklama fonksiyonunu
+sıkılaştırır); mevcut tablolara yalnız iki dar politika
+(`workspaces_wa_read`, `audit_log_wa_insert`). Kaldırma komutları 0031'in başındaki yorumdadır (veri kaybı:
+gruplar, kodlar, mesajlar). Uygulanmış migration değiştirilmez; kalıcı geri alma yeni bir ileri migration'la.
+
 ## Veritabanı rolleri ve migration
 
 ### Roller

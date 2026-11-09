@@ -4,12 +4,13 @@ import { activeNavHref, NAV_GROUPS } from "@/app/host/(panel)/_components/nav-co
 
 /** Panel kenar çubuğu menüsü (Aşama 1): öğeler ve etkin bağlantı eşleşmesi. */
 describe("panel menüsü", () => {
-  it("dört ana bölüm, mevcut adreslerle", () => {
+  it("ana bölümler, mevcut adreslerle", () => {
     expect(NAV_GROUPS.flatMap((g) => g.items.map((i) => [i.label, i.href]))).toEqual([
       ["Genel Bakış", "/panel"],
       ["Mülkler", "/villalar"],
       ["Rezervasyonlar", "/rezervasyonlar"],
       ["Takvim", "/takvim"],
+      ["WhatsApp Asistanı", "/whatsapp"],
     ]);
   });
 
@@ -22,6 +23,7 @@ describe("panel menüsü", () => {
     );
     expect(activeNavHref("/rezervasyonlar/yeni")).toBe("/rezervasyonlar");
     expect(activeNavHref("/takvim")).toBe("/takvim");
+    expect(activeNavHref("/whatsapp")).toBe("/whatsapp");
   });
 
   it("benzer önekli ya da menü dışı adresler etkin değildir", () => {

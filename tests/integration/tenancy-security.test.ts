@@ -53,6 +53,14 @@ describe("fonksiyonlar", () => {
       "app_set_updated_at",
       "app_subscription_is_current",
       "app_uuid_v7",
+      // 0031 (A1): WhatsApp Asistanı — yetki yardımcısı (invoker) ve ağ geçidi/panel fonksiyonları
+      "app_wa_can_manage",
+      "app_wa_heartbeat",
+      "app_wa_ingest_message",
+      "app_wa_purge_messages",
+      "app_wa_redeem_link_code",
+      "app_wa_sync_group",
+      "app_wa_unlink_group",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -81,6 +89,13 @@ describe("fonksiyonlar", () => {
       "app_public_villa_visible",
       // 0029 (3.1): harici doluluk tetikleyicisi her bağlamda (F3 dahil) olayları okuyabilmeli
       "app_reservations_external_guard",
+      // 0031 (A1): WhatsApp ağ geçidinin tek yazma yolu ve panelden bağlantı kesme (app.wa_fn)
+      "app_wa_heartbeat",
+      "app_wa_ingest_message",
+      "app_wa_purge_messages",
+      "app_wa_redeem_link_code",
+      "app_wa_sync_group",
+      "app_wa_unlink_group",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -93,10 +108,35 @@ describe("fonksiyonlar", () => {
          and proname not like 'app\\_public\\_villa%'
          and proname <> 'app_public_reservation_request'
          and proname not like 'app\\_ical\\_%'
+         and proname not like 'app\\_wa\\_%'
        order by 1`);
     expect(r.rows).toEqual([
       { proname: "app_current_membership_role", pronargs: 0 },
       { proname: "app_current_workspace_unclaimed", pronargs: 0 },
+    ]);
+    // 0031 (A1): WhatsApp fonksiyonları ağ geçidi verisini (bağlantı, grup JID'i, mesaj) alır;
+    // işletme kimliği ALMAZ (bağlı gruptan ya da oturum bağlamından bulunur). Ayrıntılı testler:
+    // tests/integration/whatsapp-groups.test.ts.
+    const wa = await admin.query(`
+      select proname, pg_get_function_identity_arguments(oid) as args from pg_proc
+       where pronamespace = 'public'::regnamespace and prosecdef and proname like 'app\\_wa\\_%'
+       order by 1`);
+    expect(wa.rows).toEqual([
+      { proname: "app_wa_heartbeat", args: "p_label text, p_status text, p_error text" },
+      {
+        proname: "app_wa_ingest_message",
+        args: "p_connection uuid, p_jid text, p_message_id text, p_sender_jid text, p_sender_pn text, p_sender_lid text, p_body text, p_sent_at timestamp with time zone, p_kind text",
+      },
+      { proname: "app_wa_purge_messages", args: "p_days integer" },
+      {
+        proname: "app_wa_redeem_link_code",
+        args: "p_connection uuid, p_jid text, p_code text, p_sender_pn text",
+      },
+      {
+        proname: "app_wa_sync_group",
+        args: "p_connection uuid, p_jid text, p_subject text, p_participants integer, p_bot_is_admin boolean, p_admins_only boolean, p_present boolean",
+      },
+      { proname: "app_wa_unlink_group", args: "p_group uuid" },
     ]);
     // 0024 (F2a): public okuma fonksiyonları parametre alır (adres / mülk kimliği / tarih), ancak
     // yalnız yayındaki ve görünür villaların sabit kolonlarını döndürür (tests/integration/public-villa.test.ts).
@@ -157,6 +197,13 @@ describe("fonksiyonlar", () => {
       app_set_updated_at: [],
       app_subscription_is_current: ["app_user"],
       app_uuid_v7: [],
+      app_wa_can_manage: ["app_user"],
+      app_wa_heartbeat: ["app_user"],
+      app_wa_ingest_message: ["app_user"],
+      app_wa_purge_messages: ["app_user"],
+      app_wa_redeem_link_code: ["app_user"],
+      app_wa_sync_group: ["app_user"],
+      app_wa_unlink_group: ["app_user"],
       app_workspace_members_keep_owner: [],
       app_workspace_start_trial: [],
     });
@@ -222,6 +269,8 @@ describe("RLS", () => {
     expect(r.rows.map((x) => [x.tablename, x.policyname, x.cmd, x.roles])).toEqual([
       ["audit_log", "audit_log_insert", "INSERT", ["app_user"]],
       ["audit_log", "audit_log_select", "SELECT", ["app_user"]],
+      // 0031 (A1): yalnız app.wa_fn açıkken ve yalnız whatsapp.* eylemleri
+      ["audit_log", "audit_log_wa_insert", "INSERT", ["app_migrator"]],
       ["workspace_members", "members_delete", "DELETE", ["app_user"]],
       ["workspace_members", "members_insert", "INSERT", ["app_user"]],
       ["workspace_members", "members_migrator_lookup", "SELECT", ["app_migrator"]],
@@ -235,6 +284,8 @@ describe("RLS", () => {
       ["workspaces", "workspaces_public_read", "SELECT", ["app_migrator"]],
       ["workspaces", "workspaces_select", "SELECT", ["app_user"]],
       ["workspaces", "workspaces_update", "UPDATE", ["app_user"]],
+      // 0031 (A1): yalnız app.wa_fn açıkken (bağlama kodunda işletme durumu denetimi)
+      ["workspaces", "workspaces_wa_read", "SELECT", ["app_migrator"]],
     ]);
   });
 
