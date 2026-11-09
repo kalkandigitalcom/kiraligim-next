@@ -163,6 +163,8 @@ describe("processImage", () => {
     expect(await reason(processImage(bomb))).toBe("too_many_pixels");
   }, 30_000);
 
+  // Gürültülü 1600x1200 görsel (sıkıştırılamaz) üç kez işlenir; tek iş parçacıklı libvips
+  // (sharp.concurrency(1)) ile WebP kodlaması paylaşımlı CI makinesinde 5 sn'yi aşabiliyor.
   it("varyant sınırı aşılırsa kalite basamaklarla düşürülür", async () => {
     const input = await noise(1600, 1200).png().toBuffer();
     const low = await processImage(input, { qualities: [50] });
@@ -176,7 +178,7 @@ describe("processImage", () => {
     // Küçük varyant ilk basamakta sığar; kayıtta en düşük kalite tutulur.
     expect(out.variants.find((v) => v.width === 400)!.quality).toBe(90);
     expect(out.quality).toBe(Math.min(...out.variants.map((v) => v.quality)));
-  });
+  }, 15_000);
 
   it("en düşük kalitede de sınır aşılırsa tüm yükleme reddedilir", async () => {
     const input = await noise(800, 600).jpeg().toBuffer();
