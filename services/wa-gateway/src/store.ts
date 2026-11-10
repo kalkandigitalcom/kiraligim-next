@@ -19,6 +19,17 @@ export type ConnectionStatus = "connecting" | "open" | "closed" | "logged_out";
 export type VerifyOutcome = "verified" | "invalid" | "sender_unknown";
 export type IngestOutcome = "stored" | "duplicate" | "ignored";
 
+/** A2f: gönderilecek mesaj tepkisi (kuyruktan; worker kararı, veritabanında doğrulanmış). */
+export type QueuedReaction = {
+  messageId: string;
+  lockToken: string;
+  groupJid: string;
+  waMessageId: string;
+  senderJid: string;
+  emoji: string;
+};
+export type ReactionFinish = "sent" | "retry" | "failed" | "lost";
+
 export type InboundRecord = {
   groupJid: string;
   messageId: string;
@@ -111,6 +122,42 @@ export class WaStore {
         m.sentAt,
         m.kind,
       ],
+    );
+    return rows[0]!.out;
+  }
+
+  /** A2f: bu bağlantının gönderilmeyi bekleyen tepkileri (en fazla `limit`, 1–20; kilitlenir). */
+  async claimReactions(limit: number): Promise<QueuedReaction[]> {
+    const { rows } = await this.db.query<{
+      message_id: string;
+      lock_token: string;
+      group_jid: string;
+      wa_message_id: string;
+      sender_jid: string;
+      emoji: string;
+    }>(
+      "select message_id, lock_token, group_jid, wa_message_id, sender_jid, emoji from public.app_wa_claim_reactions($1, $2)",
+      [await this.conn(), limit],
+    );
+    return rows.map((r) => ({
+      messageId: r.message_id,
+      lockToken: r.lock_token,
+      groupJid: r.group_jid,
+      waMessageId: r.wa_message_id,
+      senderJid: r.sender_jid,
+      emoji: r.emoji,
+    }));
+  }
+
+  /** A2f: gönderim sonucu (yalnız kısa hata kodu). Kilit uyuşmazsa "lost": hiçbir şey yazılmaz. */
+  async finishReaction(
+    r: Pick<QueuedReaction, "messageId" | "lockToken">,
+    ok: boolean,
+    errorCode: string | null = null,
+  ): Promise<ReactionFinish> {
+    const { rows } = await this.db.query<{ out: ReactionFinish }>(
+      "select public.app_wa_finish_reaction($1, $2, $3, $4) as out",
+      [r.messageId, r.lockToken, ok, errorCode],
     );
     return rows[0]!.out;
   }

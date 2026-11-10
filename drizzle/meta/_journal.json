@@ -274,6 +274,20 @@
       "when": 1794327921527,
       "tag": "0038_wa_auto_close",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794332676350,
+      "tag": "0039_wa_message_reactions",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794332694929,
+      "tag": "0040_wa_reaction_security",
+      "breakpoints": true
     }
   ]
 }

@@ -731,6 +731,22 @@ değişmez ve yeni yetki almaz.
   rezervasyon, açma ve iptal **hiçbir zaman** otomatik uygulanmaz. Aynı mesajın yeniden teslimi ikinci blok
   üretmez (ağ geçidi `duplicate`; karar verilmiş öneri yeniden işlenmez).
 
+- **İşlem tepkileri (A2f, 0039–0040):** worker mesajı işledikten SONRA tek bir tepki seçer
+  (`src/server/whatsapp/calendar/reaction.ts`): ✅ yalnız otomatik blok gerçekten oluştuysa, ☑️ öneri
+  yönetici onayına sunulduysa (rezervasyon onayı DEĞİL), ⚠️ takvim talimatı anlaşılamadı / belirsiz /
+  çakışmalı / tamamlanamadıysa. Yetkisiz gönderene (staff, kayıtsız numara), sohbete ve soruya tepki yok.
+  Karar `app_wa_queue_reaction` ile kuyruğa (`wa_message_reactions`, mesaj başına tek satır) yazılır;
+  veritabanı kararı yeniden doğrular (✅ için mesajın otomatik uygulanmış önerisi şart). Ağ geçidi
+  bağlantı açıkken 5 sn'de bir kendi bağlantısının tepkilerini alır (`app_wa_claim_reactions`), mesajın
+  üzerine reaction gönderir (gruba metin yazılmaz) ve sonucu yazar (`app_wa_finish_reaction`): hata →
+  artan bekleme (30 sn … 30 dk), 5 denemeden sonra `failed`; 24 saatten eskisi `expired`. Tepki
+  gönderilemese de hiçbir takvim işlemi geri alınmaz. Ağ geçidi kendi tepkilerini işlemez (fromMe).
+
+**Yayın sırası (A2f):** 0039–0040 web uygulamasının açılışında uygulanır; `app_wa_gateway` rolü varsa
+alma/sonuç fonksiyonlarının yetkisi migration'da verilir (`scripts/wa-gateway-role.sql` de güncel; yeniden
+çalıştırmak gerekmez). Ardından ağ geçidi yeni sürümle yeniden başlatılır (tepkileri o gönderir); o zamana
+kadar tepkiler kuyrukta bekler, 24 saat sonra `expired` olur.
+
 **Yayın sırası (A2):** 0035–0037 web uygulamasının açılışında uygulanır (production'da önce yedek). 0036
 migration anında kuyruğu boşaltır; 0037 ilk worker çalıştırmasında yeniden boşaltır. Ardından Scheduled
 Task eklenir. Task'ı durdurmak yeterlidir (mesajlar kuyrukta bekler, 7 gün sonra `too_old`).

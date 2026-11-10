@@ -498,7 +498,7 @@ describe("tekrar işleme ve eşzamanlılık", () => {
     expect(second).toBeDefined();
     expect(await msgRow(m)).toMatchObject({ status: "processing", attempts: 2 });
     // Yeni sahibi işler; tek öneri.
-    expect(await processClaimed(app2, second!, deps())).toEqual({
+    expect(await processClaimed(app2, second!, deps())).toMatchObject({
       outcome: "stored",
       proposals: 1,
     });
@@ -544,7 +544,7 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
         },
       }),
     );
-    expect(out).toEqual({ outcome: "stored", proposals: 0 });
+    expect(out).toEqual({ outcome: "stored", proposals: 0, reaction: null });
     expect(await proposalsOf(m)).toEqual([]);
     expect(await msgRow(m)).toMatchObject({
       status: "ignored",

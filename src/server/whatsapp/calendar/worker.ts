@@ -18,6 +18,10 @@
  *      Blok yalnız oradan, sahibin oturum bağlamında ve rezervasyon servisiyle oluşur; başarısızlıkta
  *      öneri panelde onay bekler. autoClose verilmezse (testler) yalnız öneri oluşur.
  *
+ *   6. (A2f) Tepki: mesaj sonuçlandıktan SONRA decideReaction (merkezi karar) ile tek tepki seçilir ve
+ *      app_wa_queue_reaction ile kuyruğa yazılır (veritabanı kararı yeniden doğrular; mesaj başına
+ *      tek tepki). Ağ geçidi gönderir. Kuyruğa yazılamazsa yalnız log: takvim ve öneri etkilenmez.
+ *
  * GÜVENLİK: worker kendisi rezervasyon veya harici takvim tablosuna yazan hiçbir kodu import
  * etmez (eslint sınırı); takvime giden TEK yol enjekte edilen AutoCloser'dır (cron.ts bağlar).
  * Kullanıcısız bağlantı öneriyi onaylayamaz (veritabanı).
@@ -39,11 +43,13 @@ import {
 import {
   WA_PROPOSAL_LIMITS as PL,
   WA_WORKER_LIMITS as WL,
+  type WaReactionKind,
   type WaWorkerError,
 } from "@/lib/whatsapp-meta";
 
 import type { AutoCloser } from "../auto-close";
 import { autoCloseCandidate } from "./auto-close-rule";
+import { decideReaction } from "./reaction";
 import { type BusyRow, buildStoreItem, busyRange, type StoreItem } from "./proposal";
 import { type ResolverVilla, resolveProposal } from "./resolve";
 
@@ -76,7 +82,13 @@ export type ClaimedMessage = {
 };
 
 export type ProcessOutcome =
-  | { outcome: "stored"; proposals: number; autoClose?: "applied" | "failed" }
+  | {
+      outcome: "stored";
+      proposals: number;
+      autoClose?: "applied" | "failed";
+      /** Kuyruğa yazılan tepki (yazılmadıysa veya tepki yoksa null). */
+      reaction?: WaReactionKind | null;
+    }
   | { outcome: "lock_lost" }
   | { outcome: "retry" | "failed"; code: WaWorkerError };
 
@@ -90,6 +102,7 @@ export type WorkerSummary = {
   lockLost: number;
   autoClosed: number;
   autoCloseFailed: number;
+  reactions: number;
 };
 
 /** Log'a güvenle yazılabilecek hata özeti: SQLSTATE ve yalnız bizim kısa kodlarımız. */
@@ -275,7 +288,8 @@ export async function processClaimed(
   const stored = await step("store_error", () => store(db, c, items));
   if (!stored.ok) return stored.out;
   if (!candidate || !owner || !deps.autoClose || stored.value === 0) {
-    return { outcome: "stored", proposals: stored.value };
+    const reaction = await queueReaction(db, c, items, stored.value, undefined, log);
+    return { outcome: "stored", proposals: stored.value, reaction };
   }
 
   // Öneri kaydedildi ve mesaj işlendi; otomatik kapatma başarısız olursa öneri panelde bekler.
@@ -299,7 +313,40 @@ export async function processClaimed(
   } catch (err) {
     log?.error("wa_calendar_auto_close_error", { message: c.messageId, ...safeError(err) });
   }
-  return { outcome: "stored", proposals: stored.value, autoClose: auto };
+  const reaction = await queueReaction(db, c, items, stored.value, auto, log);
+  return { outcome: "stored", proposals: stored.value, autoClose: auto, reaction };
+}
+
+/**
+ * Mesajın tepkisini kuyruğa yazar (A2f). Hiçbir zaman fırlatmaz: tepki yazılamazsa takvim işlemi ve
+ * öneriler aynen kalır; yalnız içeriksiz log. Veritabanı kararı reddederse ("rejected") tepki yok.
+ */
+async function queueReaction(
+  db: Executor,
+  c: ClaimedMessage,
+  items: StoreItem[],
+  stored: number,
+  autoClose: "applied" | "failed" | undefined,
+  log: Log | undefined,
+): Promise<WaReactionKind | null> {
+  const kind = decideReaction({ senderRole: c.senderRole, items, stored, autoClose });
+  if (!kind) return null;
+  try {
+    const res = await db.execute<{ r: string }>(
+      sql`select public.app_wa_queue_reaction(${c.messageId}::uuid, ${kind}) as r`,
+    );
+    const r = res.rows[0]?.r;
+    if (r !== "queued")
+      log?.warn("wa_calendar_reaction_skipped", {
+        message: c.messageId,
+        kind,
+        result: r ?? "none",
+      });
+    return r === "queued" ? kind : null;
+  } catch (err) {
+    log?.warn("wa_calendar_reaction_failed", { message: c.messageId, kind, ...safeError(err) });
+    return null;
+  }
 }
 
 /**
@@ -320,6 +367,7 @@ export async function runCalendarWorker(
     lockLost: 0,
     autoClosed: 0,
     autoCloseFailed: 0,
+    reactions: 0,
   };
   const batch = Math.min(Math.max(1, deps.batchSize ?? WL.batchSize), PL.claimBatchMax);
   const maxMessages = deps.maxMessages ?? WL.maxMessagesPerRun;
@@ -337,6 +385,7 @@ export async function runCalendarWorker(
       if (r.outcome === "stored") {
         summary.stored++;
         summary.proposals += r.proposals;
+        if (r.reaction) summary.reactions++;
         if (r.autoClose === "applied") summary.autoClosed++;
         else if (r.autoClose === "failed") summary.autoCloseFailed++;
       } else if (r.outcome === "lock_lost") summary.lockLost++;

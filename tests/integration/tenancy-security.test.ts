@@ -61,8 +61,10 @@ describe("fonksiyonlar", () => {
       // 0034 (A1.1): kodsuz eşleştirme (panel), numara doğrulama ve yeni ağ geçidi sürümleri
       "app_wa_claim_group",
       "app_wa_claim_messages",
+      "app_wa_claim_reactions", // 0040 (A2f)
       "app_wa_expire_proposals",
       "app_wa_fail_message",
+      "app_wa_finish_reaction", // 0040 (A2f)
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
@@ -72,6 +74,7 @@ describe("fonksiyonlar", () => {
       "app_wa_phone_hash",
       "app_wa_proposals_guard",
       "app_wa_purge_messages",
+      "app_wa_queue_reaction", // 0040 (A2f)
       "app_wa_redeem_link_code",
       "app_wa_sender_role",
       "app_wa_store_proposals",
@@ -113,8 +116,10 @@ describe("fonksiyonlar", () => {
       "app_wa_busy",
       "app_wa_claim_group",
       "app_wa_claim_messages",
+      "app_wa_claim_reactions", // 0040 (A2f)
       "app_wa_expire_proposals",
       "app_wa_fail_message",
+      "app_wa_finish_reaction", // 0040 (A2f)
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
@@ -122,6 +127,7 @@ describe("fonksiyonlar", () => {
       "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
       "app_wa_purge_messages",
+      "app_wa_queue_reaction", // 0040 (A2f)
       "app_wa_redeem_link_code",
       "app_wa_store_proposals",
       "app_wa_sync_group",
@@ -162,8 +168,13 @@ describe("fonksiyonlar", () => {
       // 0034: panel; işletme ve kullanıcı oturum bağlamından (parametre değil)
       { proname: "app_wa_claim_group", args: "p_group uuid, p_property uuid" },
       { proname: "app_wa_claim_messages", args: "p_limit integer" },
+      { proname: "app_wa_claim_reactions", args: "p_connection uuid, p_limit integer" },
       { proname: "app_wa_expire_proposals", args: "" },
       { proname: "app_wa_fail_message", args: "p_message uuid, p_token uuid, p_error text" },
+      {
+        proname: "app_wa_finish_reaction",
+        args: "p_message uuid, p_token uuid, p_ok boolean, p_error text",
+      },
       { proname: "app_wa_heartbeat", args: "p_label text, p_status text, p_error text" },
       {
         proname: "app_wa_heartbeat",
@@ -177,6 +188,7 @@ describe("fonksiyonlar", () => {
       { proname: "app_wa_message_sender", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_pending_groups", args: "" },
       { proname: "app_wa_purge_messages", args: "p_days integer" },
+      { proname: "app_wa_queue_reaction", args: "p_message uuid, p_kind text" },
       {
         proname: "app_wa_redeem_link_code",
         args: "p_connection uuid, p_jid text, p_code text, p_sender_pn text",
@@ -259,8 +271,10 @@ describe("fonksiyonlar", () => {
       app_wa_can_manage: ["app_user"],
       app_wa_claim_group: ["app_user"],
       app_wa_claim_messages: ["app_user"],
+      app_wa_claim_reactions: ["app_user"],
       app_wa_expire_proposals: ["app_user"],
       app_wa_fail_message: ["app_user"],
+      app_wa_finish_reaction: ["app_user"],
       // İki imza (0031 ve 0034); ikisi de yalnız app_user'da (ayrı ağ geçidi rolü yoksa).
       app_wa_heartbeat: ["app_user", "app_user"],
       app_wa_ingest_message: ["app_user"],
@@ -270,6 +284,7 @@ describe("fonksiyonlar", () => {
       app_wa_phone_hash: [],
       app_wa_proposals_guard: [],
       app_wa_purge_messages: ["app_user"],
+      app_wa_queue_reaction: ["app_user"],
       app_wa_redeem_link_code: ["app_user"],
       app_wa_sender_role: [],
       app_wa_store_proposals: ["app_user"],

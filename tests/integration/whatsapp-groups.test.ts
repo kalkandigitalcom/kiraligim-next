@@ -415,6 +415,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_fail_message",
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e): kilitli mesajın gönderen kullanıcısı (yalnız okuma)
+      "app_wa_queue_reaction", // 0040 (A2f): öneri durumunu okur (tepki kararı doğrulaması)
       "app_wa_proposals_guard",
       "app_wa_sender_role",
       "app_wa_store_proposals",
@@ -425,8 +426,10 @@ describe("veritabanı güvenliği", () => {
       "app_wa_can_manage",
       "app_wa_claim_group", // 0034
       "app_wa_claim_messages", // 0036
+      "app_wa_claim_reactions", // 0040
       "app_wa_expire_proposals", // 0036
       "app_wa_fail_message", // 0036
+      "app_wa_finish_reaction", // 0040
       "app_wa_heartbeat",
       "app_wa_heartbeat", // 0034: 4 parametreli (asistan numarası)
       "app_wa_ingest_message",
@@ -436,6 +439,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_phone_hash", // 0034 (yalnız fonksiyonlar içinden)
       "app_wa_proposals_guard", // 0036 (tetikleyici)
       "app_wa_purge_messages",
+      "app_wa_queue_reaction", // 0040
       "app_wa_redeem_link_code",
       "app_wa_sender_role", // 0036 (yalnız fonksiyonlar içinden)
       "app_wa_store_proposals", // 0036
@@ -490,6 +494,7 @@ describe("veritabanı güvenliği", () => {
         "wa_inbound_messages",
         "wa_link_codes",
         "wa_link_managers",
+        "wa_message_reactions", // 0039/0040 (A2f)
         "wa_phone_challenges", // 0033
         "wa_verified_phones", // 0033
       ].map((relname) => ({ relname, rls: true, force: true, worker: false, adm: false })),

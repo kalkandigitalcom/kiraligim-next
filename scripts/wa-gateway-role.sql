@@ -5,13 +5,14 @@
 --   * veritabanına bağlanmak (CONNECT; TEMPORARY yok),
 --   * public şemasındaki ağ geçidi fonksiyonlarını çalıştırmak (hepsi SECURITY DEFINER, 0031–0034):
 --       app_wa_heartbeat (3 ve 4 parametreli), app_wa_sync_group (7 ve 9 parametreli),
---       app_wa_ingest_message, app_wa_purge_messages (yalnız 90–365 gün), app_wa_verify_phone.
+--       app_wa_ingest_message, app_wa_purge_messages (yalnız 90–365 gün), app_wa_verify_phone,
+--       app_wa_claim_reactions ve app_wa_finish_reaction (0040: mesaj tepkisi gönderimi).
 --   Eski kodlu bağlama (app_wa_redeem_link_code) A1.1'de kullanılmaz; bu betik yetkisini KALDIRIR.
 -- Hiçbir tabloyu okuyamaz/yazamaz; app.user_id / app.workspace_id ayarlayarak işletme verisi
 -- göremez (tablo yetkisi yok); panel fonksiyonlarını (app_wa_unlink_group) çalıştıramaz.
 -- SUPERUSER, CREATEDB, CREATEROLE, BYPASSRLS değildir; INHERIT kapalı; en fazla 5 bağlantı.
 --
--- Ön koşul: 0030–0034 migration'ları bu veritabanında uygulanmış olmalı (fonksiyonlar yoksa durur).
+-- Ön koşul: 0030–0040 migration'ları bu veritabanında uygulanmış olmalı (fonksiyonlar yoksa durur).
 --
 -- Kullanım (parola KOMUT SATIRINDA DEĞİL, ortam değişkeninde; yalnız [A-Za-z0-9], en az 32 karakter):
 --   openssl rand -hex 24
@@ -110,7 +111,9 @@ GRANT EXECUTE ON FUNCTION
   public.app_wa_sync_group(uuid, text, text, integer, boolean, boolean, boolean, text, text),
   public.app_wa_ingest_message(uuid, text, text, text, text, text, text, timestamptz, text),
   public.app_wa_purge_messages(integer),
-  public.app_wa_verify_phone(text, text)
+  public.app_wa_verify_phone(text, text),
+  public.app_wa_claim_reactions(uuid, integer),
+  public.app_wa_finish_reaction(uuid, uuid, boolean, text)
   TO app_wa_gateway;
 -- Eski kodlu bağlama A1.1'de kullanılmaz (en az yetki).
 REVOKE EXECUTE ON FUNCTION public.app_wa_redeem_link_code(uuid, text, text, text) FROM app_wa_gateway;

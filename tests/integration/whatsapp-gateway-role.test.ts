@@ -50,7 +50,9 @@ afterAll(async () => {
           public.app_wa_redeem_link_code(uuid, text, text, text),
           public.app_wa_ingest_message(uuid, text, text, text, text, text, text, timestamptz, text),
           public.app_wa_purge_messages(integer),
-          public.app_wa_verify_phone(text, text)
+          public.app_wa_verify_phone(text, text),
+          public.app_wa_claim_reactions(uuid, integer),
+          public.app_wa_finish_reaction(uuid, uuid, boolean, text)
           from app_wa_gateway;
         revoke usage on schema public from app_wa_gateway;
         execute format('revoke connect on database %I from app_wa_gateway', current_database());
@@ -119,6 +121,8 @@ describe("app_wa_gateway rol betiği", () => {
          and has_function_privilege('app_wa_gateway', p.oid, 'EXECUTE')
        order by 1`);
     expect(fns.rows.map((r) => r.proname)).toEqual([
+      "app_wa_claim_reactions", // 0040 (A2f): tepki gönderimi
+      "app_wa_finish_reaction", // 0040 (A2f)
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
@@ -188,6 +192,17 @@ describe("app_wa_gateway rol betiği", () => {
       "number",
     );
     expect(await code(gw.query("select public.app_wa_purge_messages(30)"))).toBe("23514");
+    // A2f: tepki gönderimi (yalnız alma ve sonuç; kuyruk boş).
+    expect(
+      (await gw.query("select * from public.app_wa_claim_reactions($1, 5)", [conn])).rows,
+    ).toEqual([]);
+    expect(
+      (
+        await gw.query(
+          "select public.app_wa_finish_reaction(gen_random_uuid(), gen_random_uuid(), true, null) as r",
+        )
+      ).rows[0].r,
+    ).toBe("lost");
 
     for (const q of [
       "select * from wa_groups",
@@ -202,6 +217,9 @@ describe("app_wa_gateway rol betiği", () => {
       "insert into wa_groups (id) values (gen_random_uuid())",
       "select public.app_wa_unlink_group(gen_random_uuid())",
       "select public.app_wa_can_manage()",
+      // A2f: tepki KARARI yalnız worker'da (app_user); ağ geçidi yalnız alır ve sonucu yazar.
+      "select public.app_wa_queue_reaction(gen_random_uuid(), 'done')",
+      "select * from wa_message_reactions",
       "create temp table t (x int)",
       "create table public.t (x int)",
     ]) {

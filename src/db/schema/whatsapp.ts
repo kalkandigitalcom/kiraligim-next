@@ -22,6 +22,8 @@ import {
   WA_INBOUND_STATUSES,
   WA_PROPOSAL_LIMITS as PL,
   WA_PROPOSAL_STATUSES,
+  WA_REACTION_KINDS,
+  WA_REACTION_STATUSES,
   WA_VILLA_RESOLUTIONS,
 } from "../../lib/whatsapp-meta";
 import { users } from "./auth";
@@ -570,4 +572,58 @@ export const waCalendarWorkerState = pgTable(
     updatedAt: ts().notNull().defaultNow(),
   },
   (t) => [check("wa_calendar_worker_state_singleton", sql`${t.id} = 1`)],
+);
+
+/**
+ * WhatsApp Asistanı — A2f: mesaj tepkisi kuyruğu (outbox; drizzle/0039, 0040).
+ *
+ * Worker mesajı işledikten (ve varsa otomatik bloğu tamamladıktan) SONRA mesaj başına EN FAZLA BİR
+ * satır yazar (birincil anahtar = mesaj; ikinci tepki yok). Ağ geçidi kendi bağlantısının
+ * satırlarını alır, mesajın üzerine reaction gönderir ve sonucu yazar (yeniden deneme + süre sonu).
+ * Tablo yetkisi kimsede yoktur; yalnız SECURITY DEFINER fonksiyonları (0040) yazar/okur.
+ * Mesaj silinince (saklama, bağlantı kesme) tepki satırı da silinir.
+ */
+export const waMessageReactions = pgTable(
+  "wa_message_reactions",
+  {
+    messageId: uuid()
+      .primaryKey()
+      .references(() => waInboundMessages.id, { onDelete: "cascade" }),
+    workspaceId: uuid().notNull(),
+    kind: text({ enum: WA_REACTION_KINDS }).notNull(),
+    emoji: text().notNull(),
+    status: text({ enum: WA_REACTION_STATUSES }).notNull().default("pending"),
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: ts().notNull().defaultNow(),
+    lockedUntil: ts(),
+    lockToken: uuid(),
+    /** Yalnız kısa hata kodu (mesaj içeriği veya kişisel veri yazılmaz). */
+    lastError: text(),
+    createdAt: ts().notNull().defaultNow(),
+    sentAt: ts(),
+  },
+  (t) => [
+    index("wa_message_reactions_queue_idx").on(t.status, t.nextAttemptAt),
+    index("wa_message_reactions_workspace_idx").on(t.workspaceId),
+    check("wa_message_reactions_kind_check", sql`${t.kind} in ('done', 'submitted', 'warning')`),
+    check(
+      "wa_message_reactions_emoji_check",
+      sql`(${t.kind} = 'done' and ${t.emoji} = U&'\\2705')
+        or (${t.kind} = 'submitted' and ${t.emoji} = U&'\\2611\\FE0F')
+        or (${t.kind} = 'warning' and ${t.emoji} = U&'\\26A0\\FE0F')`,
+    ),
+    check(
+      "wa_message_reactions_status_check",
+      sql`${t.status} in ('pending', 'sending', 'sent', 'failed', 'expired')`,
+    ),
+    check(
+      "wa_message_reactions_state",
+      sql`${t.attempts} >= 0 and (${t.status} = 'sent') = (${t.sentAt} is not null)
+        and (${t.status} = 'sending') = (${t.lockToken} is not null and ${t.lockedUntil} is not null)`,
+    ),
+    check(
+      "wa_message_reactions_last_error_format",
+      sql`${t.lastError} is null or ${t.lastError} ~ '^[a-z0-9_]{1,60}$'`,
+    ),
+  ],
 );

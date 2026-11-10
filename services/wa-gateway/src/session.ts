@@ -77,7 +77,13 @@ import {
   SeenSet,
   watchdogWindowMs,
 } from "./policy.ts";
-import type { ConnectionStatus, InboundRecord, IngestOutcome, WaStore } from "./store.ts";
+import type {
+  ConnectionStatus,
+  InboundRecord,
+  IngestOutcome,
+  QueuedReaction,
+  WaStore,
+} from "./store.ts";
 import type { RestartHistory } from "./watchdog.ts";
 
 /** Saklama süresi (gün); src/lib/whatsapp-meta.ts WA_RETENTION_DAYS ile aynı. */
@@ -138,6 +144,9 @@ export type GatewayStats = {
   /** Çözülemeyen (CIPHERTEXT) mesaj yer tutucuları; içerik yok, yalnız sayı. */
   undecryptable: number;
   reconnects: number;
+  /** A2f: işlem sonucu tepkileri (kuyruktan): gönderilen / gönderilemeyen. */
+  reactionsSent: number;
+  reactionsFailed: number;
 };
 
 export type HealthSnapshot = {
@@ -170,6 +179,10 @@ export type GatewayTiming = ReconnectTiming & {
   pendingMax: number;
   /** Kapanışta bekleyen mesajlar için en fazla süre. */
   flushTimeoutMs: number;
+  /** A2f: tepki kuyruğunu yoklama aralığı (yalnız bağlantı açıkken gönderilir). */
+  reactionPollMs: number;
+  /** Tek tepki gönderiminin süre sınırı. */
+  reactionSendTimeoutMs: number;
 };
 
 export const DEFAULT_GATEWAY_TIMING: GatewayTiming = {
@@ -185,6 +198,8 @@ export const DEFAULT_GATEWAY_TIMING: GatewayTiming = {
   pendingRetryMs: 30_000,
   pendingMax: 2_000,
   flushTimeoutMs: 10_000,
+  reactionPollMs: 5_000,
+  reactionSendTimeoutMs: 15_000,
 };
 
 type SocketFactory = (opts: {
@@ -283,6 +298,8 @@ export class WaGateway {
   private watchdogTimer: NodeJS.Timeout | null = null;
   private pendingTimer: NodeJS.Timeout | null = null;
   private purgeTimer: NodeJS.Timeout | null = null;
+  private reactionTimer: NodeJS.Timeout | null = null;
+  private reactionFlushing: Promise<void> | null = null;
   private readonly t: GatewayTiming;
   private readonly now: () => number;
   private readonly rnd: () => number;
@@ -300,6 +317,8 @@ export class WaGateway {
     ingestDropped: 0,
     undecryptable: 0,
     reconnects: 0,
+    reactionsSent: 0,
+    reactionsFailed: 0,
   };
 
   constructor(
@@ -754,6 +773,7 @@ export class WaGateway {
     if (this.store) {
       void this.flushPending();
       await this.syncAllGroups(sock);
+      void this.flushReactions();
       return;
     }
     if (!this.config.testGroupJid) {
@@ -850,12 +870,23 @@ export class WaGateway {
       this.purgeTimer = setInterval(purge, 60 * 60_000);
       this.purgeTimer.unref();
     }
+    if (!this.reactionTimer && this.store) {
+      this.reactionTimer = setInterval(() => void this.flushReactions(), this.t.reactionPollMs);
+      this.reactionTimer.unref();
+    }
   }
 
   private stopTimers() {
-    for (const t of [this.heartbeatTimer, this.watchdogTimer, this.pendingTimer, this.purgeTimer]) {
+    for (const t of [
+      this.heartbeatTimer,
+      this.watchdogTimer,
+      this.pendingTimer,
+      this.purgeTimer,
+      this.reactionTimer,
+    ]) {
       if (t) clearInterval(t);
     }
+    this.reactionTimer = null;
     if (this.stableTimer) clearTimeout(this.stableTimer);
     this.heartbeatTimer = null;
     this.watchdogTimer = null;
@@ -1220,6 +1251,75 @@ export class WaGateway {
       this.stats.rejectedCodes += 1;
       this.note("info", `Doğrulama kodu kabul edilmedi (${out}).`);
     }
+  }
+
+  /**
+   * A2f: işlem sonucu tepkileri. Worker mesajı işledikten sonra veritabanı kuyruğuna (outbox) yazar;
+   * burada YALNIZ bağlantı açık, kopya kilidi bizde ve veritabanı varken bu bağlantının tepkileri
+   * alınır ve mesajın üzerine reaction olarak gönderilir (gruba metin yazılmaz). Sonuç veritabanına
+   * yazılır: hata → artan beklemeyle yeniden (en fazla 5), 24 saatten eskisi gönderilmez.
+   * Bağlantı kesikken hiçbir şey alınmaz: kuyruk bekler; takvim ve mesaj kuyruğu etkilenmez.
+   * Aynı tepkinin (ör. sonuç yazılamadıktan sonra) yeniden gönderilmesi WhatsApp'ta tekrar görünmez:
+   * aynı mesaja aynı kişinin tepkisi yerine yazılır. Dakikadaki tepki sınırı (10) paylaşılır.
+   */
+  async flushReactions(): Promise<void> {
+    if (this.reactionFlushing) return this.reactionFlushing;
+    this.reactionFlushing = (async () => {
+      try {
+        const store = this.store;
+        const sock = this.sock;
+        if (!store || !sock || this.status !== "open" || !this.lease.held) return;
+        const budget = Math.min(5, this.reactions.remaining(this.now()));
+        if (budget === 0) return;
+        const claimed = await this.db("claim_reactions", (s) => s.claimReactions(budget));
+        for (const r of claimed ?? []) {
+          // Bağlantı bu arada kapandıysa gönderilmez; kilit dolunca yeniden alınır.
+          if (this.sock !== sock || this.status !== "open") break;
+          await this.sendQueuedReaction(sock, store, r);
+        }
+      } finally {
+        this.reactionFlushing = null;
+      }
+    })();
+    return this.reactionFlushing;
+  }
+
+  private async sendQueuedReaction(sock: WASocket, store: WaStore, r: QueuedReaction) {
+    let ok = false;
+    let code: string | null = null;
+    if (!this.reactions.tryTake(this.now())) {
+      code = "rate_limited";
+    } else {
+      try {
+        await withTimeout(
+          sock.sendMessage(r.groupJid, {
+            react: {
+              text: r.emoji,
+              key: {
+                remoteJid: r.groupJid,
+                id: r.waMessageId,
+                participant: r.senderJid,
+                fromMe: false,
+              },
+            },
+          }),
+          this.t.reactionSendTimeoutMs,
+          "reaction_timeout",
+        );
+        ok = true;
+      } catch (e: unknown) {
+        code = e instanceof Error && e.message === "reaction_timeout" ? "timeout" : "send_error";
+      }
+    }
+    if (ok) {
+      this.stats.reactionsSent += 1;
+      this.note("reaction", `İşlem tepkisi gönderildi: ${r.emoji} → ${r.waMessageId}.`);
+    } else {
+      this.stats.reactionsFailed += 1;
+      this.note("error", `İşlem tepkisi gönderilemedi (${code}): ${r.waMessageId}.`);
+    }
+    // Sonuç yazılamazsa kilit dolunca yeniden alınır (aynı emoji tekrar görünmez).
+    await this.db("finish_reaction", () => store.finishReaction(r, ok, code));
   }
 
   /** Emoji tepkisi (dakikada en fazla 10). Metin mesajı gönderilmez. */

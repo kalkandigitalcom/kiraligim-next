@@ -871,8 +871,10 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_wa_busy",
       "app_wa_claim_group",
       "app_wa_claim_messages",
+      "app_wa_claim_reactions",
       "app_wa_expire_proposals",
       "app_wa_fail_message",
+      "app_wa_finish_reaction",
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
@@ -880,6 +882,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
       "app_wa_purge_messages",
+      "app_wa_queue_reaction",
       "app_wa_redeem_link_code",
       "app_wa_store_proposals",
       "app_wa_sync_group",
@@ -914,6 +917,9 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_message uuid, p_token uuid, p_property uuid, p_from date, p_to date": `gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), current_date, current_date + 1`,
         "p_message uuid, p_token uuid, p_items jsonb": `gen_random_uuid(), gen_random_uuid(), '[]'::jsonb`,
         "p_message uuid, p_token uuid, p_error text": `gen_random_uuid(), gen_random_uuid(), 'x'`,
+        "p_connection uuid, p_limit integer": `gen_random_uuid(), 1`,
+        "p_message uuid, p_token uuid, p_ok boolean, p_error text": `gen_random_uuid(), gen_random_uuid(), true, null`,
+        "p_message uuid, p_kind text": `gen_random_uuid(), 'done'`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;

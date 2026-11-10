@@ -190,6 +190,11 @@ export class RateLimiter {
     private readonly max: number,
     private readonly windowMs: number,
   ) {}
+  /** Şu an alınabilecek hak sayısı (hak tüketmez). */
+  remaining(now = Date.now()): number {
+    while (this.hits.length && now - this.hits[0]! >= this.windowMs) this.hits.shift();
+    return Math.max(0, this.max - this.hits.length);
+  }
   tryTake(now = Date.now()): boolean {
     while (this.hits.length && now - this.hits[0]! >= this.windowMs) this.hits.shift();
     if (this.hits.length >= this.max) return false;

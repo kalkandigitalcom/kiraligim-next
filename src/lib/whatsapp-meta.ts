@@ -194,3 +194,38 @@ export const WA_WORKER_ERRORS = [
   "context_changed",
 ] as const;
 export type WaWorkerError = (typeof WA_WORKER_ERRORS)[number];
+
+// ---------------------------------------------------------------------------------------------
+// A2f: mesaj tepkileri (reaction). Karar worker'da (calendar/reaction.ts), gönderim ağ geçidinde.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * done: istenen takvim işlemi GERÇEKTEN tamamlandı (otomatik blok oluştu);
+ * submitted: talimat anlaşıldı ve yönetici onayına sunuldu (rezervasyon onaylandı DEMEK DEĞİL);
+ * warning: takvim talimatı var ama anlaşılamadı / belirsiz / çakışmalı / güvenle tamamlanamadı.
+ */
+export const WA_REACTION_KINDS = ["done", "submitted", "warning"] as const;
+export type WaReactionKind = (typeof WA_REACTION_KINDS)[number];
+
+/** Veritabanı CHECK'i ve ağ geçidi aynı değerleri kullanır (drizzle/0040). */
+export const WA_REACTION_EMOJI: Readonly<Record<WaReactionKind, string>> = {
+  done: "\u2705", // ✅
+  submitted: "\u2611\uFE0F", // ☑️
+  warning: "\u26A0\uFE0F", // ⚠️
+};
+
+export const WA_REACTION_STATUSES = ["pending", "sending", "sent", "failed", "expired"] as const;
+export type WaReactionStatus = (typeof WA_REACTION_STATUSES)[number];
+
+export const WA_REACTION_LIMITS = {
+  /** Gönderim denemesi üst sınırı (sonra "failed"). */
+  maxAttempts: 5,
+  /** Bu süreden eski tepki gönderilmez ("expired"): geç gelen tepki kafa karıştırır. */
+  maxAgeHours: 24,
+  /** Ağ geçidinin bir tepkiyi tuttuğu süre (sn); dolarsa yeniden alınabilir. */
+  lockSeconds: 60,
+  /** Bir çağrıda alınabilecek en fazla tepki. */
+  claimMax: 20,
+  /** Kuyruğa yalnız bu kadar dakika içinde işlenmiş mesaj için tepki yazılır. */
+  queueWindowMinutes: 30,
+} as const;
