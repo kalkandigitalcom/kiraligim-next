@@ -747,3 +747,34 @@ describe("gönderen rolü (A2 politikası)", () => {
     );
   });
 });
+
+describe("grup dışı villa (A2b)", () => {
+  const base = { villa: "named" as const, senderRole: "owner" as const, conflictFree: true };
+  const close = () => one("Villa A 15-20 Haziran kapalı.");
+
+  it("villaOutsideGroup: puan 100 olsa bile villa_needs_review ile elle incelenir", () => {
+    const d = reviewRequirement(close(), { ...base, villaOutsideGroup: true });
+    expect(d).toEqual({
+      quickApprove: false,
+      score: 100,
+      band: "high",
+      reasons: ["villa_needs_review"],
+    });
+  });
+
+  it("alan verilmezse veya false ise davranış değişmez", () => {
+    expect(reviewRequirement(close(), base).quickApprove).toBe(true);
+    expect(reviewRequirement(close(), { ...base, villaOutsideGroup: false }).quickApprove).toBe(
+      true,
+    );
+  });
+
+  it("diğer nedenlerle birlikte de kalır (staff + grup dışı)", () => {
+    const d = reviewRequirement(close(), { ...base, senderRole: "staff", villaOutsideGroup: true });
+    expect(d.reasons).toEqual(["villa_needs_review", "staff_review_required"]);
+  });
+
+  it("ayrıştırıcı sürümü değişmedi", () => {
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(2);
+  });
+});

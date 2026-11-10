@@ -871,6 +871,11 @@ export const WA_REVIEW_REASONS = [
   "dates_incomplete",
   /** Villa adla tekil eşleşmedi ve grupta tek villa da yok. */
   "villa_unresolved",
+  /**
+   * Villa adla eşleşti ama mesajın geldiği grubun villası değil (grup dışı villa): öneri
+   * oluşturulur, tek tıkla onay hiçbir zaman yapılamaz.
+   */
+  "villa_needs_review",
   /** Gönderen doğrulanmamış (normalde öneri hiç oluşmaz; savunma amaçlı). */
   "sender_unverified",
   /**
@@ -908,7 +913,13 @@ export type WaReviewDecision = {
  */
 export function reviewRequirement(
   item: WaCalendarItem,
-  ctx: { villa: VillaResolution; senderRole: WaSenderRole | null; conflictFree: boolean },
+  ctx: {
+    villa: VillaResolution;
+    senderRole: WaSenderRole | null;
+    conflictFree: boolean;
+    /** Eşleşen villa, mesajın geldiği grubun villası değil (resolveProposal: villa_outside_group). */
+    villaOutsideGroup?: boolean;
+  },
 ): WaReviewDecision {
   const senderVerified = ctx.senderRole === "owner" || ctx.senderRole === "manager";
   const score = scoreProposal({
@@ -928,6 +939,7 @@ export function reviewRequirement(
   if (item.flags.some((f) => !resolved(f))) reasons.push("flagged");
   if (!item.datesExplicit || !item.checkIn || !item.checkOut) reasons.push("dates_incomplete");
   if (ctx.villa !== "named" && ctx.villa !== "single") reasons.push("villa_unresolved");
+  if (ctx.villaOutsideGroup === true) reasons.push("villa_needs_review");
   if (ctx.senderRole === "staff") reasons.push("staff_review_required");
   else if (!senderVerified) reasons.push("sender_unverified");
   if (!ctx.conflictFree) reasons.push("conflict");
