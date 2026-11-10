@@ -9,7 +9,9 @@ node_modules/
 .env.*
 !.env.example
 
-# Tek kopya kilidi
+# Tek kopya kilidi ve watchdog yeniden başlatma geçmişi
 .wa-auth.lock
+.wa-auth*.watchdog.json
+.wa-auth*.watchdog.json.tmp
 *.lock
 !package-lock.json

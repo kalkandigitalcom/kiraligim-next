@@ -36,6 +36,12 @@ export type Config = {
   httpHost: string;
   httpPort: number;
   authDir: string;
+  /**
+   * WhatsApp Web protokol sürümü. null: kurulu ve test edilmiş Baileys sürümünün kendi değeri
+   * (önerilen). Her bağlantıda GitHub'dan sürüm ÇEKİLMEZ. Güncelleme kontrollü bir işlemdir
+   * (README → "Protokol sürümü"); WA_PROTOCOL_VERSION yalnız geçici geçersiz kılma içindir.
+   */
+  protocolVersion: [number, number, number] | null;
 };
 
 const GROUP_JID_RE = /^[0-9]{6,40}(-[0-9]{6,20})?@g\.us$/;
@@ -158,6 +164,14 @@ export function loadConfig(
   const authProblem = authDirProblem(authDir, serviceDir);
   if (authProblem) errors.push(authProblem);
 
+  const versionRaw = (env.WA_PROTOCOL_VERSION ?? "").trim();
+  let protocolVersion: [number, number, number] | null = null;
+  if (versionRaw) {
+    const m = /^(\d{1,4})\.(\d{1,6})\.(\d{1,12})$/.exec(versionRaw);
+    if (m) protocolVersion = [Number(m[1]), Number(m[2]), Number(m[3])];
+    else errors.push("WA_PROTOCOL_VERSION biçimi geçersiz (ör. 2.3000.1043857760).");
+  }
+
   if (errors.length) throw new Error(`Yapılandırma hatası:\n- ${errors.join("\n- ")}`);
   return {
     env: waEnv,
@@ -170,5 +184,6 @@ export function loadConfig(
     httpHost,
     httpPort,
     authDir,
+    protocolVersion,
   };
 }

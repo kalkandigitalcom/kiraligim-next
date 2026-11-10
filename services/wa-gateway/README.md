@@ -96,15 +96,92 @@ kapanır), kullanıcı `app` (uid 1001).
 - Dakikada en fazla 10 tepki; aynı mesaj ikinci kez işlenmez.
 - Tek kopya: `.wa-auth.lock` ikinci sürecin aynı oturumu açmasını engeller.
 
-## Yeniden bağlanma
+## Yeniden bağlanma ve kendini kurtarma (Aşama 1)
 
-| Kapanma nedeni                              | Davranış                                         |
-| ------------------------------------------- | ------------------------------------------------ |
-| Yeniden başlatma isteği (QR sonrası normal) | Hemen bağlanır                                   |
-| Ağ kopması, zaman aşımı, sunucu hatası      | 1, 2, 4 … en fazla 60 sn bekleyerek tekrar dener |
-| Telefondan çıkış yapıldı / oturum kapatıldı | Durur, yerel anahtarları siler; yeni QR gerekir  |
-| Aynı oturum başka yerde açıldı              | Durur (iki kopya oturumu bozar)                  |
-| Erişim reddedildi, bozuk oturum             | Durur; arayüzden "Oturumu sıfırla"               |
+Kurtarılabilir her kapanma, "full jitter" üstel beklemeyle (2 sn tabandan başlayıp en fazla 120 sn)
+sınırsız yeniden denenir. Yalnız insan müdahalesi gerektiren durumlarda gateway durur. **Hiçbir kapanma
+kodu oturum dosyalarını silmez.** Oturum yalnız arayüzdeki "Oturumu sıfırla" düğmesiyle silinir; ayrıca
+izin verilmeyen bir hesap bağlanırsa o hesaba ait yeni oturum silinir.
+
+| Kapanma nedeni                                               | Davranış                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| 515 yeniden başlatma isteği (QR sonrası normal)              | Hemen bağlanır                                                                  |
+| 408 / 428 ağ kopması, zaman aşımı, kodsuz                    | Jitter'lı bekleme (2–120 sn)                                                    |
+| 503 WhatsApp hizmet dışı                                     | En az 30 sn bekleyip tekrar dener                                               |
+| 500 bozuk oturum / kodsuz akış hatası ("stream errored out") | Durmaz, yeniden dener; art arda 5 kez olursa `degraded` uyarısı                 |
+| 440 aynı oturum başka yerde açıldı                           | 2–5 dk bekleyip tekrar dener; 30 dk içinde 3. kez olursa durur (`replaced`)     |
+| 401 telefondan çıkış, 411 çoklu cihaz uyumsuzluğu            | Durur (`needs_qr`), **oturum silinmez**; yeni QR için arayüzden elle sıfırlayın |
+| 403 erişim reddedildi                                        | Durur (`blocked`)                                                               |
+
+- **Tek uçuş:** Aynı anda en fazla bir bağlantı kurulumu ve bir canlı soket olur. Eski soketin
+  dinleyicileri kaldırılır ve olayları yok sayılır. Kurulumun her adımı zaman aşımlıdır; hata her zaman
+  yeni bir deneme planlar, yani gateway sessizce takılı kalmaz.
+- **Watchdog:** Bağlantı kurtarılabilir bir durumda 10 dk boyunca kurulamazsa süreç kontrollü olarak
+  kapanır ve **3** koduyla çıkar; Docker restart politikası temiz bir süreç başlatır.
+  - Restart döngüsüne karşı pencere üstel büyür: son 6 saatteki watchdog çıkışlarına göre 10, 20, 40,
+    en fazla 60 dk.
+  - Çıkış geçmişi `<oturum klasörü>.watchdog.json` dosyasında tutulur (konteynerde
+    `/app/.wa-auth.watchdog.json`, volume dışında). Bağlantı pencere boyunca açık kalırsa geçmiş
+    temizlenir.
+  - QR bekleme, `needs_qr`, `blocked`, `replaced` ve kilit beklemesinde watchdog çalışmaz; restart
+    bunları çözmez.
+  - Oturum dosyalarına dokunulmaz.
+- **Tek kopya (iki katman):**
+  - Yerel kilit dosyası (`.wa-auth.lock`) aynı makinede ikinci süreci engeller.
+  - Veritabanı biçiminde ayrıca bir **PostgreSQL advisory lock** alınır (etiket başına, ayrı ve kalıcı
+    bir bağlantıda). Kilidi alamayan kopya WhatsApp'a **bağlanmaz** (`lease_wait`).
+  - Kilit bağlantısı koparsa (örneğin veritabanı yeniden başladı) WhatsApp soketi hemen kapatılır ve
+    kilit yeniden alınmadan bağlanılmaz. WhatsApp bu sürede gelen mesajları bağlı cihaz için bekletir.
+  - Tablo veya migration gerekmez; `app_wa_gateway` rolü için ek yetki gerekmez
+    (`pg_try_advisory_lock` herkese açık).
+- **Sağlık kontrolü (`/healthz`) gerçek WhatsApp bağlantısını yansıtır.**
+  - 200 dönen durumlar: bağlı; ilk eşleştirme QR'ı bekleniyor; 3 dk'dan kısa süredir yeniden
+    bağlanıyor.
+  - 503 dönen durumlar: daha uzun süredir bağlanamıyor; `needs_qr`, `blocked`, `replaced` veya
+    `lease_wait`; durdu.
+  - Gövdede yalnız `ok`, `status`, `connected`, `attention`, `notOpenSec` ve `pendingMessages` vardır;
+    numara, grup veya QR yoktur.
+  - Docker "unhealthy" konteyneri kendiliğinden yeniden başlatmaz; yeniden başlatmayı watchdog yapar.
+- **Heartbeat:** `wa_connections` satırı her durumda 60 sn'de bir güncellenir. `last_error_code`
+  alanına son kapanma kodu (`close_428`), `needs_qr_401`, `replaced_440`, `lease_wait`,
+  `watchdog_exit` veya `ingest_backlog` gibi kısa bir kod yazılır.
+- **Mesajlar sessizce kaybolmaz:**
+  - Veritabanına yazılamayan mesaj 3 kez (0,5 / 2 / 5 sn) yeniden denenir.
+  - Yine olmazsa bellekteki kuyrukta bekler; 30 sn'de bir, bağlantı açılınca ve kapanışta (en fazla
+    10 sn) yeniden gönderilir.
+  - Kuyruk sınırı 2.000 mesajdır; aşılırsa en eski mesaj düşürülür ve bu, hata olarak sayılıp günlüğe
+    yazılır.
+  - Veritabanı mesajı tekil tuttuğu için yeniden gönderim çift kayıt üretmez.
+  - **Sınır:** süreç çökerse bellekteki kuyruk kaybolur. Diskteki kuyruk Aşama 3'te gelecek.
+- **Çözülemeyen mesajlar** (`No session found to decrypt message` / CIPHERTEXT) `undecryptable`
+  sayacında görünür. Baileys yeniden deneme ister; başarılı olursa mesaj aynı kimlikle tekrar gelir.
+
+## Protokol sürümü
+
+WhatsApp Web protokol sürümü **sabittir**: kurulu ve test edilmiş Baileys sürümünün kendi değeri
+kullanılır (`/status.json` → `protocolVersion`). Her bağlantıda GitHub'dan sürüm çekilmez.
+
+Güncelleme ayrı ve kontrollü bir işlemdir:
+
+1. `baileys` paketi ayrı bir dalda güncellenir.
+2. `npm run check` çalıştırılır.
+3. Mac'te test numarasıyla bağlantı denenir.
+4. Geliştirme sunucusunda 24 saat izlenir.
+5. Ancak sonra production'a deploy edilir.
+
+Acil durumda (örneğin WhatsApp eski sürümü reddediyorsa) `WA_PROTOCOL_VERSION=2.3000.x` ortam değişkeni
+geçici geçersiz kılma sağlar; biçim denetlenir ve kalıcı çözüm paket güncellemesidir.
+
+## Coolify ayarları (zorunlu)
+
+- **Restart politikası:** `unless-stopped`. Watchdog'un çıkışı ancak bu politikayla yeniden başlatmaya
+  dönüşür; `docker inspect` ile doğrulayın.
+- **Tek konteyner:** Ölçeklendirme yapılmaz. Deploy'da önce eski konteyner durmalı; sabit port eşlemesi
+  bunu sağlar. PostgreSQL kilidi bunu kodla da garanti eder.
+- **Durdurma süresi:** en az 30 sn. Kapanış bekleyen mesajları yazar, soketi kapatır ve kilidi bırakır;
+  süreç en fazla 25 sn içinde çıkar.
+- **Kalıcı depolama:** `/app/.wa-auth` volume (oturum). Watchdog geçmişi ve yerel kilit volume dışındadır.
+- **Volume yedeği:** Deploy'dan önce salt okunur bir yedek alın (oturuma dokunmaz).
 
 ## Komutlar
 

@@ -1,14 +1,28 @@
 /**
  * WhatsApp bağlı cihaz oturumu (Baileys).
- *  - Yalnız WA_ALLOWED_NUMBER hesabı: başka hesap bağlanırsa oturum hemen kapatılır, anahtarlar
- *    silinir.
+ *  - Yalnız WA_ALLOWED_NUMBER hesabı: başka hesap bağlanırsa oturum hemen kapatılır, o yeni
+ *    oturumun anahtarları silinir (tek otomatik silme budur).
  *  - Bu modülde metin mesajı gönderen kod YOKTUR; tek dışa yazım emoji tepkisidir.
  *  - QR ve oturum anahtarları günlüğe yazılmaz; QR yalnız bellekte tutulur, yerel arayüzde gösterilir.
  *
+ * Bağlantı yönetimi (Aşama 1 — kendini kurtaran bağlantı):
+ *  - Durum makinesi: starting → lease_wait → connecting → (qr) → open ⇄ backoff; durma durumları
+ *    needs_qr (401/411), blocked (403), replaced (440 tekrarı), stopped. Durma durumlarında oturum
+ *    dosyaları SİLİNMEZ.
+ *  - Tek uçuş: aynı anda en fazla bir bağlantı kurulumu ve bir canlı soket; her sokete "kuşak"
+ *    numarası verilir, eski soketin olayları yok sayılır ve dinleyicileri kaldırılır.
+ *  - Bağlantı kurulumunun her adımı zaman aşımlıdır; hata her zaman yeni bir deneme planlar
+ *    (sessizce takılı kalma yok). Bekleme: full jitter.
+ *  - Tek kopya: PostgreSQL advisory lock (lease.ts) alınmadan WhatsApp'a bağlanılmaz.
+ *  - Watchdog: kurtarılabilir bir durumda bağlantı 10 dk (yeniden başlatma döngüsünde 20, 40,
+ *    60 dk) kurulamazsa süreç kontrollü olarak sıfırdan farklı kodla çıkar; Docker yeniden başlatır.
+ *  - Protokol sürümü sabit: kurulu Baileys'in değeri (veya WA_PROTOCOL_VERSION); GitHub'dan çekilmez.
+ *
  * A1 biçimi (veritabanı tanımlı): grupları keşfedip kaydeder (asistanı ekleyen kişi ve grup kurucusu
  * numaralarıyla; veritabanı yalnız özetini saklar), yalnız bağlı grupların metin mesajlarını kaydeder
- * (tekil), saatte bir saklama süresini uygular. Gruplara kod YAZILMAZ: kullanıcı numarasını bir kez
- * asistana ÖZEL mesajla doğrular (başarıda o mesaja ✅); grup eşleştirmesi panelden yapılır.
+ * (tekil), saatte bir saklama süresini uygular. Veritabanına yazılamayan mesaj sessizce kaybolmaz:
+ * yeniden denenir, sonra bellekte bekletilip düzenli olarak yeniden gönderilir. Gruplara kod
+ * YAZILMAZ: kullanıcı numarasını bir kez asistana ÖZEL mesajla doğrular (başarıda o mesaja ✅).
  * Mesaj içeriği ve numara günlüğe yazılmaz. Takvim, fiyat veya rezervasyon işlemi YOKTUR.
  *
  * Faz 1 test biçimi (veritabanı yok): test grubunun mesajını konsola yazar, tepki bırakır.
@@ -18,7 +32,7 @@ import path from "node:path";
 
 import makeWASocket, {
   Browsers,
-  fetchLatestBaileysVersion,
+  DEFAULT_CONNECTION_CONFIG,
   isJidBroadcast,
   isJidGroup,
   isJidNewsletter,
@@ -26,6 +40,7 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
   proto,
   useMultiFileAuthState,
+  type AuthenticationState,
   type WAMessage,
   type WASocket,
 } from "baileys";
@@ -49,16 +64,48 @@ import {
   selfRemoved,
   toGroupSync,
 } from "./groups.ts";
+import { type Lease, NoopLease } from "./lease.ts";
 import { createSafeLogger } from "./logger.ts";
-import { decideReconnect, isAllowedAccount, RateLimiter, SeenSet } from "./policy.ts";
-import type { ConnectionStatus, WaStore } from "./store.ts";
+import {
+  backoffDelay,
+  decideClose,
+  DEFAULT_TIMING,
+  isAllowedAccount,
+  RateLimiter,
+  type ReconnectTiming,
+  SeenSet,
+  watchdogWindowMs,
+} from "./policy.ts";
+import type { ConnectionStatus, InboundRecord, IngestOutcome, WaStore } from "./store.ts";
+import type { RestartHistory } from "./watchdog.ts";
 
 /** Saklama süresi (gün); src/lib/whatsapp-meta.ts WA_RETENTION_DAYS ile aynı. */
 export const RETENTION_DAYS = 90;
 /** Tek dışa yazım: başarılı numara doğrulama mesajına tepki. */
 const VERIFY_REACTION = "✅";
+/** Watchdog'un kontrollü çıkış kodu (Docker restart politikası yeniden başlatır). */
+export const WATCHDOG_EXIT_CODE = 3;
 
-export type GatewayStatus = "starting" | "qr" | "connecting" | "open" | "reconnecting" | "stopped";
+export type GatewayStatus =
+  | "starting"
+  /** Tek kopya kilidi bekleniyor (başka bir gateway oturumu tutuyor). */
+  | "lease_wait"
+  | "connecting"
+  /** İlk eşleştirme: QR okutulmayı bekliyor (oturum hiç kurulmamış). */
+  | "qr"
+  | "open"
+  /** Bağlantı koptu; jitter'lı beklemeden sonra yeniden denenecek. */
+  | "backoff"
+  /** Oturum kapatıldı (401/411); yeniden QR gerekir. Oturum dosyaları korunur. */
+  | "needs_qr"
+  /** Hesap erişimi reddedildi (403). */
+  | "blocked"
+  /** Aynı oturum başka bir yerde tekrar tekrar açıldı (440). */
+  | "replaced"
+  | "stopped";
+
+/** Kendiliğinden ilerleyen (watchdog'un izlediği) durumlar. */
+const RECOVERABLE: ReadonlySet<GatewayStatus> = new Set(["starting", "connecting", "backoff"]);
 
 export type GatewayEvent = {
   at: string;
@@ -83,9 +130,112 @@ export type GatewayStats = {
   verified: number;
   rejectedCodes: number;
   errors: number;
+  /** Veritabanına ilk denemede yazılamayıp yeniden denenen mesajlar. */
+  ingestRetried: number;
+  /** Bellek kuyruğu dolduğu için düşürülen mesajlar (yüksek sesle günlüğe yazılır). */
+  ingestDropped: number;
+  /** Çözülemeyen (CIPHERTEXT) mesaj yer tutucuları; içerik yok, yalnız sayı. */
+  undecryptable: number;
+  reconnects: number;
+};
+
+export type HealthSnapshot = {
+  /** Sağlık kontrolü sonucu: gerçek WhatsApp bağlantısını yansıtır. */
+  ok: boolean;
+  status: GatewayStatus;
+  connected: boolean;
+  /** İnsan müdahalesi gerekiyor (QR, engel, çift kopya). */
+  attention: boolean;
+  /** Bağlantı kaç saniyedir açık değil (açıksa null). */
+  notOpenSec: number | null;
+  pendingMessages: number;
+};
+
+/** Zamanlamalar (ms); testlerde küçültülür. */
+export type GatewayTiming = ReconnectTiming & {
+  authTimeoutMs: number;
+  leaseTimeoutMs: number;
+  leaseRetryMs: number;
+  /** Bağlantı bu kadar açık kalınca deneme sayacı sıfırlanır. */
+  stableOpenMs: number;
+  heartbeatMs: number;
+  watchdogTickMs: number;
+  /** Sağlık kontrolü: kurtarılabilir durumda bu süreden uzun açık değilse 503. */
+  healthGraceMs: number;
+  /** Veritabanına yazımda yeniden deneme beklemeleri. */
+  ingestRetryMs: readonly number[];
+  /** Bekleyen mesajların yeniden gönderim aralığı. */
+  pendingRetryMs: number;
+  pendingMax: number;
+  /** Kapanışta bekleyen mesajlar için en fazla süre. */
+  flushTimeoutMs: number;
+};
+
+export const DEFAULT_GATEWAY_TIMING: GatewayTiming = {
+  ...DEFAULT_TIMING,
+  authTimeoutMs: 15_000,
+  leaseTimeoutMs: 15_000,
+  leaseRetryMs: 30_000,
+  stableOpenMs: 60_000,
+  heartbeatMs: 60_000,
+  watchdogTickMs: 30_000,
+  healthGraceMs: 3 * 60_000,
+  ingestRetryMs: [500, 2_000, 5_000],
+  pendingRetryMs: 30_000,
+  pendingMax: 2_000,
+  flushTimeoutMs: 10_000,
+};
+
+type SocketFactory = (opts: {
+  auth: AuthenticationState;
+  version: [number, number, number] | null;
+}) => WASocket;
+type AuthLoader = (
+  dir: string,
+) => Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }>;
+
+export type GatewayDeps = {
+  makeSocket?: SocketFactory;
+  loadAuth?: AuthLoader;
+  lease?: Lease;
+  history?: RestartHistory;
+  /** Watchdog süresi doldu: çağıran kontrollü kapanıp WATCHDOG_EXIT_CODE ile çıkar. */
+  onWatchdog?: () => void;
+  timing?: Partial<GatewayTiming>;
+  now?: () => number;
+  random?: () => number;
 };
 
 const MAX_EVENTS = 50;
+/** Dinleyicisi kaldırılan Baileys olayları (eski soket yeni durumu etkilemesin). */
+const SOCKET_EVENTS = [
+  "creds.update",
+  "connection.update",
+  "messages.upsert",
+  "messages.update",
+  "groups.upsert",
+  "groups.update",
+  "group-participants.update",
+] as const;
+
+const withTimeout = <T>(p: Promise<T>, ms: number, code: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(code)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(t);
+        reject(e instanceof Error ? e : new Error(code));
+      },
+    );
+  });
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+type PendingIngest = { key: string; record: InboundRecord; firstAt: number };
 
 export class WaGateway {
   status: GatewayStatus = "starting";
@@ -94,19 +244,46 @@ export class WaGateway {
   qr: string | null = null;
   account: string | null = null;
   connectedAt: string | null = null;
+  /** Son kapanma kodu (ör. close_428) veya bağlantı hata kodu; heartbeat ile yazılır. */
+  lastCode: string | null = null;
+  degraded = false;
   readonly events: GatewayEvent[] = [];
   readonly groups = new Map<string, SeenGroup>();
+  readonly protocolVersion: string;
 
   private sock: WASocket | null = null;
+  private generation = 0;
+  private connecting: Promise<void> | null = null;
+  private again = false;
   private attempt = 0;
+  private badSessionStreak = 0;
+  private readonly replacedAt: number[] = [];
   private timer: NodeJS.Timeout | null = null;
-  private stopping = false;
+  private stableTimer: NodeJS.Timeout | null = null;
+  private shuttingDown = false;
+  private halted = false;
+  /** Bağlantının açık olmadığı sürenin başı (açıkken null). */
+  private notOpenSince: number;
+  private openSince: number | null = null;
+  private watchdogFired = false;
+  private watchdogWindow: number;
   private readonly seen = new SeenSet();
+  private readonly inFlight = new Set<string>();
+  private readonly pending: PendingIngest[] = [];
+  private flushing: Promise<void> | null = null;
   private readonly reactions = new RateLimiter(10, 60_000);
   private readonly pendingReactions = new Map<string, string>();
   private readonly logger = createSafeLogger();
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private watchdogTimer: NodeJS.Timeout | null = null;
+  private pendingTimer: NodeJS.Timeout | null = null;
   private purgeTimer: NodeJS.Timeout | null = null;
+  private readonly t: GatewayTiming;
+  private readonly now: () => number;
+  private readonly rnd: () => number;
+  private readonly lease: Lease;
+  private readonly makeSocket: SocketFactory;
+  private readonly loadAuth: AuthLoader;
   readonly stats: GatewayStats = {
     stored: 0,
     duplicate: 0,
@@ -114,15 +291,41 @@ export class WaGateway {
     verified: 0,
     rejectedCodes: 0,
     errors: 0,
+    ingestRetried: 0,
+    ingestDropped: 0,
+    undecryptable: 0,
+    reconnects: 0,
   };
 
   constructor(
     private readonly config: Config,
     private readonly store: WaStore | null = null,
-  ) {}
+    private readonly deps: GatewayDeps = {},
+  ) {
+    this.t = { ...DEFAULT_GATEWAY_TIMING, ...deps.timing };
+    this.now = deps.now ?? Date.now;
+    this.rnd = deps.random ?? Math.random;
+    this.lease = deps.lease ?? new NoopLease();
+    this.loadAuth = deps.loadAuth ?? useMultiFileAuthState;
+    this.makeSocket = deps.makeSocket ?? ((o) => this.defaultSocket(o));
+    this.notOpenSince = this.now();
+    this.watchdogWindow = watchdogWindowMs(deps.history?.read() ?? [], this.now());
+    const v = config.protocolVersion ?? DEFAULT_CONNECTION_CONFIG.version;
+    this.protocolVersion = v.join(".");
+    this.lease.onLost(() => this.onLeaseLost());
+  }
 
   get mode(): "a1" | "test" {
     return this.store ? "a1" : "test";
+  }
+
+  get pendingCount(): number {
+    return this.pending.length;
+  }
+
+  /** Watchdog penceresi (ms): yeniden başlatma döngüsünde uzar. */
+  get watchdogWindowMs(): number {
+    return this.watchdogWindow;
   }
 
   /** Veritabanı çağrısı; hata bağlantıyı düşürmez, yalnız sayılır ve kısa günlüğe yazılır. */
@@ -132,23 +335,89 @@ export class WaGateway {
       return await fn(this.store);
     } catch (e: unknown) {
       this.stats.errors += 1;
-      const name = e instanceof Error ? ((e as { code?: string }).code ?? e.name) : "Error";
-      this.note("error", `Veritabanı hatası (${label}): ${name}`);
+      this.note("error", `Veritabanı hatası (${label}): ${errName(e)}`);
       return null;
     }
   }
 
-  private heartbeat(status: ConnectionStatus, errorCode: string | null = null) {
+  /** Durum → veritabanı (wa_connections): durum ve kısa kod (numara/içerik yok). */
+  private heartbeatArgs(): [ConnectionStatus, string | null] {
+    switch (this.status) {
+      case "open":
+        return [
+          "open",
+          this.pending.length > 0 ? "ingest_backlog" : this.degraded ? "degraded" : null,
+        ];
+      case "starting":
+      case "connecting":
+        return ["connecting", this.lastCode];
+      case "qr":
+        return ["connecting", "qr_pairing"];
+      case "needs_qr":
+        return ["logged_out", this.lastCode ?? "needs_qr"];
+      case "lease_wait":
+        return ["closed", "lease_wait"];
+      default:
+        return ["closed", this.lastCode ?? this.status];
+    }
+  }
+
+  private heartbeat() {
+    // Tek kopya kilidi bizde değilse (başka kopya oturumu tutuyor ya da kilit kayboldu) bağlantı
+    // satırına YAZILMAZ: aynı etiketli çalışan kopyanın "open" durumunu ezmesin.
+    if (!this.lease.held) return;
+    const [status, code] = this.heartbeatArgs();
     const accountPn = this.account;
-    void this.db("heartbeat", (s) => s.heartbeat(status, errorCode, accountPn));
+    void this.db("heartbeat", (s) => s.heartbeat(status, code, accountPn));
   }
 
   private note(kind: GatewayEvent["kind"], text: string) {
-    this.events.unshift({ at: new Date().toISOString(), kind, text });
+    this.events.unshift({ at: new Date(this.now()).toISOString(), kind, text });
     this.events.length = Math.min(this.events.length, MAX_EVENTS);
     const line = `[wa] ${text}`;
     if (kind === "error") console.error(line);
     else console.log(line);
+  }
+
+  private setStatus(status: GatewayStatus, reason: string | null = this.reason) {
+    const changed = status !== this.status;
+    if (status === "open") {
+      this.notOpenSince = Number.NaN;
+    } else if (this.status === "open" || Number.isNaN(this.notOpenSince)) {
+      this.notOpenSince = this.now();
+    }
+    this.status = status;
+    this.reason = reason;
+    if (changed) this.heartbeat();
+  }
+
+  /** Sağlık kontrolü için anlık durum (numara, grup, QR yok). */
+  health(): HealthSnapshot {
+    const now = this.now();
+    const connected = this.status === "open";
+    const notOpenMs = connected ? 0 : Math.max(0, now - this.notOpenSince);
+    const notOpenSec = connected ? null : Math.round(notOpenMs / 1000);
+    const attention =
+      this.status === "qr" ||
+      this.status === "needs_qr" ||
+      this.status === "blocked" ||
+      this.status === "replaced" ||
+      this.status === "lease_wait" ||
+      this.status === "stopped";
+    let ok: boolean;
+    if (connected) ok = true;
+    // İlk eşleştirme (QR) beklenirken sağlıklı sayılır: yeni kurulum deploy'u düşmesin.
+    else if (this.status === "qr") ok = true;
+    else if (RECOVERABLE.has(this.status)) ok = notOpenMs < this.t.healthGraceMs;
+    else ok = false;
+    return {
+      ok,
+      status: this.status,
+      connected,
+      attention,
+      notOpenSec,
+      pendingMessages: this.pending.length,
+    };
   }
 
   /** Oturum klasörü yalnız sahibine açık (0700); dosyalar Baileys tarafından yazılır. */
@@ -157,24 +426,14 @@ export class WaGateway {
     await fs.chmod(this.config.authDir, 0o700);
   }
 
-  async start(): Promise<void> {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
-    this.stopping = false;
-    this.status = this.attempt === 0 ? "starting" : "reconnecting";
-    await this.ensureAuthDir();
-
-    const { state, saveCreds } = await useMultiFileAuthState(this.config.authDir);
-    let version: [number, number, number] | undefined;
-    try {
-      version = (await fetchLatestBaileysVersion()).version;
-    } catch {
-      version = undefined; // kütüphanenin varsayılanı kullanılır
-    }
-
-    const sock = makeWASocket({
-      auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, this.logger) },
-      ...(version ? { version } : {}),
+  private defaultSocket(o: {
+    auth: AuthenticationState;
+    version: [number, number, number] | null;
+  }) {
+    return makeWASocket({
+      auth: { creds: o.auth.creds, keys: makeCacheableSignalKeyStore(o.auth.keys, this.logger) },
+      // Sabit sürüm: kurulu Baileys'in değeri (verilmezse) veya WA_PROTOCOL_VERSION.
+      ...(o.version ? { version: o.version } : {}),
       logger: this.logger,
       browser: Browsers.macOS("Kiraligim Test"),
       markOnlineOnConnect: false,
@@ -183,29 +442,166 @@ export class WaGateway {
         Boolean(isJidBroadcast(jid) || isJidNewsletter(jid) || isJidStatusBroadcast(jid)),
       getMessage: async () => undefined,
     });
-    this.sock = sock;
+  }
 
-    sock.ev.on("creds.update", saveCreds);
+  /* ── Yaşam döngüsü ──────────────────────────────────────────────────── */
+
+  async start(): Promise<void> {
+    this.shuttingDown = false;
+    this.halted = false;
+    this.startTimers();
+    await this.connect();
+  }
+
+  /** Tek uçuş: eşzamanlı çağrılar aynı kurulumu bekler. */
+  private connect(): Promise<void> {
+    if (this.connecting) {
+      // Kurulum sürerken gelen istek kaybolmaz: kurulum canlı soket veya plan üretmeden biterse
+      // (ör. kuşak değişti) hemen bir kez daha denenir.
+      this.again = true;
+      return this.connecting;
+    }
+    this.connecting = this.doConnect()
+      .catch((e: unknown) => this.failConnect(errName(e), e))
+      .finally(() => {
+        this.connecting = null;
+        if (this.again) {
+          this.again = false;
+          if (!this.shuttingDown && !this.halted && !this.sock && !this.timer) void this.connect();
+        }
+      });
+    return this.connecting;
+  }
+
+  private clearTimer() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+  }
+
+  private schedule(delayMs: number) {
+    this.clearTimer();
+    if (this.shuttingDown || this.halted) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.connect();
+    }, delayMs);
+  }
+
+  /** Eski soketi kapatır ve dinleyicilerini kaldırır (yalnız bir canlı soket kalsın). */
+  private teardownSocket() {
+    const sock = this.sock;
+    this.sock = null;
+    if (this.stableTimer) clearTimeout(this.stableTimer);
+    this.stableTimer = null;
+    this.openSince = null;
+    if (!sock) return;
+    for (const ev of SOCKET_EVENTS) {
+      try {
+        sock.ev.removeAllListeners(ev);
+      } catch {
+        /* zaten kapalı */
+      }
+    }
+    try {
+      sock.end(undefined);
+    } catch {
+      /* zaten kapalı */
+    }
+  }
+
+  /** Kurulum hatası: her zaman yeni deneme planlanır (sessizce takılı kalınmaz). */
+  private failConnect(code: string, e?: unknown) {
+    if (this.shuttingDown || this.halted) return;
+    this.teardownSocket();
+    this.lastCode = code;
+    this.attempt += 1;
+    const delay = backoffDelay(this.attempt, this.t.backoffBaseMs, this.t.backoffCapMs, this.rnd());
+    const detail = e && errName(e) !== code ? `${code}: ${errName(e)}` : code;
+    this.setStatus("backoff", `Bağlantı kurulamadı (${detail}).`);
+    this.note(
+      "error",
+      `Bağlantı kurulamadı (${detail}); ${Math.round(delay / 1000)} sn sonra yeniden denenecek (deneme ${this.attempt}).`,
+    );
+    this.schedule(delay);
+  }
+
+  private async doConnect() {
+    if (this.shuttingDown || this.halted) return;
+    this.clearTimer();
+    this.teardownSocket();
+    const gen = ++this.generation;
+
+    // 1. Tek kopya kilidi (alınmadan WhatsApp'a bağlanılmaz).
+    if (!this.lease.held) {
+      if (this.status !== "lease_wait") this.setStatus("lease_wait", "Tek kopya kilidi alınıyor.");
+      let got: boolean;
+      try {
+        got = await withTimeout(this.lease.acquire(), this.t.leaseTimeoutMs, "lease_timeout");
+      } catch (e: unknown) {
+        if (gen === this.generation) this.failConnect("lease_error", e);
+        return;
+      }
+      if (gen !== this.generation || this.shuttingDown) return;
+      if (!got) {
+        this.lastCode = "lease_wait";
+        this.setStatus(
+          "lease_wait",
+          "Başka bir gateway kopyası bu oturumu tutuyor; bu kopya WhatsApp'a bağlanmıyor.",
+        );
+        this.note("error", "Tek kopya kilidi başka bir kopyada; bağlanılmadı, beklemede.");
+        this.schedule(Math.round(this.t.leaseRetryMs * (0.5 + this.rnd())));
+        return;
+      }
+    }
+
+    // 2. Oturum anahtarları (zaman aşımlı).
+    this.setStatus("connecting", this.reason);
+    await this.ensureAuthDir();
+    const auth = await withTimeout(
+      this.loadAuth(this.config.authDir),
+      this.t.authTimeoutMs,
+      "auth_timeout",
+    );
+    if (gen !== this.generation || this.shuttingDown || this.halted) return;
+
+    // 3. Soket (protokol sürümü sabit; ağdan çekilmez).
+    const sock = this.makeSocket({ auth: auth.state, version: this.config.protocolVersion });
+    this.sock = sock;
+    this.attach(sock, gen, auth.saveCreds);
+  }
+
+  private attach(sock: WASocket, gen: number, saveCreds: () => Promise<void>) {
+    const live = () => gen === this.generation && sock === this.sock;
+    sock.ev.on("creds.update", () => {
+      void saveCreds().catch((e: unknown) =>
+        this.note("error", `Oturum bilgisi kaydedilemedi: ${errName(e)}`),
+      );
+    });
 
     sock.ev.on("connection.update", (u) => {
+      if (!live()) return;
       if (u.qr) {
         this.qr = u.qr;
-        this.status = "qr";
-        this.reason = null;
+        this.lastCode = null;
+        this.setStatus("qr", null);
         this.note("info", "QR hazır: test arayüzünden okutun (QR günlüğe yazılmaz).");
       }
-      if (u.connection === "connecting" && this.status !== "qr") {
-        this.status = "connecting";
-        this.heartbeat("connecting");
-      }
-      if (u.connection === "open") void this.onOpen(sock);
+      if (u.connection === "connecting" && this.status !== "qr") this.setStatus("connecting");
+      if (u.connection === "open") void this.onOpen(sock, gen);
       if (u.connection === "close") {
         const err = u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
-        void this.onClose(sock, err?.output?.statusCode);
+        this.onClose(sock, gen, err?.output?.statusCode);
       }
     });
 
     sock.ev.on("messages.upsert", ({ messages, type }) => {
+      if (!live()) return;
+      for (const msg of messages) {
+        if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT) {
+          // Çözülemeyen mesaj: Baileys yeniden deneme ister; başarılı olursa aynı kimlikle tekrar gelir.
+          this.stats.undecryptable += 1;
+        }
+      }
       // A1: kesinti sonrası birikim ("append") de kaydedilir ama "backlog" olarak işaretlenir.
       if (type !== "notify" && !(this.store && type === "append")) return;
       for (const msg of messages) {
@@ -220,12 +616,15 @@ export class WaGateway {
     if (this.store) {
       // Gruba katılım: bildirim meta verisi asistanı EKLEYEN kişiyi (author) içerir.
       sock.ev.on("groups.upsert", (metas) => {
+        if (!live()) return;
         for (const meta of metas) void this.syncGroup(sock, meta);
       });
       sock.ev.on("groups.update", (updates) => {
+        if (!live()) return;
         for (const u of updates) if (u.id) void this.refreshGroup(sock, u.id);
       });
       sock.ev.on("group-participants.update", (ev) => {
+        if (!live()) return;
         const self = selfIds(sock.user);
         if (selfRemoved(ev.action, ev.participants, self)) {
           void this.markLeft(ev.id);
@@ -253,35 +652,45 @@ export class WaGateway {
     });
   }
 
-  private async onOpen(sock: WASocket) {
-    if (sock !== this.sock) return;
+  private async onOpen(sock: WASocket, gen: number) {
+    if (gen !== this.generation || sock !== this.sock) return;
     if (!isAllowedAccount(sock.user?.id, this.config.allowedNumber)) {
       this.note(
         "error",
-        "İzin verilmeyen bir hesap bağlandı; oturum kapatılıyor ve anahtarlar siliniyor. Yalnız WA_ALLOWED_NUMBER kullanılabilir.",
+        "İzin verilmeyen bir hesap bağlandı; oturum kapatılıyor ve bu yeni oturumun anahtarları siliniyor. Yalnız WA_ALLOWED_NUMBER kullanılabilir.",
       );
-      this.stopping = true;
+      this.halted = true;
+      this.clearTimer();
       try {
         await sock.logout();
       } catch {
         /* bağlantı zaten kapanmış olabilir */
       }
+      this.teardownSocket();
       await this.removeAuth();
-      this.status = "stopped";
-      this.reason = "İzin verilmeyen hesap reddedildi.";
+      this.lastCode = "account_rejected";
       this.account = null;
+      this.setStatus("stopped", "İzin verilmeyen hesap reddedildi.");
       return;
     }
-    this.attempt = 0;
     this.qr = null;
-    this.status = "open";
-    this.reason = null;
+    this.lastCode = null;
     this.account = numberFromJid(sock.user?.id ?? null);
-    this.connectedAt = new Date().toISOString();
+    this.connectedAt = new Date(this.now()).toISOString();
+    this.openSince = this.now();
+    this.setStatus("open", null);
     this.note("info", `Bağlandı: ${maskNumber(this.account)}.`);
+    // Kısa süre açık kalıp düşen bağlantıda sayaç sıfırlanmaz ("açıl-hemen-düş" döngüsü yavaşlar).
+    if (this.stableTimer) clearTimeout(this.stableTimer);
+    this.stableTimer = setTimeout(() => {
+      if (gen !== this.generation || this.status !== "open") return;
+      this.attempt = 0;
+      this.badSessionStreak = 0;
+      this.degraded = false;
+    }, this.t.stableOpenMs);
+    this.stableTimer.unref?.();
     if (this.store) {
-      this.heartbeat("open");
-      this.startTimers();
+      void this.flushPending();
       await this.syncAllGroups(sock);
       return;
     }
@@ -293,32 +702,133 @@ export class WaGateway {
     }
   }
 
-  private async onClose(sock: WASocket, statusCode: number | undefined) {
-    if (sock !== this.sock) return;
-    this.sock = null;
-    if (this.stopping) return;
-    const decision = decideReconnect(statusCode, this.attempt);
-    this.heartbeat(decision.action === "stop" && decision.resetAuth ? "logged_out" : "closed");
-    if (decision.action === "stop") {
-      this.status = "stopped";
-      this.reason = decision.reason;
-      this.qr = null;
+  private onClose(sock: WASocket, gen: number, statusCode: number | undefined) {
+    if (gen !== this.generation || sock !== this.sock) return;
+    this.teardownSocket();
+    if (this.shuttingDown || this.halted) return;
+    const now = this.now();
+    const decision = decideClose(statusCode, {
+      attempt: this.attempt,
+      replacedAt: this.replacedAt,
+      badSessionStreak: this.badSessionStreak,
+      now,
+      rnd: this.rnd(),
+      timing: this.t,
+    });
+    if (statusCode === 440) {
+      this.replacedAt.push(now);
+      while (this.replacedAt.length > 10) this.replacedAt.shift();
+    }
+    this.badSessionStreak = statusCode === 500 ? this.badSessionStreak + 1 : 0;
+    this.lastCode = decision.code;
+    this.qr = null;
+    if (decision.action === "halt") {
+      // Durma: oturum dosyaları SİLİNMEZ; insan müdahalesi gerekir (arayüz / panel).
+      this.halted = true;
+      this.clearTimer();
+      this.setStatus(decision.state, decision.reason);
       this.note("error", `Bağlantı durdu: ${decision.reason}`);
-      if (decision.resetAuth) await this.removeAuth();
       return;
     }
-    this.attempt += 1;
-    this.status = "reconnecting";
-    this.reason = decision.reason;
+    if (decision.countsAttempt) this.attempt += 1;
+    if (decision.degraded && !this.degraded) {
+      this.degraded = true;
+      this.note(
+        "error",
+        "Oturum art arda akış hatası veriyor (degraded); yeniden denenmeye devam ediliyor.",
+      );
+    }
+    this.stats.reconnects += 1;
+    this.setStatus("backoff", decision.reason);
     this.note(
       "info",
       `${decision.reason} ${Math.round(decision.delayMs / 1000)} sn sonra yeniden bağlanılacak (deneme ${this.attempt}).`,
     );
-    this.timer = setTimeout(() => {
-      this.start().catch((e: unknown) =>
-        this.note("error", `Yeniden bağlanma hatası: ${String(e)}`),
-      );
-    }, decision.delayMs);
+    this.schedule(decision.delayMs);
+  }
+
+  /** Tek kopya kilidi kaybedildi: WhatsApp soketi hemen kapatılır, kilit yeniden alınmadan bağlanılmaz. */
+  private onLeaseLost() {
+    if (this.shuttingDown) return;
+    this.note(
+      "error",
+      "Tek kopya kilidi kaybedildi (veritabanı bağlantısı); WhatsApp soketi kapatılıyor.",
+    );
+    this.generation += 1;
+    this.teardownSocket();
+    if (this.halted) return;
+    this.lastCode = "lease_lost";
+    this.setStatus("lease_wait", "Tek kopya kilidi yeniden alınıyor.");
+    this.schedule(Math.round(this.t.backoffBaseMs * (1 + this.rnd())));
+  }
+
+  /* ── Zamanlayıcılar: heartbeat, watchdog, saklama, bekleyen mesajlar ── */
+
+  private startTimers() {
+    if (!this.heartbeatTimer && this.store) {
+      // Her durumda yazılır: panel "bağlı değil ama yaşıyor" ile "tamamen kapalı"yı ayırt eder.
+      this.heartbeatTimer = setInterval(() => this.heartbeat(), this.t.heartbeatMs);
+      this.heartbeatTimer.unref();
+    }
+    if (!this.watchdogTimer) {
+      this.watchdogTimer = setInterval(() => this.watchdogTick(), this.t.watchdogTickMs);
+      this.watchdogTimer.unref();
+    }
+    if (!this.pendingTimer && this.store) {
+      this.pendingTimer = setInterval(() => void this.flushPending(), this.t.pendingRetryMs);
+      this.pendingTimer.unref();
+    }
+    if (!this.purgeTimer && this.store) {
+      const purge = () =>
+        void this.db("purge", async (s) => {
+          const n = await s.purge(RETENTION_DAYS);
+          if (n > 0) this.note("info", `Saklama: ${n} eski mesaj silindi.`);
+        });
+      purge();
+      this.purgeTimer = setInterval(purge, 60 * 60_000);
+      this.purgeTimer.unref();
+    }
+  }
+
+  private stopTimers() {
+    for (const t of [this.heartbeatTimer, this.watchdogTimer, this.pendingTimer, this.purgeTimer]) {
+      if (t) clearInterval(t);
+    }
+    if (this.stableTimer) clearTimeout(this.stableTimer);
+    this.heartbeatTimer = null;
+    this.watchdogTimer = null;
+    this.pendingTimer = null;
+    this.purgeTimer = null;
+    this.stableTimer = null;
+  }
+
+  /**
+   * Watchdog: kurtarılabilir bir durumda bağlantı penceresi boyunca kurulamadıysa süreç kontrollü
+   * çıkar (Docker yeniden başlatır). QR, engel, çift kopya ve kilit beklemesinde ÇALIŞMAZ
+   * (yeniden başlatma bunları çözmez, döngü yaratır). Oturum dosyalarına dokunulmaz.
+   * Bağlantı pencere boyunca açık kalırsa yeniden başlatma geçmişi temizlenir.
+   */
+  watchdogTick() {
+    const now = this.now();
+    if (
+      this.status === "open" &&
+      this.openSince !== null &&
+      now - this.openSince >= this.watchdogWindow
+    ) {
+      this.deps.history?.clear();
+      return;
+    }
+    if (this.watchdogFired || this.shuttingDown || !RECOVERABLE.has(this.status)) return;
+    if (Number.isNaN(this.notOpenSince) || now - this.notOpenSince < this.watchdogWindow) return;
+    this.watchdogFired = true;
+    this.lastCode = "watchdog_exit";
+    this.note(
+      "error",
+      `Watchdog: bağlantı ${Math.round(this.watchdogWindow / 60_000)} dk boyunca kurulamadı; süreç yeniden başlatılmak üzere kontrollü olarak kapatılıyor (oturum korunur).`,
+    );
+    this.deps.history?.record(now);
+    this.heartbeat();
+    this.deps.onWatchdog?.();
   }
 
   private async groupSubject(sock: WASocket, jid: string): Promise<string | null> {
@@ -410,32 +920,6 @@ export class WaGateway {
     }
   }
 
-  private startTimers() {
-    if (!this.heartbeatTimer) {
-      this.heartbeatTimer = setInterval(() => {
-        if (this.status === "open") this.heartbeat("open");
-      }, 60_000);
-      this.heartbeatTimer.unref();
-    }
-    if (!this.purgeTimer) {
-      const purge = () =>
-        void this.db("purge", async (s) => {
-          const n = await s.purge(RETENTION_DAYS);
-          if (n > 0) this.note("info", `Saklama: ${n} eski mesaj silindi.`);
-        });
-      purge();
-      this.purgeTimer = setInterval(purge, 60 * 60_000);
-      this.purgeTimer.unref();
-    }
-  }
-
-  private stopTimers() {
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    if (this.purgeTimer) clearInterval(this.purgeTimer);
-    this.heartbeatTimer = null;
-    this.purgeTimer = null;
-  }
-
   /* ── Mesajlar ───────────────────────────────────────────────────────── */
 
   private async resolveSender(sock: WASocket, m: InboundGroupMessage): Promise<string | null> {
@@ -450,12 +934,22 @@ export class WaGateway {
   private async onMessage(sock: WASocket, msg: WAMessage, backlog = false) {
     const m = extractGroupMessage(msg);
     if (!m) return;
-    if (!this.seen.add(`${m.groupJid}|${m.messageId}`)) return; // aynı mesaj ikinci kez işlenmez
-
+    const key = `${m.groupJid}|${m.messageId}`;
     if (this.store) {
-      await this.onA1Message(sock, msg, m, backlog);
+      // Aynı mesaj ikinci kez işlenmez: kaydedilmiş, şu an yazılıyor ya da kuyrukta bekliyor.
+      // Kayıtlı sayılması YALNIZ veritabanı yazımı başarılı olunca (yazılamazsa kuyrukta bekler).
+      if (this.seen.has(key) || this.inFlight.has(key) || this.pending.some((p) => p.key === key)) {
+        return;
+      }
+      this.inFlight.add(key);
+      try {
+        await this.onA1Message(sock, msg, m, backlog, key);
+      } finally {
+        this.inFlight.delete(key);
+      }
       return;
     }
+    if (!this.seen.add(key)) return; // aynı mesaj ikinci kez işlenmez
 
     const subject = await this.groupSubject(sock, m.groupJid);
     const prev = this.groups.get(m.groupJid);
@@ -517,20 +1011,19 @@ export class WaGateway {
     msg: WAMessage,
     m: InboundGroupMessage,
     backlog: boolean,
+    key: string,
   ) {
     const senderPn = await this.resolveSender(sock, m);
-    const out = await this.db("ingest", (s) =>
-      s.ingest({
-        groupJid: m.groupJid,
-        messageId: m.messageId,
-        senderJid: m.senderJid,
-        senderPn,
-        senderLid: m.senderLid,
-        body: m.text,
-        sentAt: m.sentAt,
-        kind: backlog ? "backlog" : "live",
-      }),
-    );
+    const out = await this.ingestDurable(key, {
+      groupJid: m.groupJid,
+      messageId: m.messageId,
+      senderJid: m.senderJid,
+      senderPn,
+      senderLid: m.senderLid,
+      body: m.text,
+      sentAt: m.sentAt,
+      kind: backlog ? "backlog" : "live",
+    });
     if (out) this.stats[out] += 1;
     if (out === "stored") {
       const g = this.groups.get(m.groupJid);
@@ -539,6 +1032,83 @@ export class WaGateway {
         g.lastAt = m.sentAt;
       }
     }
+  }
+
+  /**
+   * Veritabanına dayanıklı yazım: hata olursa kısa beklemelerle yeniden denenir; yine olmazsa
+   * mesaj bellekteki kuyruğa alınır ve düzenli olarak (ve bağlantı açılınca) yeniden gönderilir.
+   * Mesaj ASLA sessizce kaybolmaz: her hata sayılır ve günlüğe (içeriksiz) yazılır. Veritabanı
+   * aynı mesajı tekil tuttuğu için yeniden gönderim çift kayıt üretmez.
+   * Sınır: süreç çökerse bellekteki kuyruk kaybolur (diskte kuyruk Aşama 3).
+   */
+  private async ingestDurable(key: string, record: InboundRecord): Promise<IngestOutcome | null> {
+    const store = this.store;
+    if (!store) return null;
+    const delays = [0, ...this.t.ingestRetryMs];
+    let last: unknown = null;
+    for (const [i, d] of delays.entries()) {
+      if (d > 0) await sleep(d);
+      try {
+        const out = await store.ingest(record);
+        this.seen.add(key);
+        return out;
+      } catch (e: unknown) {
+        last = e;
+        if (i === 0) this.stats.ingestRetried += 1;
+      }
+    }
+    this.stats.errors += 1;
+    this.enqueuePending(key, record);
+    this.note(
+      "error",
+      `Mesaj veritabanına yazılamadı (${errName(last)}); bellekte bekletiliyor ve ${Math.round(this.t.pendingRetryMs / 1000)} sn'de bir yeniden denenecek (bekleyen ${this.pending.length}).`,
+    );
+    return null;
+  }
+
+  private enqueuePending(key: string, record: InboundRecord) {
+    if (this.pending.some((p) => p.key === key)) return;
+    this.pending.push({ key, record, firstAt: this.now() });
+    while (this.pending.length > this.t.pendingMax) {
+      const dropped = this.pending.shift();
+      this.stats.ingestDropped += 1;
+      this.note(
+        "error",
+        `Bekleyen mesaj kuyruğu dolu (${this.t.pendingMax}); en eski mesaj düşürüldü (${dropped?.record.messageId ?? "?"}).`,
+      );
+    }
+  }
+
+  /** Bekleyen mesajları sırayla yeniden yazar; ilk hatada durur (sonraki turda devam). */
+  flushPending(): Promise<void> {
+    if (this.flushing) return this.flushing;
+    this.flushing = (async () => {
+      const store = this.store;
+      if (!store) return;
+      let wrote = 0;
+      while (this.pending.length > 0) {
+        const p = this.pending[0]!;
+        let out: IngestOutcome;
+        try {
+          out = await store.ingest(p.record);
+        } catch {
+          break;
+        }
+        this.pending.shift();
+        this.seen.add(p.key);
+        this.stats[out] += 1;
+        wrote += 1;
+      }
+      if (wrote > 0) {
+        this.note(
+          "info",
+          `Bekleyen ${wrote} mesaj veritabanına yazıldı (kalan ${this.pending.length}).`,
+        );
+      }
+    })().finally(() => {
+      this.flushing = null;
+    });
+    return this.flushing;
   }
 
   /**
@@ -610,41 +1180,69 @@ export class WaGateway {
       );
     }
   }
-
   /** Bağlantıyı kapatır; oturum korunur (sonraki başlatmada QR gerekmez). */
   async stop() {
-    this.stopping = true;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    this.shuttingDown = true;
+    this.clearTimer();
     this.stopTimers();
-    if (this.store) await this.db("heartbeat", (s) => s.heartbeat("closed"));
-    this.sock?.end(undefined);
-    this.sock = null;
+    this.generation += 1;
+    // Sürmekte olan bağlantı kurulumu biter (yeni soket açılmaz: kuşak değişti).
+    if (this.connecting) {
+      await withTimeout(this.connecting, 5_000, "connect_timeout").catch(() => undefined);
+    }
+    // Bekleyen mesajlar kapanmadan önce (en fazla flushTimeoutMs) veritabanına yazılmaya çalışılır.
+    if (this.store && this.pending.length > 0) {
+      await withTimeout(this.flushPending(), this.t.flushTimeoutMs, "flush_timeout").catch(
+        () => undefined,
+      );
+      if (this.pending.length > 0) {
+        this.note(
+          "error",
+          `Kapanışta ${this.pending.length} mesaj veritabanına yazılamadı (bellekteydi).`,
+        );
+      }
+    }
+    this.teardownSocket();
     this.status = "stopped";
+    if (this.store && this.lease.held) {
+      await this.db("heartbeat", (s) =>
+        s.heartbeat("closed", this.lastCode === "watchdog_exit" ? "watchdog_exit" : "stopped"),
+      );
+    }
+    await this.lease.release().catch(() => undefined);
   }
 
-  /** Bu cihazın bağlantısını kaldırır, yerel anahtarları siler ve yeni QR için yeniden başlar. */
+  /**
+   * Arayüzden ELLE tetiklenen sıfırlama: bu cihazın bağlantısını kaldırır, yerel anahtarları
+   * siler ve yeni QR için yeniden başlar. Otomatik hiçbir yol bu fonksiyonu çağırmaz.
+   */
   async reset() {
-    this.stopping = true;
-    if (this.timer) clearTimeout(this.timer);
+    this.halted = true;
+    this.clearTimer();
+    this.generation += 1;
     const sock = this.sock;
-    this.sock = null;
     if (sock) {
       try {
         await sock.logout();
       } catch {
-        sock.end(undefined);
+        /* bağlantı zaten kapalı */
       }
     }
+    this.teardownSocket();
+    if (this.connecting) await this.connecting.catch(() => undefined);
     await this.removeAuth();
-    this.stopTimers();
-    if (this.store) await this.db("heartbeat", (s) => s.heartbeat("logged_out"));
     this.account = null;
     this.connectedAt = null;
     this.qr = null;
     this.attempt = 0;
-    this.note("info", "Oturum sıfırlandı; yeni QR hazırlanıyor.");
-    await this.start();
+    this.badSessionStreak = 0;
+    this.replacedAt.length = 0;
+    this.lastCode = null;
+    this.degraded = false;
+    this.note("info", "Oturum elle sıfırlandı; yeni QR hazırlanıyor.");
+    this.halted = false;
+    this.setStatus("starting", null);
+    await this.connect();
   }
 
   private async removeAuth() {
@@ -658,4 +1256,13 @@ export class WaGateway {
     }
     await fs.rm(dir, { recursive: true, force: true });
   }
+}
+
+/** Günlük için kısa hata adı: kendi kodlarımız (ör. auth_timeout), SQLSTATE veya hata adı. */
+function errName(e: unknown): string {
+  if (e instanceof Error) {
+    if (/^[a-z_]{1,40}$/.test(e.message)) return e.message;
+    return (e as { code?: string }).code ?? e.name;
+  }
+  return "Error";
 }

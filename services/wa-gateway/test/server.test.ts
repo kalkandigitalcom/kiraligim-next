@@ -27,6 +27,24 @@ const fake = {
       },
     ],
   ]),
+  stats: {},
+  lastCode: null,
+  degraded: false,
+  pendingCount: 0,
+  protocolVersion: "2.3000.1043857760",
+  watchdogWindowMs: 600_000,
+  mode: "a1",
+  health(this: { status: string }) {
+    const connected = this.status === "open";
+    return {
+      ok: connected || this.status === "qr",
+      status: this.status,
+      connected,
+      attention: !connected,
+      notOpenSec: connected ? null : 5,
+      pendingMessages: 0,
+    };
+  },
   resetCalls: 0,
   async reset(this: { resetCalls: number }) {
     this.resetCalls += 1;
@@ -105,7 +123,15 @@ describe("yerel test arayüzü", () => {
   it("sağlık kontrolü: yalnız durum; QR, numara ve grup yok; Host denetimi sürer", async () => {
     const r = await get("/healthz");
     assert.equal(r.status, 200);
-    assert.deepEqual(JSON.parse(r.body), { ok: true, status: "qr" });
+    assert.deepEqual(JSON.parse(r.body), {
+      ok: true,
+      status: "qr",
+      connected: false,
+      attention: true,
+      notOpenSec: 5,
+      pendingMessages: 0,
+      mode: "a1",
+    });
     for (const secret of [QR, "905321112233", "120363025555555555"]) {
       assert.ok(!r.body.includes(secret));
     }

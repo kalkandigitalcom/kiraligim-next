@@ -16,10 +16,14 @@ import type { WaGateway } from "./session.ts";
 
 const STATUS_LABEL: Record<string, string> = {
   starting: "Başlatılıyor",
+  lease_wait: "Tek kopya kilidi bekleniyor",
   qr: "QR bekleniyor",
   connecting: "Bağlanıyor",
   open: "Bağlı",
-  reconnecting: "Yeniden bağlanıyor",
+  backoff: "Yeniden bağlanacak",
+  needs_qr: "Yeniden QR gerekli",
+  blocked: "Hesap erişimi reddedildi",
+  replaced: "Başka kopya bağlı",
   stopped: "Durdu",
 };
 
@@ -31,6 +35,11 @@ export function statusJson(gw: WaGateway, testGroupJid: string | null) {
     hasQr: gw.status === "qr" && Boolean(gw.qr),
     mode: gw.mode,
     stats: gw.stats,
+    lastCode: gw.lastCode,
+    degraded: gw.degraded,
+    pendingMessages: gw.pendingCount,
+    protocolVersion: gw.protocolVersion,
+    watchdogMinutes: Math.round(gw.watchdogWindowMs / 60_000),
     account: maskNumber(gw.account),
     connectedAt: gw.connectedAt ? istanbulTime(gw.connectedAt) : null,
     testGroupJid,
@@ -57,7 +66,7 @@ function page(token: string, nonce: string) {
 main{max-width:900px;margin:0 auto;padding:24px 16px;display:grid;gap:16px}
 h1{font-size:20px;margin:0}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
 .muted{color:var(--muted)}.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-weight:600;border:1px solid currentColor}
-.open{color:var(--ok)}.qr,.connecting,.reconnecting,.starting{color:var(--warn)}.stopped{color:var(--err)}
+.open{color:var(--ok)}.qr,.connecting,.backoff,.starting,.lease_wait{color:var(--warn)}.stopped,.needs_qr,.blocked,.replaced{color:var(--err)}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:12px 0 0}dt{color:var(--muted)}dd{margin:0;word-break:break-all}
 #qr img{width:264px;height:264px;background:#fff;padding:8px;border-radius:8px}
 table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -126,13 +135,16 @@ export function startServer(
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page(token, nonce));
         return;
       }
-      // Sağlık kontrolü (Docker HEALTHCHECK): yalnız süreç durumu; numara, grup veya QR içermez.
-      // Oturum durdurulmuşsa (ör. telefondan çıkış) 503: yeniden QR gerektiği görünür olsun.
+      // Sağlık kontrolü (Docker HEALTHCHECK): GERÇEK WhatsApp bağlantı durumu. Numara, grup, QR yok.
+      // 200: bağlı; ilk eşleştirme (QR) bekleniyor; ya da kısa süredir (healthGrace) yeniden bağlanıyor.
+      // 503: uzun süredir bağlanamıyor, yeniden QR gerekli, erişim reddedildi, başka kopya bağlı,
+      // tek kopya kilidi başkasında veya durdu. Yeniden başlatmayı watchdog yapar (süreç çıkışı);
+      // Docker "unhealthy" konteyneri kendiliğinden yeniden başlatmaz.
       if (req.method === "GET" && url.pathname === "/healthz") {
-        const ok = gw.status !== "stopped";
+        const h = gw.health();
         res
-          .writeHead(ok ? 200 : 503, { "content-type": "application/json; charset=utf-8" })
-          .end(JSON.stringify({ ok, status: gw.status, mode: gw.mode }));
+          .writeHead(h.ok ? 200 : 503, { "content-type": "application/json; charset=utf-8" })
+          .end(JSON.stringify({ ...h, mode: gw.mode }));
         return;
       }
       if (req.method === "GET" && url.pathname === "/status.json") {

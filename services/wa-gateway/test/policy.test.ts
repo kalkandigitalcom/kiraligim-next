@@ -8,38 +8,130 @@ import os from "node:os";
 import path from "node:path";
 
 import { authDirProblem, databaseNameProblem, loadConfig, SERVICE_DIR } from "../src/config.ts";
-import { decideReconnect, isAllowedAccount, RateLimiter, SeenSet } from "../src/policy.ts";
+import {
+  BAD_SESSION_WARN,
+  backoffDelay,
+  decideClose,
+  DEFAULT_TIMING,
+  isAllowedAccount,
+  RateLimiter,
+  REPLACED_WINDOW_MS,
+  SeenSet,
+  watchdogWindowMs,
+} from "../src/policy.ts";
 
-describe("yeniden bağlanma kararı", () => {
-  it("oturum kapatıldıysa durur ve anahtarları siler", () => {
-    assert.deepEqual(decideReconnect(DisconnectReason.loggedOut, 0), {
-      action: "stop",
-      reason: "Oturum kapatıldı; yeniden QR gerekir.",
-      resetAuth: true,
+describe("kapanma kararı (Aşama 1)", () => {
+  const ctx = {
+    attempt: 0,
+    replacedAt: [] as number[],
+    badSessionStreak: 0,
+    now: 1_000_000,
+    rnd: 0.5,
+  };
+  const codes = [401, 403, 408, 411, 428, 440, 500, 503, 515, undefined, 999];
+
+  it("hiçbir kapanma kodu oturum silme kararı vermez", () => {
+    for (const c of codes) {
+      const d = decideClose(c, ctx) as Record<string, unknown>;
+      assert.equal("resetAuth" in d, false, String(c));
+    }
+  });
+
+  it("401 ve 411: durur (needs_qr), oturum korunur", () => {
+    for (const c of [DisconnectReason.loggedOut, DisconnectReason.multideviceMismatch]) {
+      const d = decideClose(c, ctx);
+      assert.equal(d.action, "halt");
+      assert.equal(d.action === "halt" && d.state, "needs_qr");
+      assert.match(d.reason, /korunuyor/);
+    }
+  });
+
+  it("403: durur (blocked)", () => {
+    const d = decideClose(DisconnectReason.forbidden, ctx);
+    assert.deepEqual(
+      [d.action, d.action === "halt" && d.state, d.code],
+      ["halt", "blocked", "blocked_403"],
+    );
+  });
+
+  it("500 (kodsuz 'stream errored out' dahil) DURMAZ: yeniden denenir; art arda 5'te degraded", () => {
+    const d = decideClose(DisconnectReason.badSession, ctx);
+    assert.equal(d.action, "reconnect");
+    assert.equal(d.action === "reconnect" && d.degraded, undefined);
+    const d5 = decideClose(DisconnectReason.badSession, {
+      ...ctx,
+      badSessionStreak: BAD_SESSION_WARN - 1,
     });
+    assert.equal(d5.action === "reconnect" && d5.degraded, true);
   });
 
-  it("aynı oturum başka yerde açıldıysa durur, anahtarlar korunur", () => {
-    const d = decideReconnect(DisconnectReason.connectionReplaced, 0);
-    assert.equal(d.action, "stop");
-    assert.equal(d.action === "stop" && d.resetAuth, false);
+  it("440: önce 2–5 dk bekleyip dener; 30 dk içinde 3. kez durur (replaced)", () => {
+    for (const rnd of [0, 0.5, 0.999]) {
+      const d = decideClose(DisconnectReason.connectionReplaced, { ...ctx, rnd });
+      assert.equal(d.action, "reconnect");
+      const ms = d.action === "reconnect" ? d.delayMs : -1;
+      assert.ok(
+        ms >= DEFAULT_TIMING.replacedCooldownMinMs && ms < DEFAULT_TIMING.replacedCooldownMaxMs,
+        String(ms),
+      );
+    }
+    const now = ctx.now;
+    assert.equal(decideClose(440, { ...ctx, replacedAt: [now - 60_000] }).action, "reconnect");
+    const halt = decideClose(440, { ...ctx, replacedAt: [now - 60_000, now - 120_000] });
+    assert.deepEqual([halt.action, halt.action === "halt" && halt.state], ["halt", "replaced"]);
+    // Pencere dışındaki eski 440'lar sayılmaz.
+    assert.equal(
+      decideClose(440, {
+        ...ctx,
+        replacedAt: [now - REPLACED_WINDOW_MS - 1, now - REPLACED_WINDOW_MS - 2],
+      }).action,
+      "reconnect",
+    );
   });
 
-  it("QR sonrası yeniden başlatma hemen yapılır", () => {
-    assert.deepEqual(decideReconnect(DisconnectReason.restartRequired, 3), {
+  it("515 hemen, deneme sayılmaz; 503 en az 30 sn; diğerleri jitter'lı", () => {
+    assert.deepEqual(decideClose(515, { ...ctx, attempt: 7 }), {
       action: "reconnect",
       delayMs: 0,
-      reason: "Yeniden başlatma istendi.",
+      reason: "Yeniden başlatma istendi (515).",
+      countsAttempt: false,
+      code: "close_515",
     });
+    for (const rnd of [0, 0.3, 0.999]) {
+      const d = decideClose(503, { ...ctx, rnd });
+      assert.ok(d.action === "reconnect" && d.delayMs >= DEFAULT_TIMING.unavailableBaseMs);
+    }
+    for (const c of [408, 428, undefined, 999]) {
+      const d = decideClose(c, { ...ctx, attempt: 3, rnd: 0.999 });
+      assert.ok(d.action === "reconnect" && d.delayMs <= 2_000 * 8 && d.countsAttempt, String(c));
+    }
+    assert.equal(decideClose(undefined, ctx).code, "close_none");
   });
 
-  it("ağ kopmasında bekleme artar, 60 sn'yi geçmez", () => {
-    const delays = [0, 1, 2, 3, 10].map((a) => {
-      const d = decideReconnect(DisconnectReason.connectionLost, a);
-      return d.action === "reconnect" ? d.delayMs : -1;
-    });
-    assert.deepEqual(delays, [1_000, 2_000, 4_000, 8_000, 60_000]);
-    assert.equal(decideReconnect(undefined, 0).action, "reconnect");
+  it("full jitter: [0, min(tavan, taban × 2^deneme)]", () => {
+    for (let a = 0; a < 30; a++) {
+      for (const r of [0, 0.25, 0.5, 0.999999, 1, -1]) {
+        const d = backoffDelay(a, 2_000, 120_000, r);
+        assert.ok(d >= 0 && d <= Math.min(120_000, 2_000 * 2 ** a), `${a} ${r} ${d}`);
+      }
+    }
+    assert.equal(backoffDelay(10, 2_000, 120_000, 0.5), 60_000);
+    assert.equal(backoffDelay(0, 2_000, 120_000, 0), 0);
+  });
+
+  it("watchdog penceresi: 10 → 20 → 40 → 60 dk (6 saat içindeki çıkışlara göre), en fazla 60", () => {
+    const now = 100 * 3_600_000;
+    assert.equal(watchdogWindowMs([], now), 10 * 60_000);
+    assert.equal(watchdogWindowMs([now - 1_000], now), 20 * 60_000);
+    assert.equal(watchdogWindowMs([now - 1_000, now - 2_000], now), 40 * 60_000);
+    assert.equal(
+      watchdogWindowMs(
+        [1, 2, 3, 4, 5].map((n) => now - n * 1_000),
+        now,
+      ),
+      60 * 60_000,
+    );
+    assert.equal(watchdogWindowMs([now - 7 * 3_600_000], now), 10 * 60_000);
   });
 });
 
