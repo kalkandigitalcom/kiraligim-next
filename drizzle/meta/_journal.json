@@ -302,6 +302,27 @@
       "when": 1794335870732,
       "tag": "0042_admin_security",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794337538333,
+      "tag": "0043_wa_group_admin",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794337542785,
+      "tag": "0044_wa_group_admin_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794339155964,
+      "tag": "0045_wa_auto_close_group_lock",
+      "breakpoints": true
     }
   ]
 }

@@ -5,12 +5,9 @@ import { useActionState, useEffect, useState } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { SelectField } from "@/components/ui/field";
 import { useHydrated } from "@/components/ui/use-hydrated";
 
 import {
-  claimGroupAction,
-  type ClaimFormState,
   createPhoneChallengeAction,
   type PhoneChallengeFormState,
   type PhoneChallengePoll,
@@ -88,8 +85,7 @@ export function PhoneVerifyPanel() {
     return (
       <Alert tone="success">
         <span data-testid="wa-verify-success">
-          Numaranız doğrulandı{result.masked ? ` (${result.masked})` : ""}. Asistanı eklediğiniz
-          gruplar aşağıda görünür.
+          Numaranız doğrulandı{result.masked ? ` (${result.masked})` : ""}.
         </span>
       </Alert>
     );
@@ -116,7 +112,7 @@ export function PhoneVerifyPanel() {
             ? "Aşağıdaki düğmeyle WhatsApp'ı açın; mesaj hazır gelir, yalnız gönderin."
             : "Kiraligim asistan numarasına WhatsApp'tan özel mesaj olarak aşağıdaki metni gönderin."}
         </li>
-        <li>Mesajı, gruplara asistanı eklediğiniz kendi numaranızdan gönderin.</li>
+        <li>Mesajı, gruplarda yazdığınız kendi WhatsApp numaranızdan gönderin.</li>
         <li>Mesaj gruba DEĞİL, asistana özel olarak gönderilir.</li>
       </ol>
       <p
@@ -160,128 +156,7 @@ export function PhoneVerifyPanel() {
   );
 }
 
-/* ── Grup eşleştirme (villa seçimi) ─────────────────────────────────────── */
-
-type PropertyOption = { value: string; label: string };
-
-/** Bekleyen grubu bir villayla eşleştirir; yalnız bu işletmenin villaları listelenir. */
-export function ClaimGroupForm({
-  groupId,
-  groupName,
-  properties,
-}: {
-  groupId: string;
-  groupName: string;
-  properties: readonly PropertyOption[];
-}) {
-  const hydrated = useHydrated();
-  const [open, setOpen] = useState(false);
-  const [state, formAction, pending] = useActionState<ClaimFormState, FormData>(
-    claimGroupAction,
-    {},
-  );
-  if (!open) {
-    return (
-      <Button
-        type="button"
-        size="sm"
-        onClick={() => setOpen(true)}
-        aria-label={`Eşleştir: ${groupName}`}
-        data-testid="wa-claim-open"
-      >
-        Eşleştir
-      </Button>
-    );
-  }
-  return (
-    <form action={formAction} className="flex w-full flex-col gap-3" data-testid="wa-claim-form">
-      <input type="hidden" name="groupId" value={groupId} />
-      <SelectField
-        id={`wa-claim-${groupId}`}
-        name="propertyId"
-        label="Villa"
-        placeholder="Villa seçin"
-        options={properties}
-        defaultValue=""
-        required
-        error={state.propertyError}
-        hint="Grubun mesajları bu villayla ilişkilendirilir. Yalnız hesabınızdaki villalar listelenir."
-      />
-      {state.error ? <Alert tone="error">{state.error}</Alert> : null}
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="sm" disabled={pending || !hydrated} data-testid="wa-claim-save">
-          {pending ? "Kaydediliyor…" : "Kaydet"}
-        </Button>
-        <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(false)}>
-          Vazgeç
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-/** Bağlı grubun villasını değiştirir. */
-export function GroupPropertyForm({
-  action,
-  groupId,
-  current,
-  groupName,
-  properties,
-}: {
-  action: (prev: ClaimFormState, formData: FormData) => Promise<ClaimFormState>;
-  groupId: string;
-  current: string | null;
-  groupName: string;
-  properties: readonly PropertyOption[];
-}) {
-  const hydrated = useHydrated();
-  const [open, setOpen] = useState(false);
-  const [state, formAction, pending] = useActionState<ClaimFormState, FormData>(action, {});
-  if (!open) {
-    return (
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        onClick={() => setOpen(true)}
-        aria-label={`Villayı değiştir: ${groupName}`}
-        data-testid="wa-property-open"
-      >
-        {current ? "Villayı değiştir" : "Villa seç"}
-      </Button>
-    );
-  }
-  return (
-    <form action={formAction} className="flex w-full flex-col gap-3" data-testid="wa-property-form">
-      <SelectField
-        id={`wa-property-${groupId}`}
-        name="propertyId"
-        label="Villa"
-        placeholder="Villa seçin"
-        options={properties}
-        defaultValue={current ?? ""}
-        required
-        error={state.propertyError}
-      />
-      {state.error ? <Alert tone="error">{state.error}</Alert> : null}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="submit"
-          size="sm"
-          disabled={pending || !hydrated}
-          data-testid="wa-property-save"
-        >
-          {pending ? "Kaydediliyor…" : "Kaydet"}
-        </Button>
-        <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(false)}>
-          Vazgeç
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-/* ── Grup ve yetki düğmeleri ─────────────────────────────────────────────── */
+/* ── Düğme ──────────────────────────────────────────────────────────────── */
 
 export function ActionButton({
   action,
@@ -309,55 +184,6 @@ export function ActionButton({
         data-testid={testId}
       >
         {pending ? pendingLabel : label}
-      </Button>
-      {state.error ? (
-        <p role="alert" className="w-full text-sm text-destructive">
-          {state.error}
-        </p>
-      ) : null}
-    </form>
-  );
-}
-
-export function UnlinkButton({
-  name,
-  action,
-}: {
-  name: string;
-  action: () => Promise<SimpleState>;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const [state, formAction, pending] = useActionState<SimpleState>(action, {});
-  if (!confirming) {
-    return (
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        onClick={() => setConfirming(true)}
-        aria-label={`Bağlantıyı kes: ${name}`}
-        data-testid="wa-unlink"
-      >
-        Bağlantıyı kes
-      </Button>
-    );
-  }
-  return (
-    <form action={formAction} className="flex w-full flex-wrap items-center gap-2" role="group">
-      <span className="text-sm font-medium text-navy-900">
-        Grubun bağlantısı kesilsin ve kayıtlı mesajları silinsin mi?
-      </span>
-      <Button
-        type="submit"
-        size="sm"
-        disabled={pending}
-        aria-label={`Evet, bağlantıyı kes: ${name}`}
-        data-testid="wa-unlink-confirm"
-      >
-        {pending ? "Kesiliyor…" : "Evet, kes"}
-      </Button>
-      <Button type="button" variant="secondary" size="sm" onClick={() => setConfirming(false)}>
-        Vazgeç
       </Button>
       {state.error ? (
         <p role="alert" className="w-full text-sm text-destructive">

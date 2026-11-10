@@ -772,8 +772,8 @@ Auth) **tamamen ayrıdır**: ayrı tablolar (`admin_users`, `admin_login_challen
   çıkış, başarısız deneme ve hesap işlemleri `admin_audit_log`'a yazılır (yalnız eklenir).
 - **Veritabanı:** `app_admin` yalnız `admin_*` tablolarını kullanır (FORCE RLS, en dar yetki); işletme
   tablolarına doğrudan yetkisi yoktur. `app_user` (işletme paneli) `admin_*` tablolarına erişemez.
-  Platform işlemleri (WhatsApp grup eşleştirme vb.) sonraki aşamada dar SECURITY DEFINER
-  fonksiyonlarla verilecek. Kayıt (sign-up) yoktur.
+  Platform işlemleri (WhatsApp grup eşleştirme) dar SECURITY DEFINER fonksiyonlarla verilir (aşağıda,
+  0043–0044). Kayıt (sign-up) yoktur.
 - **Ortam değişkenleri (web uygulaması):** `DATABASE_ADMIN_URL=postgres://app_admin:<parola>@<host>:5432/kiraligim_prod`
   ve `ADMIN_SECRET_KEY` (`openssl rand -base64 32`). Tanımlı değilse yönetim paneli "yapılandırılmamış"
   der; uygulamanın geri kalanı etkilenmez. `ADMIN_SECRET_KEY` değişirse yöneticilerin 2FA'sı
@@ -793,6 +793,41 @@ Diğer komutlar: `reset-2fa`, `reset-password`, `disable`, `enable`, `list` (`di
 
 **Geri alma:** `DATABASE_ADMIN_URL`'i kaldırmak paneli kapatır; `ALTER ROLE app_admin NOLOGIN PASSWORD NULL;`
 girişi kapatır. Tablolar ileri bir migration'la kaldırılabilir.
+
+## Merkezi WhatsApp grup yönetimi — Aşama 2 (0043–0045)
+
+Grup keşfi, işletmeye atama, villa eşleştirme, aktif/pasif, villa değişikliği, bağlantı kaldırma ve
+"yok say / arşivle" **yalnız** `admin.<alan-adı>` → **WhatsApp grupları** sayfasındadır. İşletme paneli
+(`app.<alan-adı>/whatsapp`) kendi gruplarını **salt okunur** görür (durum, villa, mesajlar, öneriler);
+numara doğrulama 3. aşamaya kadar durur. Bütün Super Admin hesaplarının yetkisi aynıdır.
+
+- **Veritabanı (0044):** `app_wa_admin_*` fonksiyonları (SECURITY DEFINER, sahip `app_migrator`,
+  **yalnız `app_admin`** çağırır). Her çağrıda yönetici `admin_users`'ta aktif mi denetlenir (değilse
+  42501); işletmenin aktif, villanın **o işletmenin aktif villası** olduğu veritabanında doğrulanır.
+  Her işlem hem `admin_audit_log`'a (yönetici, işletme, villa) hem işletmenin `audit_log`'una (aktör
+  boş, `method: platform`) yazılır. `app_admin` tablolara doğrudan yetki almaz.
+- **İşletme rolünden kaldırılan yetkiler (0044):** `app_wa_claim_group`, `app_wa_pending_groups`,
+  `app_wa_unlink_group`, `app_wa_redeem_link_code` çalıştırma; `wa_groups` güncelleme (FOR UPDATE
+  dahil); `wa_link_managers` ekleme/silme; `wa_link_codes` ekleme. Mevcut eşleştirmeler ve veriler
+  **değişmez** (migration'lar yalnız kolon/indeks/kısıt/fonksiyon/yetki ekler).
+- **Kurallar:** bir grup aynı anda tek işletmeye bağlıdır. Aynı JID başka bir Gateway bağlantısından
+  da keşfedildiyse ikinci kayıt bağlanamaz (`mükerrer`); arşivlenir. Arşivdeki grup bağlanamaz
+  (veritabanı kısıtı). Pasif grubun yeni mesajları kaydedilmez. Bağlantı kaldırılınca grubun mesaj
+  içerikleri silinir, öneri alıntıları "(silindi)" olur, bekleyen öneriler sona erer; öneri,
+  rezervasyon ve denetim kayıtları korunur; grup yeniden "bekleyen" sekmesine düşer.
+- **Otomatik takvim kapatma (0045):** blok yazan transaction grup satırını `FOR SHARE` ile kilitler
+  (`app_wa_lock_group_for_auto_close`, SECURITY DEFINER; işletme rolüne tablo yetkisi verilmez) ve
+  grubun hâlâ bağlı, **aktif** ve aynı villada olduğunu denetler. Super Admin işlemleri satırı
+  `FOR UPDATE` ile kilitlediğinden iki işlem sıralanır: Super Admin önce davranırsa (pasif, villa
+  değişikliği, bağlantı kaldırma) blok oluşmaz, öneri panelde bekler (`whatsapp.proposal_auto_failed`,
+  neden `changed`); otomatik kapatma önce kilitlediyse Super Admin işlemi blok commit edilene kadar
+  bekler. Kilit sırası iki tarafta da grup → öneridir (kilitlenme yok).
+
+**Deploy:** ek ortam değişkeni veya komut yoktur (Super Admin kurulumu yapılmış olmalı); 0043–0045
+açılışta uygulanır. Gateway ve worker yeniden yapılandırılmaz.
+
+**Geri alma:** komutlar 0044 ve 0045'in başındadır (`DROP FUNCTION app_wa_admin_*`, politikalar; işletme
+yetkileri gerekirse 0031/0034'teki GRANT'lar). Uygulanmış migration değiştirilmez.
 
 ## Veritabanı rolleri ve migration
 

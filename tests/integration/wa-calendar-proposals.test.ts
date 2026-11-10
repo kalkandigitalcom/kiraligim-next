@@ -16,6 +16,8 @@ import { createProperty } from "@/server/properties/service";
 import { createReservation } from "@/server/reservations/service";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
+import { adminUnlink, createTestAdmin } from "./wa-admin";
+
 /**
  * WhatsApp Asistanı A2a — takvim önerileri veri modeli (drizzle/0035, 0036). Gerçek PostgreSQL,
  * app_user, FORCE RLS. Worker henüz yok: worker'ın yapacağı çağrılar (iş alma → bağlam → çakışma →
@@ -942,19 +944,35 @@ describe("süre, bağlantı kesme ve saklama", () => {
         sql`update wa_calendar_proposals set status = 'rejected', decided_by = app_current_user_id(), decided_at = now() where id = ${decided.id}`,
       ),
     );
-    const out = await as(O, ws, (tx) =>
-      tx.execute<{ out: string }>(sql`select public.app_wa_unlink_group(${g.id}::uuid) as out`),
+    // Aşama 2: bağlantıyı yalnız Super Admin kaldırır (işletme rolü çağıramaz).
+    const denied = await as(O, ws, (tx) =>
+      tx.execute(sql`select public.app_wa_unlink_group(${g.id}::uuid)`),
+    ).catch((e: unknown) => e);
+    expect(pgErrorInfo(denied).code).toBe("42501");
+    expect(await adminUnlink(admin, await createTestAdmin(admin, "proposals"), g.id)).toBe(
+      "unlinked",
     );
-    expect(out.rows[0]!.out).toBe("unlinked");
     const rows = (
       await admin.query(
-        "select id, status, message_id, version from wa_calendar_proposals where id = any($1) order by created_at",
+        "select id, status, message_id, message_excerpt, version from wa_calendar_proposals where id = any($1) order by created_at",
         [[pending.id, decided.id]],
       )
     ).rows;
     expect(rows).toEqual([
-      { id: pending.id, status: "expired", message_id: null, version: 2 },
-      { id: decided.id, status: "rejected", message_id: null, version: 2 },
+      {
+        id: pending.id,
+        status: "expired",
+        message_id: null,
+        message_excerpt: "(silindi)",
+        version: expect.any(Number),
+      },
+      {
+        id: decided.id,
+        status: "rejected",
+        message_id: null,
+        message_excerpt: "(silindi)",
+        version: expect.any(Number),
+      },
     ]);
   });
 

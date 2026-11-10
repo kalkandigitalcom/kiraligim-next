@@ -13,18 +13,13 @@ import { type TenantContext, type Tx, withTenant } from "@/db/tenant";
 import { verifyMessage, parseVerifyMessage } from "@/lib/whatsapp-meta";
 import { createProperty } from "@/server/properties/service";
 import {
-  claimGroup,
   createPhoneChallenge,
   getConnectionStatus,
   getMyPhone,
   getPhoneChallengeState,
   listGroups,
-  listPendingGroups,
   listPropertyOptions,
   removeMyPhone,
-  setGroupProperty,
-  setManagerAuthorized,
-  unlinkGroup,
 } from "@/server/whatsapp/service";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
@@ -33,8 +28,9 @@ import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service
  * app_user, FORCE RLS. Ağ geçidi bağlamsız app_user olarak app_wa_* fonksiyonlarını çağırır
  * (burada doğrudan SQL ile taklit edilir); panel withTenant ile servis fonksiyonlarını kullanır.
  *
- * Güvenlik özü: bekleyen grup YALNIZ, asistanı gruba ekleyen kişinin (ya da kurucunun) numarası
- * oturumdaki kullanıcının doğrulanmış numarasıyla eşleşiyorsa görünür ve eşleştirilebilir.
+ * Aşama 2: grup eşleştirme YALNIZ Super Admin'dedir (drizzle/0044; tests/integration/
+ * admin-wa-groups.test.ts). İşletme rolü keşfedilen grupları göremez, eski eşleştirme
+ * fonksiyonlarını çağıramaz ve wa_groups'u güncelleyemez. Numara doğrulama korunur.
  */
 const db = inject("testDb");
 const appPool = new Pool({ connectionString: db.appUrl, max: 6 });
@@ -59,7 +55,6 @@ const gw = async <T>(text: string, values: unknown[]): Promise<T> =>
   (await appPool.query<{ out: T }>(text, values)).rows[0]!.out;
 
 const PN_O = "905321110001"; // işletme sahibi
-const PN_M = "905321110002"; // yönetici
 const PN_X = "905321110003"; // başka işletmenin sahibi
 const PN_STRANGER = "905321110009";
 const ACCOUNT = "905350000000"; // Kiraligim asistan numarası
@@ -284,21 +279,19 @@ describe("numara doğrulama (asistana özel mesaj, bir kez)", () => {
   });
 });
 
-describe("bekleyen gruplar", () => {
+describe("keşfedilen gruplar (Aşama 2: eşleştirme yalnız Super Admin)", () => {
   let jidO = "";
-  let jidX = "";
   let jidOwner = "";
-  let jidUnknown = "";
+
+  /** app_user (işletme bağlamında) için beklenen yetki hatası. */
+  const denied = async (u: U, w: string, q: ReturnType<typeof sql>) =>
+    pgErrorInfo(await as(u, w, (tx) => tx.execute(q)).catch((e: unknown) => e)).code;
 
   beforeAll(async () => {
     jidO = newJid();
-    jidX = newJid();
     jidOwner = newJid();
-    jidUnknown = newJid();
     expect(await sync(jidO, PN_O, PN_STRANGER, "Defne Operasyon")).toBe("discovered");
-    expect(await sync(jidX, PN_X, null, "X Grubu")).toBe("discovered");
     expect(await sync(jidOwner, null, PN_O, "Kurduğum Grup")).toBe("discovered");
-    expect(await sync(jidUnknown, null, null, "Kimin Bilinmeyen")).toBe("discovered");
   });
 
   it("keşif grubu aktif yapmaz: hiçbir işletmeye bağlı değil, mesajı kaydedilmez", async () => {
@@ -313,42 +306,10 @@ describe("bekleyen gruplar", () => {
     expect(await as(O, ws, (tx, ctx) => listGroups(tx, ctx))).toEqual([]);
   });
 
-  it("kullanıcı yalnız kendi numarasıyla eşleşen grupları görür (ekleyen veya kurucu)", async () => {
-    const pending = await as(O, ws, (tx, ctx) => listPendingGroups(tx, ctx));
-    expect(pending.map((g) => [g.subject, g.match]).sort()).toEqual([
-      ["Defne Operasyon", "added_by"],
-      ["Kurduğum Grup", "owner"],
-    ]);
-    expect(pending[0]).toMatchObject({ participantCount: 7 });
-    expect(pending[0]!.discoveredAt).toBeInstanceOf(Date);
-    expect(Object.keys(pending[0]!).sort()).toEqual(
-      ["discoveredAt", "id", "match", "participantCount", "subject"].sort(),
-    );
-    const xPending = await as(X, wsX, (tx, ctx) => listPendingGroups(tx, ctx));
-    expect(xPending.map((g) => g.subject)).toEqual(["X Grubu"]);
-  });
-
-  it("staff, yetkisiz manager ve numarası doğrulanmamış kullanıcı hiçbir bekleyen grup görmez", async () => {
-    expect(await as(S, ws, (tx, ctx) => listPendingGroups(tx, ctx))).toEqual([]);
-    expect(await as(M, ws, (tx, ctx) => listPendingGroups(tx, ctx))).toEqual([]);
-    await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, true));
-    expect(await as(M, ws, (tx, ctx) => listPendingGroups(tx, ctx))).toEqual([]); // doğrulanmamış
-    // Fonksiyon doğrudan çağrılsa da (servis atlanırsa) staff için boş.
-    const direct = await as(S, ws, (tx) =>
-      tx.execute(sql`select * from public.app_wa_pending_groups()`),
-    );
-    expect(direct.rows).toEqual([]);
-    // Bağlamsız app_user (ör. ağ geçidi parolasıyla) hiçbir şey görmez.
-    expect((await appPool.query("select * from public.app_wa_pending_groups()")).rows).toEqual([]);
-  });
-
   it("app_user grupları ve numara özetlerini doğrudan okuyamaz", async () => {
-    const hashes = await as(O, ws, (tx) =>
-      tx.execute(sql`select added_by_hash from wa_groups`),
-    ).catch((e: unknown) => e);
-    expect(pgErrorInfo(hashes).code).toBe("42501");
+    expect(await denied(O, ws, sql`select added_by_hash from wa_groups`)).toBe("42501");
     const rows = await as(O, ws, (tx) => tx.execute(sql`select id from wa_groups`));
-    expect(rows.rows).toEqual([]); // bekleyen gruplar RLS'te görünmez
+    expect(rows.rows).toEqual([]); // keşfedilen gruplar RLS'te görünmez
   });
 
   it("ekleyen bilgisi sonradan gelen toplu listede (ekleyensiz) silinmez", async () => {
@@ -357,202 +318,57 @@ describe("bekleyen gruplar", () => {
     expect((await groupRow(jidO)).added_by_hash).toBe(phoneHash(PN_O));
   });
 
-  describe("eşleştirme", () => {
-    it("başka işletmenin kullanıcısı bu grubu eşleştiremez (görünmez gibi: bulunamadı)", async () => {
-      const id = await groupId(jidO);
-      await expect(
-        as(X, wsX, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaX })),
-      ).rejects.toMatchObject({ code: "NOT_FOUND" });
-      // Doğrudan fonksiyonla da.
-      const out = await as(X, wsX, (tx) =>
-        tx.execute<{ out: string }>(
-          sql`select public.app_wa_claim_group(${id}::uuid, ${villaX}::uuid) as out`,
-        ),
-      );
-      expect(out.rows[0]?.out).toBe("not_found");
-      expect((await groupRow(jidO)).status).toBe("discovered");
-    });
-
-    it("staff ve yetkisiz manager eşleştiremez; numarası doğrulanmamış yetkili manager da", async () => {
-      const id = await groupId(jidO);
-      await expect(
-        as(S, ws, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaA })),
-      ).rejects.toMatchObject({ code: "FORBIDDEN" });
-      await expect(
-        as(M, ws, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaA })),
-      ).rejects.toMatchObject({ code: "CONFLICT" }); // yetkili ama numara doğrulanmamış
-      await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, false));
-      await expect(
-        as(M, ws, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaA })),
-      ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    });
-
-    it("başka işletmenin villası seçilemez; eksik seçim doğrulama hatası", async () => {
-      const id = await groupId(jidO);
-      await expect(
-        as(O, ws, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaX })),
-      ).rejects.toMatchObject({ code: "VALIDATION" });
-      await expect(
-        as(O, ws, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: "" })),
-      ).rejects.toMatchObject({ code: "VALIDATION" });
-      expect((await groupRow(jidO)).status).toBe("discovered");
-      expect((await as(O, ws, (tx) => listPropertyOptions(tx))).map((p) => p.id).sort()).toEqual(
-        [villaA, villaB].sort(),
-      );
-    });
-
-    it("sahibi kendi villasıyla eşleştirir: grup aktif, mesajlar kaydedilir, audit yazılır", async () => {
-      const id = await groupId(jidO);
-      await as(O, ws, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaA }));
-      expect(await groupRow(jidO)).toMatchObject({
-        status: "linked",
-        workspace_id: ws,
-        property_id: villaA,
-      });
-      const groups = await as(O, ws, (tx, ctx) => listGroups(tx, ctx));
-      expect(groups).toEqual([
-        expect.objectContaining({
-          id,
-          status: "linked",
-          propertyId: villaA,
-          propertyName: "Villa Defne",
-        }),
-      ]);
-      expect(await ingest(jidO)).toBe("stored");
-      const audit = await admin.query(
-        "select actor_user_id, metadata from audit_log where action = 'whatsapp.group_linked' and target_id = $1",
-        [id],
-      );
-      expect(audit.rows).toEqual([
-        { actor_user_id: O.id, metadata: { method: "claim", property: villaA } },
-      ]);
-      // Artık bekleyenlerde yok.
-      const pending = await as(O, ws, (tx, ctx) => listPendingGroups(tx, ctx));
-      expect(pending.map((g) => g.subject)).toEqual(["Kurduğum Grup"]);
-    });
-
-    it("aynı grup ikinci kez (aynı ya da başka hesaba) eşleştirilemez", async () => {
-      const id = await groupId(jidO);
-      await expect(
-        as(O, ws, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaB })),
-      ).rejects.toMatchObject({ code: "NOT_FOUND" });
-      // Numara başka kullanıcıya geçse bile bağlı grup taşınamaz.
-      await verifyPhoneOf(X, wsX, PN_O);
-      expect(await as(O, ws, (tx) => getMyPhone(tx))).toBeNull(); // numara X'e geçti
-      await expect(
-        as(X, wsX, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaX })),
-      ).rejects.toMatchObject({ code: "NOT_FOUND" });
-      expect(await groupRow(jidO)).toMatchObject({ workspace_id: ws, property_id: villaA });
-      // Eşzamanlı iki eşleştirme: yalnız biri başarılı olur.
-      const jidRace = newJid();
-      await sync(jidRace, PN_O);
-      const raceId = await groupId(jidRace);
-      const results = await Promise.allSettled([
-        as(X, wsX, (tx, ctx) => claimGroup(tx, ctx, { groupId: raceId, propertyId: villaX })),
-        as(X, wsX, (tx, ctx) => claimGroup(tx, ctx, { groupId: raceId, propertyId: villaX })),
-      ]);
-      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-      // Numarayı sahibine geri ver (sonraki testler).
-      await verifyPhoneOf(O, ws, PN_O);
-      await verifyPhoneOf(X, wsX, PN_X);
-    });
-
-    it("villa değiştirme yalnız kendi villalarına; başka işletme değiştiremez; audit", async () => {
-      const id = await groupId(jidO);
-      await expect(
-        as(O, ws, (tx, ctx) => setGroupProperty(tx, ctx, id, villaX)),
-      ).rejects.toMatchObject({ code: "VALIDATION" });
-      await expect(
-        as(X, wsX, (tx, ctx) => setGroupProperty(tx, ctx, id, villaX)),
-      ).rejects.toMatchObject({ code: "NOT_FOUND" });
-      await expect(
-        as(S, ws, (tx, ctx) => setGroupProperty(tx, ctx, id, villaB)),
-      ).rejects.toMatchObject({ code: "FORBIDDEN" });
-      expect(await as(O, ws, (tx, ctx) => setGroupProperty(tx, ctx, id, villaB))).toEqual({
-        changed: true,
-      });
-      expect(await as(O, ws, (tx, ctx) => setGroupProperty(tx, ctx, id, villaB))).toEqual({
-        changed: false,
-      });
-      // Bileşik yabancı anahtar: doğrudan güncellemeyle de başka işletmenin villası konamaz.
-      const fk = await as(O, ws, (tx) =>
-        tx.execute(sql`update wa_groups set property_id = ${villaX} where id = ${id}`),
-      ).catch((e: unknown) => e);
-      expect(pgErrorInfo(fk).code).toBe("23503");
-      const audit = await admin.query(
-        "select metadata from audit_log where action = 'whatsapp.group_property_changed' and target_id = $1",
-        [id],
-      );
-      expect(audit.rows).toEqual([{ metadata: { property: villaB } }]);
-    });
-
-    it("bağlantı kesilince villa bağı temizlenir, grup yeniden bekleyenlere düşer", async () => {
-      const id = await groupId(jidO);
-      await as(O, ws, (tx, ctx) => unlinkGroup(tx, ctx, id));
-      expect(await groupRow(jidO)).toMatchObject({
-        status: "discovered",
-        workspace_id: null,
-        property_id: null,
-      });
-      expect(await ingest(jidO)).toBe("ignored");
-      const pending = await as(O, ws, (tx, ctx) => listPendingGroups(tx, ctx));
-      expect(pending.map((g) => g.subject).sort()).toEqual(["Defne Operasyon", "Kurduğum Grup"]);
-    });
-
-    it("kurucusu olunan grup da eşleştirilebilir; kimseyle eşleşmeyen grup hiçbir listede yok", async () => {
-      const id = await groupId(jidOwner);
-      await as(O, ws, (tx, ctx) => claimGroup(tx, ctx, { groupId: id, propertyId: villaB }));
-      expect((await groupRow(jidOwner)).status).toBe("linked");
-      const unknownId = await groupId(jidUnknown);
-      for (const [u, w] of [
-        [O, ws],
-        [X, wsX],
-      ] as const) {
-        const list = await as(u, w, (tx, ctx) => listPendingGroups(tx, ctx));
-        expect(list.map((g) => g.id)).not.toContain(unknownId);
-      }
-    });
+  it("işletme rolü eski eşleştirme fonksiyonlarını çağıramaz (sahip dahil; numara doğrulanmış olsa da)", async () => {
+    expect(await as(O, ws, (tx) => getMyPhone(tx))).not.toBeNull();
+    const id = await groupId(jidO);
+    for (const q of [
+      sql`select * from public.app_wa_pending_groups()`,
+      sql`select public.app_wa_claim_group(${id}::uuid, ${villaA}::uuid)`,
+      sql`select public.app_wa_unlink_group(${id}::uuid)`,
+    ]) {
+      expect(await denied(O, ws, q)).toBe("42501");
+    }
+    // Bağlamsız app_user (ağ geçidi parolasıyla) de çağıramaz.
+    await expect(
+      appPool.query("select public.app_wa_claim_group($1, $2)", [id, villaA]),
+    ).rejects.toMatchObject({ code: "42501" });
+    expect((await groupRow(jidO)).status).toBe("discovered");
   });
 
-  it("yetkili manager kendi numarasıyla eklediği grubu eşleştirir; sahibi o grubu görmez", async () => {
-    await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, true));
-    await verifyPhoneOf(M, ws, PN_M);
-    const jidM = newJid();
-    await sync(jidM, PN_M, null, "Yönetici Grubu");
-    const mPending = await as(M, ws, (tx, ctx) => listPendingGroups(tx, ctx));
-    expect(mPending.map((g) => g.subject)).toEqual(["Yönetici Grubu"]);
-    const oPending = await as(O, ws, (tx, ctx) => listPendingGroups(tx, ctx));
-    expect(oPending.map((g) => g.subject)).not.toContain("Yönetici Grubu");
-    await as(M, ws, (tx, ctx) =>
-      claimGroup(tx, ctx, { groupId: mPending[0]!.id, propertyId: villaA }),
+  it("işletme rolü wa_groups'u güncelleyemez/kilitleyemez; yönetici yetkisi ekleyemez", async () => {
+    expect(await denied(O, ws, sql`update wa_groups set status = 'suspended'`)).toBe("42501");
+    expect(await denied(O, ws, sql`update wa_groups set property_id = ${villaB}`)).toBe("42501");
+    expect(await denied(O, ws, sql`select id from wa_groups for update`)).toBe("42501");
+    expect(
+      await denied(
+        O,
+        ws,
+        sql`insert into wa_link_managers (workspace_id, user_id, granted_by)
+            values (app_current_workspace_id(), ${M.id}, app_current_user_id())`,
+      ),
+    ).toBe("42501");
+    expect(await denied(O, ws, sql`delete from wa_link_managers`)).toBe("42501");
+    expect((await groupRow(jidOwner)).status).toBe("discovered");
+  });
+
+  it("villa seçenekleri (öneri düzenleme) yalnız kendi villaları", async () => {
+    expect((await as(O, ws, (tx) => listPropertyOptions(tx))).map((p) => p.id).sort()).toEqual(
+      [villaA, villaB].sort(),
     );
-    expect(await groupRow(jidM)).toMatchObject({ status: "linked", workspace_id: ws });
-    await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, false));
+    expect((await as(X, wsX, (tx) => listPropertyOptions(tx))).map((p) => p.id)).toEqual([villaX]);
   });
 
-  it("numarasını kaldıran kullanıcı bekleyen grupları artık görmez; bağlı gruplar etkilenmez", async () => {
+  it("numarasını kaldıran kullanıcı yeniden doğrulayabilir", async () => {
     expect((await as(O, ws, (tx, ctx) => removeMyPhone(tx, ctx))).changed).toBe(true);
-    expect(await as(O, ws, (tx, ctx) => listPendingGroups(tx, ctx))).toEqual([]);
-    expect((await groupRow(jidOwner)).status).toBe("linked");
-    // Yeni gelen kullanıcı (N) hiçbir şey göremez.
-    const wsN = (await createWorkspace(app, { userId: N.id, name: "Yeni", slug: `cln-${tag}` })).id;
-    expect(await as(N, wsN, (tx, ctx) => listPendingGroups(tx, ctx))).toEqual([]);
+    expect(await as(O, ws, (tx) => getMyPhone(tx))).toBeNull();
     await verifyPhoneOf(O, ws, PN_O);
+    // Yeni gelen kullanıcı (N) hiçbir grup görmez.
+    const wsN = (await createWorkspace(app, { userId: N.id, name: "Yeni", slug: `cln-${tag}` })).id;
+    expect(await as(N, wsN, (tx, ctx) => listGroups(tx, ctx))).toEqual([]);
   });
 });
 
 describe("ağ geçidi rolü açısından", () => {
-  it("panel fonksiyonları bağlamsız çağrıda hiçbir şey yapmaz", async () => {
-    const jid = newJid();
-    await sync(jid, PN_O);
-    const id = await groupId(jid);
-    expect(
-      (await appPool.query("select public.app_wa_claim_group($1, $2) as out", [id, villaA])).rows[0]
-        .out,
-    ).toBe("forbidden");
-    expect((await groupRow(jid)).status).toBe("discovered");
-  });
-
   it("ağ geçidi doğrulama ve keşif girdilerini denetler", async () => {
     for (const q of [
       ["select public.app_wa_verify_phone('abc', null)", []],

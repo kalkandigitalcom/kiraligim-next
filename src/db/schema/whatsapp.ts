@@ -26,6 +26,7 @@ import {
   WA_REACTION_STATUSES,
   WA_VILLA_RESOLUTIONS,
 } from "../../lib/whatsapp-meta";
+import { adminUsers } from "./admin";
 import { users } from "./auth";
 import { properties } from "./properties";
 import { workspaceMembers, workspaces } from "./tenancy";
@@ -108,6 +109,11 @@ export const waGroups = pgTable(
     propertyId: uuid(),
     linkedAt: ts(),
     linkedBy: uuid().references(() => users.id, { onDelete: "set null" }),
+    /** Aşama 2.8-WA: grubu eşleştiren platform yöneticisi (admin.<alan-adı>; işletme kullanıcısı değil). */
+    linkedByAdmin: uuid().references(() => adminUsers.id, { onDelete: "set null" }),
+    /** Platform yöneticisinin "yok say / arşivle" kararı (ör. başka bağlantıdan gelen mükerrer keşif). */
+    archivedAt: ts(),
+    archivedByAdmin: uuid().references(() => adminUsers.id, { onDelete: "set null" }),
     /** Asistanı gruba ekleyen kişinin numarasının özeti (WhatsApp "author"). */
     addedByHash: text(),
     /** Grup kurucusunun numarasının özeti (WhatsApp "owner"). */
@@ -126,6 +132,13 @@ export const waGroups = pgTable(
     unique("wa_groups_scope_key").on(t.id, t.workspaceId),
     index("wa_groups_workspace_idx").on(t.workspaceId),
     index("wa_groups_linked_by_idx").on(t.linkedBy),
+    index("wa_groups_linked_by_admin_idx").on(t.linkedByAdmin),
+    index("wa_groups_archived_by_admin_idx").on(t.archivedByAdmin),
+    index("wa_groups_jid_idx").on(t.jid),
+    check(
+      "wa_groups_archived_discovered",
+      sql`${t.archivedAt} is null or ${t.workspaceId} is null`,
+    ),
     foreignKey({
       name: "wa_groups_property_fk",
       columns: [t.propertyId, t.workspaceId],

@@ -9,8 +9,10 @@
  *  - Blok, mevcut rezervasyon servisiyle (createReservation: tarih kuralları, pasif villa, çakışma
  *    kısıtı ve harici takvim koruması) ve gönderen SAHİBİN oturum bağlamında oluşur: withTenant
  *    üyeliği ve rolü veritabanından yeniden okur; rol owner değilse hiçbir şey yazılmaz.
- *  - Öneri FOR UPDATE ile kilitlenir ve bekleyen, nedensiz, sahipten gelen bir kapatma olduğu,
- *    villa ve tarihlerin worker'ın değerlendirdiğiyle aynı olduğu yeniden denetlenir.
+ *  - Grup satırı FOR SHARE (0045), ardından öneri FOR UPDATE ile kilitlenir; grubun hâlâ bağlı,
+ *    aktif ve aynı villada olduğu, önerinin bekleyen, nedensiz, sahipten gelen bir kapatma olduğu,
+ *    villa ve tarihlerin worker'ın değerlendirdiğiyle aynı olduğu yeniden denetlenir. Super Admin
+ *    grup işlemleri (FOR UPDATE) bu transaction'la sıralanır: yarış yoktur.
  *  - Blok ve öneri kararı ("applied", decision_mode = 'quick', decided_by = sahip) TEK
  *    transaction'dadır; veritabanı durum makinesi ve quick kısıtı ayrıca uygular. Karar verilmiş
  *    öneri yeniden işlenmez (idempotent).
@@ -80,6 +82,7 @@ type Locked = {
   check_out: string | null;
   review_reasons: string[];
   sender_role: string;
+  group_id: string;
 };
 
 function classify(err: unknown): WaAutoCloseFailure {
@@ -103,11 +106,27 @@ export function createAutoCloser(db: Database): AutoCloser {
         { userId: req.userId, workspaceId: req.workspaceId },
         async (tx, ctx) => {
           if (ctx.role !== "owner") throw new Stop("not_owner", null);
+          // Kilit sırası: önce GRUP, sonra ÖNERİ (Super Admin bağlantı kaldırma da grubu kilitleyip
+          // önerileri günceller; aynı sıra kilitlenmeyi önler). Grubu bulmak için öneri kilitsiz okunur.
+          const pre = await tx.execute<{ group_id: string }>(sql`
+            select group_id from wa_calendar_proposals
+             where message_id = ${req.messageId}::uuid and item_no = ${req.itemNo}
+               and workspace_id = app_current_workspace_id()`);
+          const groupId = pre.rows[0]?.group_id;
+          if (!groupId) throw new Stop("changed", null);
+          // Grup hâlâ bu işletmeye bağlı, AKTİF ve aynı villada mı? Satır transaction sonuna kadar
+          // FOR SHARE ile kilitlenir (0045, SECURITY DEFINER; işletme rolüne tablo yetkisi verilmez):
+          // Super Admin'in pasife alma / villa değiştirme / bağlantı kaldırma işlemi (FOR UPDATE) ya
+          // önce tamamlanır ve burada güncel durum okunur ya da blok commit edilene kadar bekler.
+          const grp = await tx.execute<{ status: string; property_id: string | null }>(
+            sql`select * from public.app_wa_lock_group_for_auto_close(${groupId}::uuid)`,
+          );
+          const gr = grp.rows[0];
           const res = await tx.execute<Locked>(sql`
             select id, status, action, property_id,
                    to_char(check_in, 'YYYY-MM-DD') as check_in,
                    to_char(check_out, 'YYYY-MM-DD') as check_out,
-                   review_reasons, sender_role
+                   review_reasons, sender_role, group_id
               from wa_calendar_proposals
              where message_id = ${req.messageId}::uuid and item_no = ${req.itemNo}
                and workspace_id = app_current_workspace_id()
@@ -115,7 +134,11 @@ export function createAutoCloser(db: Database): AutoCloser {
           const p = res.rows[0];
           if (!p) throw new Stop("changed", null);
           proposalId = p.id;
+          if (!gr || gr.status !== "linked" || gr.property_id !== req.propertyId) {
+            throw new Stop("changed", p.id);
+          }
           if (
+            p.group_id !== groupId ||
             p.status !== "pending" ||
             p.action !== "close" ||
             (p.review_reasons ?? []).length !== 0 ||

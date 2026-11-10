@@ -53,6 +53,16 @@ describe("fonksiyonlar", () => {
       "app_set_updated_at",
       "app_subscription_is_current",
       "app_uuid_v7",
+      // 0044 (Aşama 2): Super Admin grup yönetimi (yalnız app_admin)
+      "app_wa_admin_archive_group",
+      "app_wa_admin_connections",
+      "app_wa_admin_groups",
+      "app_wa_admin_link_group",
+      "app_wa_admin_properties",
+      "app_wa_admin_set_active",
+      "app_wa_admin_set_property",
+      "app_wa_admin_unlink_group",
+      "app_wa_admin_workspaces",
       // 0036 (A2): takvim önerisi worker'ı, güvenli başlangıç ve durum makinesi tetikleyicisi
       "app_wa_busy",
       "app_wa_calendar_cutover",
@@ -68,6 +78,7 @@ describe("fonksiyonlar", () => {
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
+      "app_wa_lock_group_for_auto_close", // 0045: otomatik kapatmada grup satırı kilidi
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
@@ -112,6 +123,16 @@ describe("fonksiyonlar", () => {
       "app_reservations_external_guard",
       // 0031 (A1): WhatsApp ağ geçidinin tek yazma yolu ve panelden bağlantı kesme (app.wa_fn)
       // 0034 (A1.1): eşleştirme (bekleyen gruplar, eşleştir) ve numara doğrulama
+      // 0044 (Aşama 2): Super Admin grup yönetimi; çağıran yönetici veritabanında doğrulanır
+      "app_wa_admin_archive_group",
+      "app_wa_admin_connections",
+      "app_wa_admin_groups",
+      "app_wa_admin_link_group",
+      "app_wa_admin_properties",
+      "app_wa_admin_set_active",
+      "app_wa_admin_set_property",
+      "app_wa_admin_unlink_group",
+      "app_wa_admin_workspaces",
       // 0036 (A2): takvim önerisi worker'ı (iş alma, bağlam, çakışma özeti, kayıt, hata, süre)
       "app_wa_busy",
       "app_wa_claim_group",
@@ -123,6 +144,7 @@ describe("fonksiyonlar", () => {
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
+      "app_wa_lock_group_for_auto_close", // 0045: otomatik kapatmada grup satırı kilidi
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
@@ -160,6 +182,23 @@ describe("fonksiyonlar", () => {
        where pronamespace = 'public'::regnamespace and prosecdef and proname like 'app\\_wa\\_%'
        order by 1, 2`);
     expect(wa.rows).toEqual([
+      // 0044 (Aşama 2): Super Admin; ilk parametre yönetici kimliği (aktif admin_users kaydı
+      // olmalı, yalnız app_admin çağırabilir). İşletme/villa kimliği veritabanında doğrulanır.
+      {
+        proname: "app_wa_admin_archive_group",
+        args: "p_admin uuid, p_group uuid, p_archive boolean",
+      },
+      { proname: "app_wa_admin_connections", args: "p_admin uuid" },
+      { proname: "app_wa_admin_groups", args: "p_admin uuid" },
+      {
+        proname: "app_wa_admin_link_group",
+        args: "p_admin uuid, p_group uuid, p_workspace uuid, p_property uuid",
+      },
+      { proname: "app_wa_admin_properties", args: "p_admin uuid, p_workspace uuid" },
+      { proname: "app_wa_admin_set_active", args: "p_admin uuid, p_group uuid, p_active boolean" },
+      { proname: "app_wa_admin_set_property", args: "p_admin uuid, p_group uuid, p_property uuid" },
+      { proname: "app_wa_admin_unlink_group", args: "p_admin uuid, p_group uuid" },
+      { proname: "app_wa_admin_workspaces", args: "p_admin uuid, p_query text" },
       // 0036 (A2): worker; işletme kilitli mesajdan bulunur (mesaj + kilit belirteci), parametre değil
       {
         proname: "app_wa_busy",
@@ -184,6 +223,8 @@ describe("fonksiyonlar", () => {
         proname: "app_wa_ingest_message",
         args: "p_connection uuid, p_jid text, p_message_id text, p_sender_jid text, p_sender_pn text, p_sender_lid text, p_body text, p_sent_at timestamp with time zone, p_kind text",
       },
+      // 0045: işletme oturum bağlamından; yalnız kendi grubunu kilitler
+      { proname: "app_wa_lock_group_for_auto_close", args: "p_group uuid" },
       { proname: "app_wa_message_context", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_message_sender", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_pending_groups", args: "" },
@@ -266,10 +307,20 @@ describe("fonksiyonlar", () => {
       app_uuid_v7: [],
       // 0036 (A2): worker fonksiyonları yalnız app_user'da; güvenli başlangıç, tetikleyici ve
       // gönderen doğrulama yardımcısı kimsede (ağ geçidi rolüne de verilmez).
+      // 0044 (Aşama 2): Super Admin grup yönetimi yalnız app_admin'de.
+      app_wa_admin_archive_group: ["app_admin"],
+      app_wa_admin_connections: ["app_admin"],
+      app_wa_admin_groups: ["app_admin"],
+      app_wa_admin_link_group: ["app_admin"],
+      app_wa_admin_properties: ["app_admin"],
+      app_wa_admin_set_active: ["app_admin"],
+      app_wa_admin_set_property: ["app_admin"],
+      app_wa_admin_unlink_group: ["app_admin"],
+      app_wa_admin_workspaces: ["app_admin"],
       app_wa_busy: ["app_user"],
       app_wa_calendar_cutover: [],
       app_wa_can_manage: ["app_user"],
-      app_wa_claim_group: ["app_user"],
+      app_wa_claim_group: [], // 0044: işletme rolünden kaldırıldı
       app_wa_claim_messages: ["app_user"],
       app_wa_claim_reactions: ["app_user"],
       app_wa_expire_proposals: ["app_user"],
@@ -278,18 +329,19 @@ describe("fonksiyonlar", () => {
       // İki imza (0031 ve 0034); ikisi de yalnız app_user'da (ayrı ağ geçidi rolü yoksa).
       app_wa_heartbeat: ["app_user", "app_user"],
       app_wa_ingest_message: ["app_user"],
+      app_wa_lock_group_for_auto_close: ["app_user"],
       app_wa_message_context: ["app_user"],
       app_wa_message_sender: ["app_user"],
-      app_wa_pending_groups: ["app_user"],
+      app_wa_pending_groups: [], // 0044: işletme rolünden kaldırıldı
       app_wa_phone_hash: [],
       app_wa_proposals_guard: [],
       app_wa_purge_messages: ["app_user"],
       app_wa_queue_reaction: ["app_user"],
-      app_wa_redeem_link_code: ["app_user"],
+      app_wa_redeem_link_code: [], // 0044: işletme rolünden kaldırıldı
       app_wa_sender_role: [],
       app_wa_store_proposals: ["app_user"],
       app_wa_sync_group: ["app_user", "app_user"],
-      app_wa_unlink_group: ["app_user"],
+      app_wa_unlink_group: [], // 0044: işletme rolünden kaldırıldı
       app_wa_verify_phone: ["app_user"],
       app_workspace_members_keep_owner: [],
       app_workspace_start_trial: [],

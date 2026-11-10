@@ -1,19 +1,18 @@
 /**
- * WhatsApp Asistanı — A1 panel servisi (yalnız okuma ve grup yönetimi). TÜM fonksiyonlar
+ * WhatsApp Asistanı — işletme paneli servisi (YALNIZ OKUMA + numara doğrulama). TÜM fonksiyonlar
  * withTenant içinden (tx + ctx) çağrılır: işletme ve kullanıcı oturumdan gelir, RLS (FORCE) başka
- * işletmenin gruplarını ve mesajlarını göstermez, yazma yetkileri veritabanı politikalarında
- * yeniden denetlenir (app_wa_can_manage).
+ * işletmenin gruplarını ve mesajlarını göstermez.
+ *
+ * Merkezi yönetim (Aşama 2): grup keşfi, işletmeye atama, villa eşleştirme, pasife alma ve
+ * bağlantı kaldırma YALNIZ Super Admin panelindedir (src/server/admin/whatsapp.ts). İşletme rolü
+ * (app_user) wa_groups üzerinde güncelleme ve eşleştirme fonksiyonları üzerinde çalıştırma
+ * yetkisine veritabanı seviyesinde sahip değildir (drizzle/0044).
  *
  * Yetki:
- *  - Görüntüleme: tüm üyeler grupları ve bağlantı durumunu; mesajları yalnız owner ve manager.
- *  - Kod üretme, askıya alma/devam ettirme, bağlantı kesme: owner ve owner'ın yetkilendirdiği
+ *  - Görüntüleme: tüm üyeler kendi gruplarını ve bağlantı durumunu; mesajları yalnız owner ve
  *    manager.
- *  - Manager yetkilendirme: yalnız owner.
- *
- * Grup eşleştirme (A1.1, kodsuz): kullanıcı WhatsApp numarasını bir kez asistana ÖZEL mesajla
- * doğrular; asistanı gruba ekleyen kişinin (ya da kurucunun) numarası bu doğrulanmış numarayla
- * eşleşen gruplar "Bekleyen gruplar"da görünür ve bir villayla eşleştirilir. Eşleşme denetimi
- * veritabanı fonksiyonlarında (app_wa_pending_groups, app_wa_claim_group) yapılır.
+ *  - Numara doğrulama (takvim talimatı gönderenin tanınması için): owner ve önceden yetkilendirilmiş
+ *    manager.
  *
  * Rezervasyon, fiyat ve iCal tablolarına dokunulmaz. Kod ve telefon düz metin saklanmaz.
  */
@@ -21,15 +20,13 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { sql } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
-import { z } from "zod";
 
 import type { TenantContext, Tx } from "@/db/tenant";
-import { AppError, forbidden, notFound, validationError } from "@/lib/errors";
+import { forbidden, notFound } from "@/lib/errors";
 import {
   generateLinkCode,
   WA_LINK_CODE_TTL_MINUTES,
   WA_STALE_MINUTES,
-  type WaClaimOutcome,
   type WaConnectionStatus,
   type WaGroupStatus,
 } from "@/lib/whatsapp-meta";
@@ -39,7 +36,7 @@ import { isUuid } from "@/server/properties/service";
 const toDate = (v: Date | string | null) =>
   v == null ? null : v instanceof Date ? v : new Date(v);
 
-/** Kod üretme, askıya alma ve bağlantı kesme yetkisi (owner ya da yetkili manager). */
+/** Numara doğrulama yetkisi (owner ya da önceden yetkilendirilmiş manager). */
 export async function canManageWhatsapp(tx: Tx, ctx: TenantContext): Promise<boolean> {
   if (ctx.role === "owner") return true;
   if (ctx.role !== "manager") return false;
@@ -112,7 +109,7 @@ export type WaGroup = {
   messages7d: number | null;
 };
 
-/** Bu işletmeye bağlı gruplar (bekleyenler ayrı: listPendingGroups). */
+/** Bu işletmeye bağlı gruplar (salt okunur; eşleştirme Super Admin'dedir). */
 export async function listGroups(tx: Tx, ctx: TenantContext): Promise<WaGroup[]> {
   const res = await tx.execute<{
     id: string;
@@ -157,11 +154,11 @@ export async function listGroups(tx: Tx, ctx: TenantContext): Promise<WaGroup[]>
   }));
 }
 
-/* ── Villalar (eşleştirme seçimi) ───────────────────────────────────────── */
+/* ── Villalar (öneri düzenleme seçimi) ──────────────────────────────────── */
 
 export type WaPropertyOption = { id: string; name: string; active: boolean };
 
-/** Yalnız bu işletmenin villaları (RLS); eşleştirme listesinde gösterilir. */
+/** Yalnız bu işletmenin villaları (RLS); takvim önerisi düzenlemede gösterilir. */
 export async function listPropertyOptions(tx: Tx): Promise<WaPropertyOption[]> {
   const res = await tx.execute<{ id: string; name: string; status: string }>(sql`
     select id, name, status from properties
@@ -171,52 +168,6 @@ export async function listPropertyOptions(tx: Tx): Promise<WaPropertyOption[]> {
 }
 
 const groupNotFound = () => notFound("Grup bulunamadı.");
-
-/** Aktif ↔ askıda. Askıdaki grubun mesajları kaydedilmez. */
-export async function setGroupSuspended(
-  tx: Tx,
-  ctx: TenantContext,
-  groupId: string,
-  suspended: boolean,
-): Promise<{ changed: boolean }> {
-  if (!(await canManageWhatsapp(tx, ctx))) throw forbidden();
-  if (!isUuid(groupId)) throw groupNotFound();
-  const from = suspended ? "linked" : "suspended";
-  const to = suspended ? "suspended" : "linked";
-  // Tek adımlı koşullu güncelleme (yarış yok); olmazsa güncel durum okunup nedeni söylenir.
-  // ("Ayrıldı" grubu güncelleme politikası dışında kaldığı için FOR UPDATE ile görünmez.)
-  const upd = await tx.execute(sql`
-    update wa_groups set status = ${to}
-     where id = ${groupId} and workspace_id = app_current_workspace_id() and status = ${from}`);
-  if (!upd.rowCount) {
-    const cur = await tx.execute<{ status: WaGroupStatus }>(sql`
-      select status from wa_groups
-       where id = ${groupId} and workspace_id = app_current_workspace_id()`);
-    const row = cur.rows[0];
-    if (!row || row.status === "discovered") throw groupNotFound();
-    if (row.status === to) return { changed: false };
-    throw new AppError("CONFLICT", "Kiraligim bu gruptan çıkarılmış; durum değiştirilemez.");
-  }
-  await recordAudit(tx, {
-    action: suspended ? "whatsapp.group_suspended" : "whatsapp.group_resumed",
-    targetType: "whatsapp_group",
-    targetId: groupId,
-    metadata: {},
-  });
-  return { changed: true };
-}
-
-/** Bağlantıyı keser; grubun kayıtlı mesajları hemen silinir (veritabanı fonksiyonu, audit dahil). */
-export async function unlinkGroup(tx: Tx, ctx: TenantContext, groupId: string): Promise<void> {
-  if (!(await canManageWhatsapp(tx, ctx))) throw forbidden();
-  if (!isUuid(groupId)) throw groupNotFound();
-  const res = await tx.execute<{ out: string }>(
-    sql`select public.app_wa_unlink_group(${groupId}::uuid) as out`,
-  );
-  const out = res.rows[0]?.out;
-  if (out === "forbidden") throw forbidden();
-  if (out !== "unlinked") throw groupNotFound();
-}
 
 /* ── Numara doğrulama (asistana özel mesajla, bir kez) ─────────────────── */
 
@@ -288,7 +239,7 @@ export async function getPhoneChallengeState(
   return { state: "pending", expiresAt: toDate(r.expires_at)! };
 }
 
-/** Kendi doğrulanmış numarasını kaldırır (bekleyen gruplar artık görünmez; bağlı gruplar etkilenmez). */
+/** Kendi doğrulanmış numarasını kaldırır (bağlı gruplar etkilenmez). */
 export async function removeMyPhone(tx: Tx, ctx: TenantContext): Promise<{ changed: boolean }> {
   const res = await tx.execute(sql`
     delete from wa_verified_phones where user_id = app_current_user_id()`);
@@ -297,169 +248,6 @@ export async function removeMyPhone(tx: Tx, ctx: TenantContext): Promise<{ chang
     action: "whatsapp.phone_removed",
     targetType: "user",
     targetId: ctx.userId,
-    metadata: {},
-  });
-  return { changed: true };
-}
-
-/* ── Bekleyen gruplar ve eşleştirme ─────────────────────────────────────── */
-
-export type WaPendingGroup = {
-  id: string;
-  subject: string | null;
-  participantCount: number;
-  discoveredAt: Date;
-  /** Eşleşme nedeni: asistanı siz eklediniz ya da grubu siz kurdunuz. */
-  match: "added_by" | "owner";
-};
-
-/**
- * Yalnız oturumdaki kullanıcının doğrulanmış numarasıyla eşleşen, henüz hiçbir işletmeye bağlı
- * olmayan gruplar (veritabanı fonksiyonu süzer; başka grupların adı bile gelmez).
- */
-export async function listPendingGroups(tx: Tx, ctx: TenantContext): Promise<WaPendingGroup[]> {
-  if (!(await canManageWhatsapp(tx, ctx))) return [];
-  const res = await tx.execute<{
-    id: string;
-    subject: string | null;
-    participant_count: number;
-    first_seen_at: Date | string;
-    match: "added_by" | "owner";
-  }>(sql`select * from public.app_wa_pending_groups()`);
-  return res.rows.map((r) => ({
-    id: r.id,
-    subject: r.subject,
-    participantCount: r.participant_count,
-    discoveredAt: toDate(r.first_seen_at)!,
-    match: r.match,
-  }));
-}
-
-export const claimGroupInput = z.object({
-  groupId: z.string({ error: "Grup seçin." }).trim().min(1, { error: "Grup seçin." }),
-  propertyId: z.string({ error: "Villa seçin." }).trim().min(1, { error: "Villa seçin." }),
-});
-
-/**
- * Bekleyen grubu bir villayla eşleştirir; grup aktif olur ve mesajları kaydedilmeye başlar.
- * Yetki, numara eşleşmesi, grubun boşta olması ve villanın bu işletmeye ait olması veritabanında
- * (app_wa_claim_group) yeniden denetlenir. Audit'i fonksiyon yazar.
- */
-export async function claimGroup(tx: Tx, ctx: TenantContext, input: unknown): Promise<void> {
-  if (!(await canManageWhatsapp(tx, ctx))) throw forbidden();
-  const parsed = claimGroupInput.safeParse(input);
-  if (!parsed.success) {
-    const f = parsed.error.flatten().fieldErrors;
-    throw validationError({
-      ...(f.groupId ? { groupId: f.groupId } : {}),
-      ...(f.propertyId ? { propertyId: f.propertyId } : {}),
-    });
-  }
-  const { groupId, propertyId } = parsed.data;
-  if (!isUuid(groupId)) throw groupNotFound();
-  if (!isUuid(propertyId)) throw validationError({ propertyId: ["Villa bulunamadı."] });
-  const res = await tx.execute<{ out: WaClaimOutcome }>(
-    sql`select public.app_wa_claim_group(${groupId}::uuid, ${propertyId}::uuid) as out`,
-  );
-  switch (res.rows[0]?.out) {
-    case "linked":
-      return;
-    case "forbidden":
-      throw forbidden();
-    case "not_verified":
-      throw new AppError("CONFLICT", "Önce WhatsApp numaranızı doğrulayın.");
-    case "property_not_found":
-      throw validationError({ propertyId: ["Villa bulunamadı."] });
-    default:
-      throw notFound("Grup bulunamadı veya artık eşleştirilemez.");
-  }
-}
-
-/** Bağlı (veya askıdaki) grubun villasını değiştirir. Villa bu işletmenin olmalı (bileşik FK). */
-export async function setGroupProperty(
-  tx: Tx,
-  ctx: TenantContext,
-  groupId: string,
-  propertyId: string,
-): Promise<{ changed: boolean }> {
-  if (!(await canManageWhatsapp(tx, ctx))) throw forbidden();
-  if (!isUuid(groupId)) throw groupNotFound();
-  if (!isUuid(propertyId)) throw validationError({ propertyId: ["Villa bulunamadı."] });
-  const prop = await tx.execute<{ id: string }>(sql`
-    select id from properties where id = ${propertyId} and workspace_id = app_current_workspace_id()`);
-  if (!prop.rows[0]) throw validationError({ propertyId: ["Villa bulunamadı."] });
-  const res = await tx.execute(sql`
-    update wa_groups set property_id = ${propertyId}
-     where id = ${groupId} and workspace_id = app_current_workspace_id()
-       and status in ('linked', 'suspended')
-       and property_id is distinct from ${propertyId}::uuid`);
-  if (!res.rowCount) {
-    const cur = await tx.execute<{ property_id: string | null }>(sql`
-      select property_id from wa_groups
-       where id = ${groupId} and workspace_id = app_current_workspace_id()
-         and status in ('linked', 'suspended')`);
-    if (!cur.rows[0]) throw groupNotFound();
-    return { changed: false };
-  }
-  await recordAudit(tx, {
-    action: "whatsapp.group_property_changed",
-    targetType: "whatsapp_group",
-    targetId: groupId,
-    metadata: { property: propertyId },
-  });
-  return { changed: true };
-}
-
-/* ── Manager yetkilendirme (yalnız owner) ───────────────────────────────── */
-
-export type WaManager = { userId: string; name: string; authorized: boolean };
-
-export async function listManagers(tx: Tx): Promise<WaManager[]> {
-  const res = await tx.execute<{ user_id: string; name: string; authorized: boolean }>(
-    sql`
-    select m.user_id, u.name, (l.user_id is not null) as authorized
-      from workspace_members m
-      join users u on u.id = m.user_id
-      left join wa_link_managers l
-        on l.workspace_id = m.workspace_id and l.user_id = m.user_id
-     where m.workspace_id = app_current_workspace_id() and m.role = 'manager'
-     order by lower(u.name), m.user_id`,
-  );
-  return res.rows.map((r) => ({
-    userId: r.user_id,
-    name: r.name,
-    authorized: r.authorized,
-  }));
-}
-
-export async function setManagerAuthorized(
-  tx: Tx,
-  ctx: TenantContext,
-  userId: string,
-  authorized: boolean,
-): Promise<{ changed: boolean }> {
-  if (ctx.role !== "owner") throw forbidden("Bu yetkiyi yalnız işletme sahibi verebilir.");
-  if (!isUuid(userId)) throw notFound("Yönetici bulunamadı.");
-  const member = await tx.execute<{ role: string }>(sql`
-    select role from workspace_members
-     where workspace_id = app_current_workspace_id() and user_id = ${userId}`);
-  if (member.rows[0]?.role !== "manager") throw notFound("Yönetici bulunamadı.");
-  if (authorized) {
-    const res = await tx.execute(sql`
-      insert into wa_link_managers (workspace_id, user_id, granted_by)
-      values (app_current_workspace_id(), ${userId}, app_current_user_id())
-      on conflict do nothing`);
-    if (!res.rowCount) return { changed: false };
-  } else {
-    const res = await tx.execute(sql`
-      delete from wa_link_managers
-       where workspace_id = app_current_workspace_id() and user_id = ${userId}`);
-    if (!res.rowCount) return { changed: false };
-  }
-  await recordAudit(tx, {
-    action: authorized ? "whatsapp.link_manager_granted" : "whatsapp.link_manager_revoked",
-    targetType: "user",
-    targetId: userId,
     metadata: {},
   });
   return { changed: true };

@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";
 import { uuidv7 } from "uuidv7";
@@ -21,6 +20,8 @@ import {
   type WorkerDeps,
 } from "@/server/whatsapp/calendar/worker";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
+
+import { adminUnlink, createTestAdmin } from "./wa-admin";
 
 /**
  * WhatsApp Asistanı A2c — takvim worker'ı (drizzle/0037). Gerçek PostgreSQL 17, app_user,
@@ -590,8 +591,9 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
       c,
       deps({
         beforeStore: async () => {
-          await as(O, ws, (tx) =>
-            tx.execute(sql`select public.app_wa_unlink_group(${g.id}::uuid)`),
+          // Aşama 2: bağlantıyı yalnız Super Admin kaldırır.
+          expect(await adminUnlink(admin, await createTestAdmin(admin, "worker"), g.id)).toBe(
+            "unlinked",
           );
         },
       }),
@@ -614,12 +616,22 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
     const gate = new Promise<void>((r) => (release = r));
     let unlinkLocked!: () => void;
     const locked = new Promise<void>((r) => (unlinkLocked = r));
-    // Bağlantı kesme transaction'ı grubu kilitler ve açık kalır.
-    const unlink = as(O, ws, async (tx) => {
-      await tx.execute(sql`select public.app_wa_unlink_group(${g.id}::uuid)`);
-      unlinkLocked();
-      await gate;
-    });
+    // Bağlantı kaldırma (Super Admin, app_admin) transaction'ı grubu kilitler ve açık kalır.
+    const adminId = await createTestAdmin(admin, "worker2");
+    const holder = new Client({ connectionString: db.adminUrl });
+    await holder.connect();
+    const unlink = (async () => {
+      try {
+        await holder.query("begin");
+        await holder.query("set local role app_admin");
+        await holder.query("select public.app_wa_admin_unlink_group($1, $2)", [adminId, g.id]);
+        unlinkLocked();
+        await gate;
+        await holder.query("commit");
+      } finally {
+        await holder.end();
+      }
+    })();
     await locked;
     const storing = processClaimed(app2, c, deps());
     await new Promise((r) => setTimeout(r, 300));

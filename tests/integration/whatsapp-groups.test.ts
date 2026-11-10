@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -10,22 +10,22 @@ import { DB_CASING } from "@/db/casing";
 import { pgErrorInfo } from "@/db/pg-error";
 import * as schema from "@/db/schema";
 import { type TenantContext, type Tx, withTenant } from "@/db/tenant";
-import { generateLinkCode, WA_RETENTION_DAYS } from "@/lib/whatsapp-meta";
+import { WA_RETENTION_DAYS } from "@/lib/whatsapp-meta";
+import { createProperty } from "@/server/properties/service";
 import {
   canManageWhatsapp,
   getConnectionStatus,
   listGroups,
-  listManagers,
   listRecentMessages,
-  setGroupSuspended,
-  setManagerAuthorized,
-  unlinkGroup,
 } from "@/server/whatsapp/service";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
+import { adminLink, adminSetActive, adminUnlink, createTestAdmin } from "./wa-admin";
+
 /**
  * WhatsApp Asistanı A1 (drizzle/0030–0032) — gerçek PostgreSQL, app_user, FORCE RLS.
- * Kodsuz eşleştirme (0033–0034) ayrıca: tests/integration/whatsapp-claim.test.ts.
+ * Aşama 2 (0044): eşleştirme, pasife alma ve bağlantı kaldırma yalnız Super Admin'dedir
+ * (tests/integration/admin-wa-groups.test.ts); burada grup yönetici fonksiyonlarıyla bağlanır.
  * Ağ geçidi bağlamsız app_user olarak yalnız app_wa_* fonksiyonlarını çağırır (burada doğrudan
  * SQL ile taklit edilir); panel withTenant ile servis fonksiyonlarını kullanır.
  */
@@ -64,8 +64,6 @@ const sync = (jid: string, present = true, subject: string | null = "Villa Ekibi
     subject,
     present,
   ]);
-const redeem = (jid: string, code: string, pn: string | null) =>
-  gw<string>("select public.app_wa_redeem_link_code($1, $2, $3, $4) as out", [conn, jid, code, pn]);
 let msgN = 0;
 const ingest = (jid: string, body = "Villa Defne 12-15 Temmuz dolu", id = `M${tag}${++msgN}`) =>
   gw<string>(
@@ -74,10 +72,11 @@ const ingest = (jid: string, body = "Villa Defne 12-15 Temmuz dolu", id = `M${ta
   );
 
 const PN_O = "905321112233";
-const PN_X = "905551234567";
 
 let O: U, M: U, M2: U, S: U, X: U;
 let ws: string, wsX: string;
+let adminId = "";
+let villa = "";
 
 const groupRow = async (jid: string) =>
   (
@@ -99,6 +98,18 @@ beforeAll(async () => {
   await as(O, ws, (tx, ctx) => addWorkspaceMember(tx, ctx, { userId: M.id, role: "manager" }));
   await as(O, ws, (tx, ctx) => addWorkspaceMember(tx, ctx, { userId: M2.id, role: "manager" }));
   await as(O, ws, (tx, ctx) => addWorkspaceMember(tx, ctx, { userId: S.id, role: "staff" }));
+  villa = await as(O, ws, (tx, ctx) =>
+    createProperty(tx, ctx, {
+      name: "Villa Defne",
+      propertyType: "villa",
+      maxGuests: "6",
+      bedrooms: "3",
+      bathrooms: "2",
+      province: "Antalya",
+      district: "Kaş",
+    }),
+  );
+  adminId = await createTestAdmin(admin, "wagroups");
 });
 
 afterAll(async () => {
@@ -139,69 +150,39 @@ describe("ağ geçidi: bağlantı ve grup keşfi", () => {
 });
 
 /**
- * Eski kodlu bağlama (0031): panel artık kod üretmez ve ağ geçidi gruba yazılan kodu işlemez; DB
- * fonksiyonu canlıdaki eski ağ geçidi sürümü için durur. Kurallarının hâlâ geçerli olduğu denetlenir.
+ * Eski kodlu bağlama (0031) ve işletme tarafı eşleştirme (0033/0034): Aşama 2 (0044) ile işletme
+ * rolünden tamamen kaldırıldı. Yetki kaldırıldığı veritabanında denetlenir.
  */
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
-const legacyCode = async (u: U, w: string, phone: string) => {
-  const code = generateLinkCode((n) => randomBytes(n));
-  const salt = randomBytes(16).toString("hex");
-  await as(u, w, (tx) =>
-    tx.execute(sql`
-      insert into wa_link_codes (id, workspace_id, created_by, code_salt, code_hash, phone_hash,
-                                 expires_at)
-      values (${uuidv7()}, app_current_workspace_id(), app_current_user_id(), ${salt},
-              ${sha256(`${salt}:${code}`)}, ${sha256(`${salt}:phone:${phone}`)},
-              now() + interval '10 minutes')`),
-  );
-  return code;
-};
-
-describe("eski kodlu bağlama (geriye uyumluluk)", () => {
-  it("kod yalnız owner/yetkili manager ekleyebilir; doğru numarayla bağlanır, tek kullanımlık", async () => {
-    const err = await as(M, ws, (tx) =>
-      tx.execute(sql`
-        insert into wa_link_codes (id, workspace_id, created_by, code_salt, code_hash, phone_hash,
-                                   expires_at)
-        values (${uuidv7()}, app_current_workspace_id(), app_current_user_id(), ${"a".repeat(32)},
-                ${"b".repeat(64)}, ${"c".repeat(64)}, now() + interval '5 minutes')`),
-    ).catch((e: unknown) => e);
-    expect(pgErrorInfo(err).code).toBe("42501");
-
+describe("işletme tarafı eşleştirme yolları kapalı (Aşama 2)", () => {
+  it("bağlama kodu eklenemez, eski kod fonksiyonu çağrılamaz, yönetici yetkisi verilemez", async () => {
+    for (const u of [O, M]) {
+      const err = await as(u, ws, (tx) =>
+        tx.execute(sql`
+          insert into wa_link_codes (id, workspace_id, created_by, code_salt, code_hash, phone_hash,
+                                     expires_at)
+          values (${uuidv7()}, app_current_workspace_id(), app_current_user_id(), ${"a".repeat(32)},
+                  ${"b".repeat(64)}, ${"c".repeat(64)}, now() + interval '5 minutes')`),
+      ).catch((e: unknown) => e);
+      expect(pgErrorInfo(err).code).toBe("42501");
+    }
     const jid = newJid();
     await sync(jid);
-    const code = await legacyCode(O, ws, PN_O);
-    expect(await redeem(jid, code, PN_X)).toBe("sender_mismatch");
-    expect(await redeem(jid, code, PN_O)).toBe("linked");
-    expect(await redeem(jid, code, PN_O)).toBe("invalid");
-    expect((await groupRow(jid)).workspace_id).toBe(ws);
-    // Diğer işletme bağlı grubu kodla alamaz.
-    const other = await legacyCode(X, wsX, PN_X);
-    expect(await redeem(jid, other, PN_X)).toBe("linked_elsewhere");
-  });
-
-  it("owner manager'ı yetkilendirir; yetki listesi ve politika", async () => {
     await expect(
-      as(M, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M2.id, true)),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(
-      as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, S.id, true)),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(await as(O, ws, (tx, ctx) => setManagerAuthorized(tx, ctx, M.id, true))).toEqual({
-      changed: true,
-    });
-    expect(await as(O, ws, (tx) => listManagers(tx))).toEqual([
-      { userId: M.id, name: "wamanager K", authorized: true },
-      { userId: M2.id, name: "wamanager2 K", authorized: false },
-    ]);
-    expect(await as(M, ws, (tx, ctx) => canManageWhatsapp(tx, ctx))).toBe(true);
-    expect(await as(M2, ws, (tx, ctx) => canManageWhatsapp(tx, ctx))).toBe(false);
-    const err = await as(M2, ws, (tx) =>
+      appPool.query("select public.app_wa_redeem_link_code($1, $2, 'ABCDEFGH', $3)", [
+        conn,
+        jid,
+        PN_O,
+      ]),
+    ).rejects.toMatchObject({ code: "42501" });
+    expect((await groupRow(jid)).workspace_id).toBeNull();
+    const err = await as(O, ws, (tx) =>
       tx.execute(sql`
         insert into wa_link_managers (workspace_id, user_id, granted_by)
-        values (app_current_workspace_id(), app_current_user_id(), app_current_user_id())`),
+        values (app_current_workspace_id(), ${M.id}, app_current_user_id())`),
     ).catch((e: unknown) => e);
     expect(pgErrorInfo(err).code).toBe("42501");
+    expect(await as(M, ws, (tx, ctx) => canManageWhatsapp(tx, ctx))).toBe(false);
+    expect(await as(O, ws, (tx, ctx) => canManageWhatsapp(tx, ctx))).toBe(true);
   });
 });
 
@@ -212,9 +193,8 @@ describe("mesaj kaydı", () => {
   beforeAll(async () => {
     jid = newJid();
     await sync(jid, true, "Defne Operasyon");
-    const code = await legacyCode(O, ws, PN_O);
-    expect(await redeem(jid, code, PN_O)).toBe("linked");
     groupId = (await groupRow(jid)).id;
+    expect(await adminLink(admin, adminId, groupId, ws, villa)).toBe("linked");
   });
 
   it("bağlı grupta kaydedilir; aynı mesaj ikinci kez kaydedilmez; boş mesaj atlanır", async () => {
@@ -249,32 +229,34 @@ describe("mesaj kaydı", () => {
     expect(await as(X, wsX, (tx, ctx) => listRecentMessages(tx, ctx, groupId))).toEqual([]);
   });
 
-  it("askıdaki grubun mesajı kaydedilmez; yetkisiz manager askıya alamaz", async () => {
-    await expect(
-      as(M2, ws, (tx, ctx) => setGroupSuspended(tx, ctx, groupId, true)),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(
-      as(X, wsX, (tx, ctx) => setGroupSuspended(tx, ctx, groupId, true)),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(await as(M, ws, (tx, ctx) => setGroupSuspended(tx, ctx, groupId, true))).toEqual({
-      changed: true,
-    });
+  it("pasif grubun mesajı kaydedilmez; işletme rolü durumu değiştiremez", async () => {
+    for (const [u, w] of [
+      [O, ws],
+      [M, ws],
+      [X, wsX],
+    ] as const) {
+      const err = await as(u, w, (tx) =>
+        tx.execute(sql`update wa_groups set status = 'suspended' where id = ${groupId}`),
+      ).catch((e: unknown) => e);
+      expect(pgErrorInfo(err).code).toBe("42501");
+    }
+    expect(await adminSetActive(admin, adminId, groupId, false)).toBe("changed");
     expect(await ingest(jid)).toBe("ignored");
-    expect(await as(O, ws, (tx, ctx) => setGroupSuspended(tx, ctx, groupId, false))).toEqual({
-      changed: true,
-    });
+    // İşletme pasif grubunu salt okunur görür.
+    expect(
+      (await as(O, ws, (tx, ctx) => listGroups(tx, ctx))).find((g) => g.id === groupId),
+    ).toMatchObject({ status: "suspended" });
+    expect(await adminSetActive(admin, adminId, groupId, true)).toBe("changed");
     expect(await ingest(jid)).toBe("stored");
   });
 
-  it("gruptan çıkarılınca 'ayrıldı'; yeniden eklenince askıda başlar", async () => {
+  it("gruptan çıkarılınca 'ayrıldı'; yeniden eklenince pasif başlar", async () => {
     expect(await sync(jid, false)).toBe("left");
     expect(await ingest(jid)).toBe("ignored");
-    await expect(
-      as(O, ws, (tx, ctx) => setGroupSuspended(tx, ctx, groupId, false)),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await adminSetActive(admin, adminId, groupId, true)).toBe("not_available");
     expect(await sync(jid, true)).toBe("suspended");
     expect((await groupRow(jid)).workspace_id).toBe(ws);
-    await as(O, ws, (tx, ctx) => setGroupSuspended(tx, ctx, groupId, false));
+    expect(await adminSetActive(admin, adminId, groupId, true)).toBe("changed");
     expect(await ingest(jid)).toBe("stored");
   });
 
@@ -320,19 +302,15 @@ describe("mesaj kaydı", () => {
     expect(kept.rows[0].n).toBe(1);
   });
 
-  it("bağlantı kesilince mesajlar silinir; grup hiçbir işletmeye görünmez", async () => {
-    await expect(as(S, ws, (tx, ctx) => unlinkGroup(tx, ctx, groupId))).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
-    await expect(as(X, wsX, (tx, ctx) => unlinkGroup(tx, ctx, groupId))).rejects.toMatchObject({
-      code: "NOT_FOUND",
-    });
-    // Fonksiyon doğrudan çağrılsa da yetkisiz kullanıcıyı reddeder.
-    const direct = await as(M2, ws, (tx) =>
-      tx.execute<{ out: string }>(sql`select public.app_wa_unlink_group(${groupId}::uuid) as out`),
-    );
-    expect(direct.rows[0]?.out).toBe("forbidden");
-    await as(O, ws, (tx, ctx) => unlinkGroup(tx, ctx, groupId));
+  it("bağlantı kaldırılınca mesajlar silinir; grup hiçbir işletmeye görünmez", async () => {
+    // İşletme rolü (sahip dahil) bağlantıyı kaldıramaz.
+    for (const u of [O, S]) {
+      const err = await as(u, ws, (tx) =>
+        tx.execute(sql`select public.app_wa_unlink_group(${groupId}::uuid)`),
+      ).catch((e: unknown) => e);
+      expect(pgErrorInfo(err).code).toBe("42501");
+    }
+    expect(await adminUnlink(admin, adminId, groupId)).toBe("unlinked");
     const n = await admin.query(
       "select count(*)::int n from wa_inbound_messages where group_id = $1",
       [groupId],
@@ -344,10 +322,10 @@ describe("mesaj kaydı", () => {
     );
     expect(await ingest(jid)).toBe("ignored");
     const audit = await admin.query(
-      "select actor_user_id from audit_log where action = 'whatsapp.group_unlinked' and target_id = $1",
+      "select workspace_id, actor_user_id from audit_log where action = 'whatsapp.group_unlinked' and target_id = $1",
       [groupId],
     );
-    expect(audit.rows).toEqual([{ actor_user_id: O.id }]);
+    expect(audit.rows).toEqual([{ workspace_id: ws, actor_user_id: null }]);
   });
 });
 
@@ -403,7 +381,8 @@ describe("veritabanı güvenliği", () => {
       select p.proname, pg_get_userbyid(p.proowner) owner, p.prosecdef definer, p.prosrc,
              p.proconfig,
              has_function_privilege('app_worker', p.oid, 'EXECUTE') worker,
-             has_function_privilege('app_admin', p.oid, 'EXECUTE') adm
+             has_function_privilege('app_admin', p.oid, 'EXECUTE') adm,
+             has_function_privilege('app_user', p.oid, 'EXECUTE') app_user
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname like 'app_wa_%' order by p.proname`);
     // 0036 (A2): takvim önerisi worker'ı, durum makinesi tetikleyicisi ve güvenli başlangıç.
@@ -420,7 +399,27 @@ describe("veritabanı güvenliği", () => {
       "app_wa_sender_role",
       "app_wa_store_proposals",
     ];
+    // 0044 (Aşama 2): Super Admin grup yönetimi; YALNIZ app_admin çağırır.
+    const ADMIN = [
+      "app_wa_admin_archive_group",
+      "app_wa_admin_connections",
+      "app_wa_admin_groups",
+      "app_wa_admin_link_group",
+      "app_wa_admin_properties",
+      "app_wa_admin_set_active",
+      "app_wa_admin_set_property",
+      "app_wa_admin_unlink_group",
+      "app_wa_admin_workspaces",
+    ];
+    // 0044: işletme rolünden kaldırılan eşleştirme fonksiyonları (kimse çağıramaz).
+    const REVOKED = [
+      "app_wa_claim_group",
+      "app_wa_pending_groups",
+      "app_wa_redeem_link_code",
+      "app_wa_unlink_group",
+    ];
     expect(fns.rows.map((r) => r.proname)).toEqual([
+      ...ADMIN,
       "app_wa_busy", // 0036
       "app_wa_calendar_cutover", // 0036 (yalnız migration; kimseye açık değil)
       "app_wa_can_manage",
@@ -433,6 +432,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_heartbeat",
       "app_wa_heartbeat", // 0034: 4 parametreli (asistan numarası)
       "app_wa_ingest_message",
+      "app_wa_lock_group_for_auto_close", // 0045
       "app_wa_message_context", // 0036
       "app_wa_message_sender", // 0038
       "app_wa_pending_groups", // 0034
@@ -461,7 +461,10 @@ describe("veritabanı güvenliği", () => {
       );
       expect(f.proconfig, f.proname).toContain("search_path=pg_catalog, pg_temp");
       expect(f.worker, f.proname).toBe(false);
-      expect(f.adm, f.proname).toBe(false);
+      expect(f.adm, f.proname).toBe(ADMIN.includes(f.proname));
+      if (ADMIN.includes(f.proname) || REVOKED.includes(f.proname)) {
+        expect(f.app_user, f.proname).toBe(false);
+      }
       // HİÇBİR WhatsApp fonksiyonu rezervasyon, fiyat veya iCal tablolarına yazmaz.
       expect(f.prosrc, f.proname).not.toMatch(
         /(insert\s+into|update|delete\s+from)\s+public\.(reservations|property_rates|external_calendar|property_ical)/i,
@@ -469,7 +472,8 @@ describe("veritabanı güvenliği", () => {
       // A1 kapsamı: rezervasyon, fiyat, takvim ve iCal nesnelerine hiç dokunulmaz. (0034'teki
       // eşleştirme villayı yalnız bileşik yabancı anahtarla doğrular; properties tablosunu okumaz.)
       // A2 worker'ı rezervasyon ve harici olayları YALNIZ OKUR (tests/integration/wa-calendar-proposals.test.ts).
-      if (!A2.includes(f.proname)) {
+      // Super Admin fonksiyonları villayı (properties) doğrulamak için okur, önerileri sona erdirir.
+      if (!A2.includes(f.proname) && !ADMIN.includes(f.proname)) {
         expect(f.prosrc, f.proname).not.toMatch(
           /reservation|property_rate|external_calendar|ical|public\.propert/i,
         );
