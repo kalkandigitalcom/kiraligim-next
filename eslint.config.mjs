@@ -50,8 +50,9 @@ const eslintConfig = defineConfig([
   surfaceRule("admin"),
   surfaceRule("site"),
   {
-    // WhatsApp takvim worker'ı yalnız öneri oluşturur: rezervasyon, iCal ve fiyat servislerini
-    // (takvime yazan kodu) import edemez.
+    // WhatsApp takvim worker'ı rezervasyon, iCal ve fiyat servislerini (takvime yazan kodu)
+    // doğrudan import edemez. Takvime giden TEK yol src/server/whatsapp/auto-close.ts'dir (A2e:
+    // sahibin açık kapatma talimatı, yalnız blok); cron.ts onu worker'a enjekte eder.
     files: ["src/server/whatsapp/calendar/**"],
     rules: {
       "no-restricted-imports": [

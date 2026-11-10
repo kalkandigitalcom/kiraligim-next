@@ -67,6 +67,7 @@ describe("fonksiyonlar", () => {
       "app_wa_heartbeat",
       "app_wa_ingest_message",
       "app_wa_message_context",
+      "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
       "app_wa_phone_hash",
       "app_wa_proposals_guard",
@@ -118,6 +119,7 @@ describe("fonksiyonlar", () => {
       "app_wa_heartbeat",
       "app_wa_ingest_message",
       "app_wa_message_context",
+      "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
@@ -172,6 +174,7 @@ describe("fonksiyonlar", () => {
         args: "p_connection uuid, p_jid text, p_message_id text, p_sender_jid text, p_sender_pn text, p_sender_lid text, p_body text, p_sent_at timestamp with time zone, p_kind text",
       },
       { proname: "app_wa_message_context", args: "p_message uuid, p_token uuid" },
+      { proname: "app_wa_message_sender", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_pending_groups", args: "" },
       { proname: "app_wa_purge_messages", args: "p_days integer" },
       {
@@ -262,6 +265,7 @@ describe("fonksiyonlar", () => {
       app_wa_heartbeat: ["app_user", "app_user"],
       app_wa_ingest_message: ["app_user"],
       app_wa_message_context: ["app_user"],
+      app_wa_message_sender: ["app_user"],
       app_wa_pending_groups: ["app_user"],
       app_wa_phone_hash: [],
       app_wa_proposals_guard: [],

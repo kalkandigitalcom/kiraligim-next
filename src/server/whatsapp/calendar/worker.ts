@@ -12,8 +12,15 @@
  *   4. Tek atomik yazım: app_wa_store_proposals. Veritabanı kilidi, grubu, villayı ve gönderen
  *      yetkisini yazım anında yeniden denetler; kilit kaybında hiçbir şey yazılmaz.
  *
- * GÜVENLİK: worker yalnız öneri oluşturur. Rezervasyon veya harici takvim tablosuna yazan hiçbir
- * kodu çağırmaz (eslint sınırı); kullanıcısız bağlantı öneriyi onaylayamaz (veritabanı).
+ *   5. (A2e) Otomatik kapatma: öğe autoCloseCandidate kuralını geçiyorsa (tek öğe, sahibin açık,
+ *      net tarihli, çakışmasız kapatma talimatı, grubun villası) gönderen kullanıcı kilitliyken
+ *      bulunur (app_wa_message_sender) ve öneri kaydedildikten SONRA deps.autoClose çağrılır.
+ *      Blok yalnız oradan, sahibin oturum bağlamında ve rezervasyon servisiyle oluşur; başarısızlıkta
+ *      öneri panelde onay bekler. autoClose verilmezse (testler) yalnız öneri oluşur.
+ *
+ * GÜVENLİK: worker kendisi rezervasyon veya harici takvim tablosuna yazan hiçbir kodu import
+ * etmez (eslint sınırı); takvime giden TEK yol enjekte edilen AutoCloser'dır (cron.ts bağlar).
+ * Kullanıcısız bağlantı öneriyi onaylayamaz (veritabanı).
  * Log'a mesaj metni, villa adı, alıntı, telefon veya numara özeti YAZILMAZ; yalnız kimlik ve sayaç.
  * Veritabanı hata nesneleri (sorgu parametreleri mesaj içerebilir) log'a olduğu gibi verilmez.
  */
@@ -35,6 +42,8 @@ import {
   type WaWorkerError,
 } from "@/lib/whatsapp-meta";
 
+import type { AutoCloser } from "../auto-close";
+import { autoCloseCandidate } from "./auto-close-rule";
 import { type BusyRow, buildStoreItem, busyRange, type StoreItem } from "./proposal";
 import { type ResolverVilla, resolveProposal } from "./resolve";
 
@@ -50,6 +59,8 @@ export type WorkerDeps = {
   maxMessages?: number;
   /** Test kancası: öğeler hazırlandıktan sonra, yazımdan hemen önce. */
   beforeStore?: (claim: ClaimedMessage) => Promise<void>;
+  /** A2e: sahibin açık kapatma talimatını takvime işleyen servis (verilmezse yalnız öneri). */
+  autoClose?: AutoCloser;
 };
 
 export type ClaimedMessage = {
@@ -65,7 +76,7 @@ export type ClaimedMessage = {
 };
 
 export type ProcessOutcome =
-  | { outcome: "stored"; proposals: number }
+  | { outcome: "stored"; proposals: number; autoClose?: "applied" | "failed" }
   | { outcome: "lock_lost" }
   | { outcome: "retry" | "failed"; code: WaWorkerError };
 
@@ -77,6 +88,8 @@ export type WorkerSummary = {
   retried: number;
   failed: number;
   lockLost: number;
+  autoClosed: number;
+  autoCloseFailed: number;
 };
 
 /** Log'a güvenle yazılabilecek hata özeti: SQLSTATE ve yalnız bizim kısa kodlarımız. */
@@ -159,6 +172,18 @@ async function busyOf(
   }));
 }
 
+/** Kilitli mesajın gönderen kullanıcısı ve rolü (numara döndürülmez). */
+async function senderOf(
+  db: Executor,
+  c: ClaimedMessage,
+): Promise<{ userId: string; role: string } | null> {
+  const res = await db.execute<{ user_id: string; role: string }>(
+    sql`select user_id, role from public.app_wa_message_sender(${c.messageId}::uuid, ${c.lockToken}::uuid)`,
+  );
+  const r = res.rows[0];
+  return r ? { userId: r.user_id, role: r.role } : null;
+}
+
 async function store(db: Executor, c: ClaimedMessage, items: StoreItem[]): Promise<number> {
   const res = await db.execute<{ n: number }>(
     sql`select public.app_wa_store_proposals(${c.messageId}::uuid, ${c.lockToken}::uuid,
@@ -235,10 +260,46 @@ export async function processClaimed(
     }
   }
 
+  // A2e: otomatik kapatma adayı ve gönderen kullanıcı (mesaj hâlâ kilitliyken).
+  const candidate = deps.autoClose
+    ? autoCloseCandidate(items, { senderRole: c.senderRole, groupPropertyId: c.groupPropertyId })
+    : null;
+  let owner: string | null = null;
+  if (candidate) {
+    const sender = await step("context_error", () => senderOf(db, c));
+    if (!sender.ok) return sender.out;
+    owner = sender.value?.role === "owner" ? sender.value.userId : null;
+  }
+
   await deps.beforeStore?.(c);
   const stored = await step("store_error", () => store(db, c, items));
   if (!stored.ok) return stored.out;
-  return { outcome: "stored", proposals: stored.value };
+  if (!candidate || !owner || !deps.autoClose || stored.value === 0) {
+    return { outcome: "stored", proposals: stored.value };
+  }
+
+  // Öneri kaydedildi ve mesaj işlendi; otomatik kapatma başarısız olursa öneri panelde bekler.
+  let auto: "applied" | "failed" = "failed";
+  try {
+    const r = await deps.autoClose({
+      workspaceId: c.workspaceId,
+      userId: owner,
+      messageId: c.messageId,
+      itemNo: candidate.item_no,
+      propertyId: candidate.property_id!,
+      checkIn: candidate.check_in!,
+      checkOut: candidate.check_out!,
+    });
+    auto = r.outcome;
+    log?.info("wa_calendar_auto_close", {
+      message: c.messageId,
+      outcome: r.outcome,
+      ...(r.outcome === "failed" ? { reason: r.reason } : {}),
+    });
+  } catch (err) {
+    log?.error("wa_calendar_auto_close_error", { message: c.messageId, ...safeError(err) });
+  }
+  return { outcome: "stored", proposals: stored.value, autoClose: auto };
 }
 
 /**
@@ -257,6 +318,8 @@ export async function runCalendarWorker(
     retried: 0,
     failed: 0,
     lockLost: 0,
+    autoClosed: 0,
+    autoCloseFailed: 0,
   };
   const batch = Math.min(Math.max(1, deps.batchSize ?? WL.batchSize), PL.claimBatchMax);
   const maxMessages = deps.maxMessages ?? WL.maxMessagesPerRun;
@@ -274,6 +337,8 @@ export async function runCalendarWorker(
       if (r.outcome === "stored") {
         summary.stored++;
         summary.proposals += r.proposals;
+        if (r.autoClose === "applied") summary.autoClosed++;
+        else if (r.autoClose === "failed") summary.autoCloseFailed++;
       } else if (r.outcome === "lock_lost") summary.lockLost++;
       else if (r.outcome === "failed") summary.failed++;
       else summary.retried++;

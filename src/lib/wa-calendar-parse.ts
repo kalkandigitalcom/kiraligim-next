@@ -27,8 +27,9 @@ import { addDays, isIsoDate, nightsBetween } from "./reservation-meta";
  *  2: "misafir/rezervasyon yok" belirsiz; "dahil" bitiş; tarih değişikliği (date_change);
  *     "12-18.07"; "1.5 hafta" ve "saat 10.06" tarih değil; villa adı ile eylem ayrımı;
  *     reviewRequirement (güven puanı güvenlik kurallarını aşamaz).
+ *  3: "giriş … çıkış" + açık "kapat" talimatı kapatmadır (önceden belirsiz).
  */
-export const WA_CALENDAR_PARSER_VERSION = 2;
+export const WA_CALENDAR_PARSER_VERSION = 3;
 
 export const WA_CALENDAR_ACTIONS = ["close", "reserve", "open", "cancel"] as const;
 export type WaCalendarAction = (typeof WA_CALENDAR_ACTIONS)[number];
@@ -443,6 +444,8 @@ const ACTION_WORDS: { re: RegExp; action: WaCalendarAction }[] = [
 const QUESTION = /\?|\bm[iu](?:\s|$|[.,!])/;
 const OPTION = /\bopsiyon\w*/;
 const CHECK_IN_OUT = /\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
+/** Açık kapatma TALİMATI ("kapat", "kapatalım", "kapatın"); "kapalı"/"dolu" durum bildirir. */
+const CLOSE_COMMAND = /\bkapat\w*/;
 
 type ActionResult = {
   action: WaCalendarAction | null;
@@ -468,7 +471,12 @@ function detectAction(folded: string): ActionResult {
     });
   }
   for (const w of ACTION_WORDS) if (w.re.test(rest)) found.add(w.action);
-  if (CHECK_IN_OUT.test(rest)) found.add("reserve");
+  // "giriş … çıkış" tek başına rezervasyon anlamı taşır. Yalnız açık kapatma talimatıyla
+  // ("10 Haziran giriş, 15 Haziran çıkış … kapat") birlikteyse tarih sınırını belirtir (v3).
+  if (CHECK_IN_OUT.test(rest)) {
+    const closeCommand = found.size === 1 && found.has("close") && CLOSE_COMMAND.test(rest);
+    if (!closeCommand) found.add("reserve");
+  }
   const pending = OPTION.test(rest);
   if (negatedPresence) return { action: null, clear: false, flags: ["action_ambiguous"], pending };
 

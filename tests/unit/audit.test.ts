@@ -80,3 +80,28 @@ describe("WhatsApp önerisi kararları", () => {
     expect(bad({ action: "whatsapp.proposal_rejected", metadata: { note: "x" } })).toThrow();
   });
 });
+
+describe("WhatsApp otomatik kapatma kayıtları", () => {
+  const property = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+  const reservation = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c";
+  it("başarı yalnız villa ve blok kimliği taşır", () => {
+    const metadata = { property, reservation };
+    expect(validateAuditEntry({ action: "whatsapp.proposal_auto_applied", metadata })).toEqual(
+      metadata,
+    );
+    expect(
+      bad({ action: "whatsapp.proposal_auto_applied", metadata: { ...metadata, text: "x" } }),
+    ).toThrow();
+  });
+  it("başarısızlık yalnız bilinen neden kodu taşır", () => {
+    expect(
+      validateAuditEntry({
+        action: "whatsapp.proposal_auto_failed",
+        metadata: { reason: "conflict" },
+      }),
+    ).toEqual({ reason: "conflict" });
+    expect(
+      bad({ action: "whatsapp.proposal_auto_failed", metadata: { reason: "Villa Mavi dolu" } }),
+    ).toThrow();
+  });
+});

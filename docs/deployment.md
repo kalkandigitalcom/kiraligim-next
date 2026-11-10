@@ -687,9 +687,10 @@ gruplar, kodlar, mesajlar). Uygulanmış migration değiştirilmez; kalıcı ger
 
 ## WhatsApp Asistanı — A2 takvim önerileri ve worker (0035–0037)
 
-Bağlı gruplardan gelen mesajlar **takvimi değiştirmez**; worker yalnız **işlem önerisi**
-(`wa_calendar_proposals`) oluşturur. Rezervasyon ve bloklar yalnız panelde, oturumdaki owner/manager
-onayıyla ve rezervasyon servisiyle değişir (A2d). Ağ geçidi değişmez ve yeni yetki almaz.
+Bağlı gruplardan gelen mesajlar için worker **işlem önerisi** (`wa_calendar_proposals`) oluşturur.
+Rezervasyonlar yalnız panelde, oturumdaki owner/manager onayıyla ve rezervasyon servisiyle oluşur
+(A2d, `/whatsapp/oneriler`). Tek istisna **otomatik kapatma (A2e, 0038)**: aşağıya bakın. Ağ geçidi
+değişmez ve yeni yetki almaz.
 
 - **Worker:** `node dist/wa-calendar.js` (kaynak `src/server/whatsapp/calendar/`). Coolify → uygulama →
   **Scheduled Tasks** → komut `node dist/wa-calendar.js`, sıklık `* * * * *` (her dakika), uygulama
@@ -697,7 +698,7 @@ onayıyla ve rezervasyon servisiyle değişir (A2d). Ağ geçidi değişmez ve y
   veya sır yoktur. Bir çalıştırma en fazla ~45 sn sürer; çalıştırmalar üst üste binse de aynı mesaj iki kez
   işlenmez (`FOR UPDATE SKIP LOCKED`, kilit belirteci, `UNIQUE(message_id, item_no)`).
 - **Akış:** süresi geçen bekleyen öneriler `expired` → mesaj alma (`app_wa_claim_messages`, 120 sn kilit)
-  → ayrıştırma (parser v2; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
+  → ayrıştırma (parser v3; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
   sonuç) → villa eşleştirme (işletmenin aktif villaları; grup villası yalnız adsız mesajda) → çakışma
   özeti (yalnız okuma) → tek atomik yazım (`app_wa_store_proposals`). Hata: mesaj yeniden denenir, 5.
   denemeden sonra `failed`.
@@ -715,11 +716,26 @@ onayıyla ve rezervasyon servisiyle değişir (A2d). Ağ geçidi değişmez ve y
 - **Log:** yalnız mesaj/öneri kimliği, deneme sayısı, sonuç ve sayaçlar. Mesaj metni, alıntı, villa adı,
   telefon veya numara özeti yazılmaz; veritabanı hata nesnesi yerine yalnız SQLSTATE ve kısa kod.
 - **Kod sınırı:** `src/server/whatsapp/calendar/**` rezervasyon, iCal ve fiyat servislerini import edemez
-  (eslint).
+  (eslint). Takvime giden tek yol `src/server/whatsapp/auto-close.ts`'dir; `cron.ts` onu worker'a bağlar.
+- **Otomatik kapatma (A2e, 0038):** mesajda TEK öğe varsa ve bu öğe işletme **sahibinin** (owner)
+  doğrulanmış numarasından, grubun **eşleştirildiği villa** için, iki tarihi açık, çakışmasız ve inceleme
+  nedeni olmayan bir **kapatma talimatıysa** (ör. "Villa Testo 10–15 Haziran kapatalım"), öneri kaydından
+  sonra blok doğrudan oluşur: `app_wa_message_sender` (yalnız okuma, kilitli mesajdan) gönderen kullanıcıyı
+  verir; blok, sahibin oturum bağlamında (`withTenant`, rol yeniden okunur) `createReservation` ile oluşur ve
+  öneri aynı transaction'da `applied` (`decision_mode = 'quick'`, `decided_by` = sahip) olur. Denetim:
+  `whatsapp.proposal_auto_applied`. Uygulanamazsa (yarışta oluşan çakışma, pasif villa, değişen öneri)
+  takvim değişmez, öneri panelde bekler ve `whatsapp.proposal_auto_failed` (yalnız neden kodu) yazılır.
+  Yönetici/personel gönderimi, villasız grup, başka villa adı, tek/eksik tarih, soru, birden çok öğe,
+  rezervasyon, açma ve iptal **hiçbir zaman** otomatik uygulanmaz. Aynı mesajın yeniden teslimi ikinci blok
+  üretmez (ağ geçidi `duplicate`; karar verilmiş öneri yeniden işlenmez).
 
 **Yayın sırası (A2):** 0035–0037 web uygulamasının açılışında uygulanır (production'da önce yedek). 0036
 migration anında kuyruğu boşaltır; 0037 ilk worker çalıştırmasında yeniden boşaltır. Ardından Scheduled
 Task eklenir. Task'ı durdurmak yeterlidir (mesajlar kuyrukta bekler, 7 gün sonra `too_old`).
+
+**Yayın sırası (A2e):** 0038 yalnız bir fonksiyon ekler; web uygulamasının açılışında uygulanır.
+Otomatik kapatma `dist/wa-calendar.js` yeni sürümle çalıştığında başlar. Kapatmak için önceki imaja dönmek
+yeterlidir (öneriler panelde onaylanır); 0038'in geri alma komutu dosyanın başındadır.
 
 **Geri alma.** Komutlar 0036 ve 0037'nin başındaki yorumdadır (0037: iki fonksiyon 0036 tanımına döner,
 `wa_calendar_worker_state` kaldırılır). Uygulanmış migration değiştirilmez.

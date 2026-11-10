@@ -694,7 +694,7 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
     const c = await claimOnly(m);
     const base = {
       item_no: 0,
-      parser_version: 2,
+      parser_version: 3,
       message_excerpt: "x",
       action: "close",
       villa_name_raw: "Asya",

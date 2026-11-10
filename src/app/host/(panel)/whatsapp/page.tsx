@@ -153,8 +153,9 @@ export default async function WhatsAppPage({ searchParams }: Props) {
         </h1>
         <p className="mt-1 text-[15px] text-muted-foreground">
           Kiraligim asistan numarasını WhatsApp grubunuza ekleyin, ardından grubu buradan bir
-          villayla eşleştirin. Gruba kod veya komut yazmanız gerekmez. Rezervasyon ve kapatma
-          mesajlarından öneri çıkarılır; takvim yalnız siz onayladığınızda değişir.
+          villayla eşleştirin. Gruba kod veya komut yazmanız gerekmez. Rezervasyon mesajları
+          onayınıza sunulur. İşletme sahibinin grubun villası için yazdığı net tarihli kapatma
+          talimatı (ör. &quot;10–15 Haziran kapatalım&quot;) çakışma yoksa takvime otomatik işlenir.
         </p>
       </div>
 

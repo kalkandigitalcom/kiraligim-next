@@ -61,7 +61,7 @@ describe("öğe (app_wa_store_proposals girdisi)", () => {
   it("owner, adlı villa, çakışmasız kapatma: nedensiz; alanlar veritabanı adlarıyla", () => {
     expect(build("Villa Mavi 15-20 Haziran kapalı")).toEqual({
       item_no: 0,
-      parser_version: 2,
+      parser_version: 3,
       message_excerpt: "Villa Mavi 15-20 Haziran kapalı",
       action: "close",
       villa_name_raw: "Mavi",

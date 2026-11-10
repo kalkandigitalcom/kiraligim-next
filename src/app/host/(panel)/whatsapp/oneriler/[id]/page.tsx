@@ -16,7 +16,14 @@ import {
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
 import { ApproveForm, RejectForm } from "../decision-forms";
-import { ACTION_LABELS, FLAG_LABELS, REASON_LABELS, ROLE_LABELS, STATUS_LABELS } from "../labels";
+import {
+  ACTION_LABELS,
+  AUTO_FAILURE_LABELS,
+  FLAG_LABELS,
+  REASON_LABELS,
+  ROLE_LABELS,
+  STATUS_LABELS,
+} from "../labels";
 
 export const metadata: Metadata = { title: "WhatsApp önerisi" };
 
@@ -96,7 +103,9 @@ export default async function WhatsAppProposalPage({ params }: Props) {
           {p.action ? ACTION_LABELS[p.action] : "Belirsiz işlem"} önerisi
         </h1>
         <p className="mt-1 text-sm text-muted-foreground" data-testid="wa-proposal-status">
-          {STATUS_LABELS[p.status]}
+          {p.decisionMode === "quick"
+            ? "Sahibin WhatsApp talimatıyla otomatik uygulandı"
+            : STATUS_LABELS[p.status]}
           {p.decidedAt ? ` · ${TIME_FMT.format(p.decidedAt)}` : ""}
         </p>
       </div>
@@ -160,6 +169,13 @@ export default async function WhatsAppProposalPage({ params }: Props) {
 
       {p.status === "pending" ? (
         <>
+          {p.autoFailure ? (
+            <Alert tone="info">
+              Otomatik kapatma denendi ama uygulanamadı (
+              {AUTO_FAILURE_LABELS[p.autoFailure] ?? p.autoFailure}); takvim değişmedi. Öneriyi
+              inceleyip onaylayabilir veya reddedebilirsiniz.
+            </Alert>
+          ) : null}
           {hasConflict ? (
             <Alert tone="error" title="Takvimde çakışma var">
               <span data-testid="wa-proposal-conflicts">

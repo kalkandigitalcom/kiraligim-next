@@ -384,7 +384,8 @@ export type CreateInput = Record<string, unknown> & { kind?: unknown; propertyId
  * Yeni rezervasyon veya blok (owner/manager). Pasif mülke eklenemez.
  * opts.originProposalId: kayıt bir WhatsApp önerisinin panelde onaylanmasıyla oluşuyorsa öneri
  * kimliği (bileşik yabancı anahtar: yalnız bu işletmenin önerisi). Ham mesaj ASLA doğrudan kayıt
- * oluşturmaz; bu yol yalnız src/server/whatsapp/proposals.ts onay akışından kullanılır.
+ * oluşturmaz; bu yol yalnız panel onayından (src/server/whatsapp/proposals.ts) ve sahibin açık
+ * kapatma talimatından (src/server/whatsapp/auto-close.ts, yalnız blok) kullanılır.
  */
 export async function createReservation(
   tx: Tx,

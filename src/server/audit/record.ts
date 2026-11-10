@@ -154,6 +154,11 @@ export const AUDIT_ACTIONS = {
     edited: z.boolean(),
   }),
   "whatsapp.proposal_rejected": z.strictObject({}),
+  // A2e: sahibin açık kapatma talimatı takvime otomatik işlendi / işlenemedi (yalnız neden kodu).
+  "whatsapp.proposal_auto_applied": z.strictObject({ property: z.uuid(), reservation: z.uuid() }),
+  "whatsapp.proposal_auto_failed": z.strictObject({
+    reason: z.enum(["changed", "conflict", "property_inactive", "invalid", "error"]),
+  }),
   "reservation.status_changed": z.strictObject({
     property: z.uuid(),
     from: z.enum(RESERVATION_STATUSES),

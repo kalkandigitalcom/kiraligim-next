@@ -267,6 +267,13 @@
       "when": 1794300511006,
       "tag": "0037_wa_calendar_worker",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794327921527,
+      "tag": "0038_wa_auto_close",
+      "breakpoints": true
     }
   ]
 }

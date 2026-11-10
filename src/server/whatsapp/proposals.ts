@@ -27,6 +27,10 @@ import { type Conflict, createReservation, findConflicts } from "@/server/reserv
  *    karar verilmiş öneri değişmez, her değişiklikte sürüm artar (iyimser kilit);
  *  - rezervasyon.origin_proposal_id bileşik yabancı anahtarla yalnız bu işletmenin önerisine bağlanır.
  *
+ * İstisna (A2e, auto-close.ts): işletme sahibinin grubun villası için açık, net tarihli ve
+ * çakışmasız kapatma talimatı worker tarafından doğrudan blok olur (decision_mode = 'quick');
+ * burada "otomatik uygulandı" olarak listelenir. Uygulanamazsa öneri burada onay bekler.
+ *
  * Bu aşamada panelden uygulanabilen eylemler: rezervasyon (reserve) ve kapatma (close → blok).
  * Açma ve iptal önerileri incelenir ve reddedilebilir; takvimde elle yapılır (hedef kayıt seçimi
  * sonraki aşama).
@@ -67,6 +71,10 @@ export type WaProposalView = {
   guests: WaGuestCount;
   decidedAt: Date | null;
   decisionNote: string | null;
+  /** "quick": sahibin WhatsApp talimatıyla otomatik uygulandı (A2e); "reviewed": panel onayı. */
+  decisionMode: "quick" | "reviewed" | null;
+  /** Otomatik kapatma denendi ama uygulanamadı: son neden kodu (öneri panel onayı bekler). */
+  autoFailure: string | null;
   appliedReservationIds: string[];
 };
 
@@ -95,6 +103,8 @@ type Row = {
   message_excerpt: string;
   decided_at: Date | null;
   decision_note: string | null;
+  decision_mode: "quick" | "reviewed" | null;
+  auto_failure: string | null;
   applied_reservation_ids: string[];
 };
 
@@ -105,7 +115,11 @@ const SELECT = sql`
          to_char(pr.check_out, 'YYYY-MM-DD') as check_out,
          pr.reservation_status, pr.flags, pr.review_reasons, pr.score, pr.band, pr.sender_role,
          pr.group_id, g.subject as group_subject, pr.sent_at, pr.created_at, pr.message_excerpt,
-         pr.decided_at, pr.decision_note, pr.applied_reservation_ids
+         pr.decided_at, pr.decision_note, pr.decision_mode, pr.applied_reservation_ids,
+         (select a.metadata->>'reason' from audit_log a
+           where a.workspace_id = pr.workspace_id and a.target_type = 'whatsapp_proposal'
+             and a.target_id = pr.id and a.action = 'whatsapp.proposal_auto_failed'
+           order by a.id desc limit 1) as auto_failure
     from wa_calendar_proposals pr
     left join properties p on p.id = pr.property_id and p.workspace_id = pr.workspace_id
     left join wa_groups g on g.id = pr.group_id`;
@@ -153,6 +167,8 @@ function toView(r: Row, names: Map<string, string>): WaProposalView {
     guests: parseGuestCount(r.message_excerpt),
     decidedAt: r.decided_at ? new Date(r.decided_at) : null,
     decisionNote: r.decision_note,
+    decisionMode: r.decision_mode,
+    autoFailure: r.auto_failure,
     appliedReservationIds: r.applied_reservation_ids ?? [],
   };
 }

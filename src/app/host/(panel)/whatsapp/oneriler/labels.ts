@@ -51,6 +51,15 @@ export const FLAG_LABELS: Record<string, string> = {
   date_change: "tarih değişikliği",
 };
 
+/** Otomatik kapatmanın uygulanamama nedenleri (A2e; öneri panel onayı bekler). */
+export const AUTO_FAILURE_LABELS: Record<string, string> = {
+  changed: "öneri bu arada değişti",
+  conflict: "takvimde çakışma var",
+  property_inactive: "villa pasif",
+  invalid: "tarihler kurallara uymuyor",
+  error: "beklenmeyen hata",
+};
+
 export const ROLE_LABELS: Record<string, string> = {
   owner: "İşletme sahibi",
   manager: "Yönetici",

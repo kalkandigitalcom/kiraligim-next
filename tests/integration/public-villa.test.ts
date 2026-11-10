@@ -877,6 +877,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_wa_heartbeat",
       "app_wa_ingest_message",
       "app_wa_message_context",
+      "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",

@@ -414,6 +414,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_expire_proposals",
       "app_wa_fail_message",
       "app_wa_message_context",
+      "app_wa_message_sender", // 0038 (A2e): kilitli mesajın gönderen kullanıcısı (yalnız okuma)
       "app_wa_proposals_guard",
       "app_wa_sender_role",
       "app_wa_store_proposals",
@@ -430,6 +431,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_heartbeat", // 0034: 4 parametreli (asistan numarası)
       "app_wa_ingest_message",
       "app_wa_message_context", // 0036
+      "app_wa_message_sender", // 0038
       "app_wa_pending_groups", // 0034
       "app_wa_phone_hash", // 0034 (yalnız fonksiyonlar içinden)
       "app_wa_proposals_guard", // 0036 (tetikleyici)

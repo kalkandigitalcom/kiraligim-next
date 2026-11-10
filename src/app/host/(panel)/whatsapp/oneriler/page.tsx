@@ -11,7 +11,7 @@ import {
 } from "@/server/whatsapp/proposals";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
-import { ACTION_LABELS, REASON_LABELS, STATUS_LABELS } from "./labels";
+import { ACTION_LABELS, AUTO_FAILURE_LABELS, REASON_LABELS, STATUS_LABELS } from "./labels";
 
 export const metadata: Metadata = { title: "WhatsApp önerileri" };
 
@@ -62,8 +62,9 @@ export default async function WhatsAppProposalsPage({ searchParams }: Props) {
           WhatsApp önerileri
         </h1>
         <p className="mt-1 text-[15px] text-muted-foreground">
-          Bağlı gruplara yazılan rezervasyon ve kapatma mesajlarından çıkarılan öneriler. Takvim
-          yalnız siz onayladığınızda değişir.
+          Bağlı gruplara yazılan rezervasyon ve kapatma mesajlarından çıkarılan öneriler.
+          Rezervasyonlar yalnız siz onayladığınızda oluşur. İşletme sahibinin grubun villası için
+          yazdığı net tarihli ve çakışmasız kapatma talimatı ise takvime otomatik işlenir.
         </p>
       </div>
 
@@ -102,6 +103,12 @@ export default async function WhatsAppProposalsPage({ searchParams }: Props) {
                           ? ` · ${p.reviewReasons.map((r) => REASON_LABELS[r] ?? r).join(", ")}`
                           : ""}
                       </span>
+                      {p.autoFailure ? (
+                        <span className="text-sm text-amber-800" data-testid="wa-auto-failed">
+                          Otomatik kapatma uygulanamadı:{" "}
+                          {AUTO_FAILURE_LABELS[p.autoFailure] ?? p.autoFailure}
+                        </span>
+                      ) : null}
                     </Link>
                   </li>
                 ))}
@@ -130,7 +137,7 @@ export default async function WhatsAppProposalsPage({ searchParams }: Props) {
                           : "bg-muted text-muted-foreground",
                       )}
                     >
-                      {STATUS_LABELS[p.status]}
+                      {p.decisionMode === "quick" ? "Otomatik uygulandı" : STATUS_LABELS[p.status]}
                     </span>
                     <span className="text-navy-900">
                       {p.action ? ACTION_LABELS[p.action] : "Belirsiz işlem"} · {villa(p)} ·{" "}
