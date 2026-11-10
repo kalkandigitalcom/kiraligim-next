@@ -105,8 +105,50 @@ describe("şifreleme ve belirteçler", () => {
     expect(enc).not.toContain("JBSWY3DPEHPK3PXP");
     expect(decryptSecret(enc, KEY)).toBe("JBSWY3DPEHPK3PXP");
     expect(decryptSecret(enc, Buffer.alloc(32, 8))).toBeNull();
-    expect(decryptSecret(`${enc.slice(0, -2)}AA`, KEY)).toBeNull();
     expect(decryptSecret("v2:x:y:z", KEY)).toBeNull();
+  });
+
+  /**
+   * Bozulmuş veri DETERMİNİSTİK üretilir: ilgili parça (IV, etiket, şifreli metin) base64url'den
+   * baytlara çevrilir, bir bit çevrilir ve yeniden kodlanır. (Eski test son iki karakteri "AA"
+   * yapıyordu; base64url'in son karakterindeki dolgu bitleri nedeniyle ~1/256 olasılıkla baytlar
+   * DEĞİŞMİYOR ve test rastgele başarısız oluyordu.) Rastgele IV'li birçok örnekle denenir.
+   */
+  it("AES-256-GCM: IV, etiket veya şifreli metindeki her bit değişikliği reddedilir", () => {
+    const PARTS = { iv: 1, tag: 2, ciphertext: 3 } as const;
+    const tamper = (enc: string, part: number, byteIndex: number, bit: number) => {
+      const segs = enc.split(":");
+      const raw = Buffer.from(segs[part]!, "base64url");
+      const i = byteIndex < 0 ? raw.length + byteIndex : byteIndex;
+      const bad = Buffer.from(raw);
+      bad[i] = bad[i]! ^ (1 << bit);
+      segs[part] = bad.toString("base64url");
+      const out = segs.join(":");
+      // Değişiklik GERÇEK: hem metin hem çözülen baytlar orijinalden farklı.
+      expect(out).not.toBe(enc);
+      expect(Buffer.from(segs[part]!, "base64url").equals(raw)).toBe(false);
+      return out;
+    };
+
+    for (let n = 0; n < 200; n++) {
+      const enc = encryptSecret("JBSWY3DPEHPK3PXP", KEY);
+      expect(enc.split(":")).toHaveLength(4);
+      // Orijinal, her örnekte doğru çözülür.
+      expect(decryptSecret(enc, KEY)).toBe("JBSWY3DPEHPK3PXP");
+      for (const [name, part] of Object.entries(PARTS)) {
+        for (const byteIndex of [0, -1]) {
+          for (const bit of [0, 7]) {
+            const bad = tamper(enc, part, byteIndex, bit);
+            expect([name, byteIndex, bit, decryptSecret(bad, KEY)]).toEqual([
+              name,
+              byteIndex,
+              bit,
+              null,
+            ]);
+          }
+        }
+      }
+    }
   });
 
   it("anahtar: base64 32 bayt şart", () => {
