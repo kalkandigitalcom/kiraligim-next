@@ -15,16 +15,8 @@ export type Queryable = {
 };
 
 export type ConnectionStatus = "connecting" | "open" | "closed" | "logged_out";
-export type RedeemOutcome =
-  | "linked"
-  | "invalid"
-  | "sender_unknown"
-  | "sender_mismatch"
-  | "not_permitted"
-  | "already_linked"
-  | "linked_elsewhere"
-  | "throttled"
-  | "unknown_group";
+/** Numara doğrulama sonucu (yalnız "verified" için ✅). */
+export type VerifyOutcome = "verified" | "invalid" | "sender_unknown";
 export type IngestOutcome = "stored" | "duplicate" | "ignored";
 
 export type InboundRecord = {
@@ -46,11 +38,18 @@ export class WaStore {
     private readonly label: string,
   ) {}
 
-  /** Bağlantı durumunu yazar ve bağlantı kimliğini döndürür (ilk çağrıda kaydı oluşturur). */
-  async heartbeat(status: ConnectionStatus, errorCode: string | null = null): Promise<string> {
+  /**
+   * Bağlantı durumunu yazar ve bağlantı kimliğini döndürür (ilk çağrıda kaydı oluşturur).
+   * accountPn: asistanın kendi numarası (panelde wa.me bağlantısı için); bilinmiyorsa null.
+   */
+  async heartbeat(
+    status: ConnectionStatus,
+    errorCode: string | null = null,
+    accountPn: string | null = null,
+  ): Promise<string> {
     const { rows } = await this.db.query<{ id: string }>(
-      "select public.app_wa_heartbeat($1, $2, $3) as id",
-      [this.label, status, errorCode],
+      "select public.app_wa_heartbeat($1, $2, $3, $4) as id",
+      [this.label, status, errorCode, accountPn],
     );
     this.connectionId = rows[0]!.id;
     return this.connectionId;
@@ -67,18 +66,33 @@ export class WaStore {
     botIsAdmin: boolean;
     adminsOnly: boolean;
     present: boolean;
+    /** Asistanı gruba ekleyen kişinin numarası (yalnız katılım bildiriminde bilinir). */
+    addedByPn?: string | null;
+    /** Grup kurucusunun numarası. */
+    ownerPn?: string | null;
   }): Promise<string> {
     const { rows } = await this.db.query<{ status: string }>(
-      "select public.app_wa_sync_group($1, $2, $3, $4, $5, $6, $7) as status",
-      [await this.conn(), g.jid, g.subject, g.participants, g.botIsAdmin, g.adminsOnly, g.present],
+      "select public.app_wa_sync_group($1, $2, $3, $4, $5, $6, $7, $8, $9) as status",
+      [
+        await this.conn(),
+        g.jid,
+        g.subject,
+        g.participants,
+        g.botIsAdmin,
+        g.adminsOnly,
+        g.present,
+        g.addedByPn ?? null,
+        g.ownerPn ?? null,
+      ],
     );
     return rows[0]!.status;
   }
 
-  async redeemLinkCode(groupJid: string, code: string, senderPn: string | null) {
-    const { rows } = await this.db.query<{ out: RedeemOutcome }>(
-      "select public.app_wa_redeem_link_code($1, $2, $3, $4) as out",
-      [await this.conn(), groupJid, code, senderPn],
+  /** Asistana özel mesajla gelen numara doğrulama kodu (gönderen numarası WhatsApp'tan). */
+  async verifyPhone(code: string, senderPn: string | null): Promise<VerifyOutcome> {
+    const { rows } = await this.db.query<{ out: VerifyOutcome }>(
+      "select public.app_wa_verify_phone($1, $2) as out",
+      [code, senderPn],
     );
     return rows[0]!.out;
   }

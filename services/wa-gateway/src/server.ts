@@ -70,7 +70,7 @@ code{font-size:13px;word-break:break-all}ul{list-style:none;padding:0;margin:0;d
 <dl><dt>Biçim</dt><dd id="mode">—</dd><dt>Bağlı hesap</dt><dd id="account">—</dd><dt>Bağlandı</dt><dd id="since">—</dd><dt>Test grubu</dt><dd id="group">—</dd><dt>Sayaçlar</dt><dd id="stats">—</dd></dl></section>
 <section class="card" id="qrbox" hidden><strong>QR'ı test numarasının telefonundan okutun</strong>
 <p class="muted">WhatsApp → Ayarlar → Bağlı cihazlar → Cihaz bağla. QR yaklaşık 20 sn'de bir yenilenir.</p><div id="qr"></div></section>
-<section class="card"><strong>Görülen gruplar</strong><p class="muted" id="groupsHint">A1 biçiminde gruplar veritabanına kaydedilir; işletmeye bağlama paneldeki kodla yapılır. Faz 1 test biçiminde test grubunun kimliğini <code>WA_TEST_GROUP_JID</code> olarak .env'e yazın.</p>
+<section class="card"><strong>Görülen gruplar</strong><p class="muted" id="groupsHint">A1 biçiminde gruplar veritabanına kaydedilir; işletmeye eşleştirme panelden (Bekleyen gruplar) yapılır. Faz 1 test biçiminde test grubunun kimliğini <code>WA_TEST_GROUP_JID</code> olarak .env'e yazın.</p>
 <table><thead><tr><th>Grup</th><th>Kimlik</th><th>Kayıtlı mesaj</th><th>Son</th></tr></thead><tbody id="groups"><tr><td colspan="4" class="muted">Henüz mesaj yok.</td></tr></tbody></table></section>
 <section class="card"><strong>Son olaylar</strong><ul id="events"></ul></section>
 <section class="card"><button id="reset" type="button">Oturumu sıfırla (bağlantıyı kaldır, yeni QR)</button></section>
@@ -83,7 +83,7 @@ async function refresh(){
   let s;try{s=await (await fetch('/status.json',{cache:'no-store'})).json()}catch{t($('reason'),'Sunucuya ulaşılamıyor.');return}
   const b=$('badge');b.className='badge '+s.status;t(b,s.statusLabel);t($('reason'),s.reason||'');
   t($('mode'),s.mode==='a1'?'A1: grup kaydı ve mesaj kuyruğu (veritabanı)':'Faz 1 test biçimi (veritabanı yok)');
-  t($('stats'),s.mode==='a1'?'kaydedilen '+s.stats.stored+' · yinelenen '+s.stats.duplicate+' · bağlı olmayan grup '+s.stats.ignored+' · bağlanan grup '+s.stats.linked+' · reddedilen kod '+s.stats.rejectedCodes+' · hata '+s.stats.errors:'—');
+  t($('stats'),s.mode==='a1'?'kaydedilen '+s.stats.stored+' · yinelenen '+s.stats.duplicate+' · bağlı olmayan grup '+s.stats.ignored+' · doğrulanan numara '+s.stats.verified+' · reddedilen kod '+s.stats.rejectedCodes+' · hata '+s.stats.errors:'—');
   t($('account'),s.account);t($('since'),s.connectedAt||'—');t($('group'),s.testGroupJid||'tanımlı değil (tepki yok)');
   $('qrbox').hidden=!s.hasQr;
   if(s.hasQr&&Date.now()-qrShown>4000){qrShown=Date.now();const img=new Image();img.alt='Bağlantı QR kodu';img.src='/qr.svg?'+qrShown;$('qr').replaceChildren(img)}

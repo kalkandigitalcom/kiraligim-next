@@ -3,20 +3,26 @@ import { describe, expect, it } from "vitest";
 import {
   formatLinkCode,
   generateLinkCode,
-  linkMessage,
+  verifyMessage,
+  waMeLink,
   maskPhone,
   normalizePhone,
-  parseLinkMessage,
+  parseVerifyMessage,
   WA_LINK_CODE_ALPHABET,
   WA_LINK_CODE_LENGTH,
   WA_RETENTION_DAYS,
 } from "@/lib/whatsapp-meta";
 
 /**
- * WhatsApp Asistanı A1: bağlama kodu biçimi. Vektörler services/wa-gateway/test/groups.test.ts ile
- * AYNIDIR (ağ geçidi kendi kopyasını denetler).
+ * WhatsApp Asistanı A1.1: numara doğrulama kodu biçimi (asistana özel mesaj). Vektörler
+ * services/wa-gateway/test/groups.test.ts ile AYNIDIR (ağ geçidi kendi kopyasını denetler).
  */
 const LINK_VECTORS: [string, string | null][] = [
+  ["kiraligim doğrula 7Q4M-2XKD", "7Q4M2XKD"],
+  ["Kiraligim Dogrula 7q4m2xkd", "7Q4M2XKD"],
+  ["KİRALIĞIM DOĞRULA 7Q4M-2XKD", "7Q4M2XKD"],
+  ["kiraligim dogrula7Q4M-2XKD", null],
+  ["kiraligim doğrula", null],
   ["kiraligim 7Q4M-2XKD", "7Q4M2XKD"],
   ["  Kiraligim 7q4m2xkd ", "7Q4M2XKD"],
   ["KİRALIĞIM 7Q4M-2XKD", "7Q4M2XKD"],
@@ -29,16 +35,16 @@ const LINK_VECTORS: [string, string | null][] = [
   ["Villa Zeytin'in 10-15 Temmuz tarihlerini kapat.", null],
 ];
 
-describe("bağlama kodu", () => {
+describe("doğrulama kodu", () => {
   it("mesaj tanıma: yalnız mesajın tamamı kodsa", () => {
     for (const [text, expected] of LINK_VECTORS)
-      expect(parseLinkMessage(text), text).toBe(expected);
+      expect(parseVerifyMessage(text), text).toBe(expected);
   });
 
   it("biçim ve gruba yazılacak mesaj geri ayrıştırılabilir", () => {
     expect(formatLinkCode("7Q4M2XKD")).toBe("7Q4M-2XKD");
-    expect(linkMessage("7Q4M2XKD")).toBe("kiraligim 7Q4M-2XKD");
-    expect(parseLinkMessage(linkMessage("7Q4M2XKD"))).toBe("7Q4M2XKD");
+    expect(verifyMessage("7Q4M2XKD")).toBe("kiraligim doğrula 7Q4M-2XKD");
+    expect(parseVerifyMessage(verifyMessage("7Q4M2XKD"))).toBe("7Q4M2XKD");
   });
 
   it("üretilen kod alfabede ve 8 karakter; tüm bayt değerleri eşit dağılır", () => {
@@ -54,7 +60,7 @@ describe("bağlama kodu", () => {
         return out;
       });
       expect(code).toHaveLength(WA_LINK_CODE_LENGTH);
-      expect(parseLinkMessage(linkMessage(code))).toBe(code);
+      expect(parseVerifyMessage(verifyMessage(code))).toBe(code);
       for (const c of code) counts.set(c, (counts.get(c) ?? 0) + 1);
     }
     expect([...counts.values()].every((n) => n === 8)).toBe(true);
@@ -62,6 +68,17 @@ describe("bağlama kodu", () => {
 
   it("saklama süresi 90 gün", () => {
     expect(WA_RETENTION_DAYS).toBe(90);
+  });
+});
+
+describe("asistana özel mesaj bağlantısı", () => {
+  it("wa.me bağlantısı yalnız geçerli numarayla; metin kodlanır", () => {
+    expect(waMeLink("905350000000", "kiraligim doğrula 7Q4M-2XKD")).toBe(
+      "https://wa.me/905350000000?text=kiraligim%20do%C4%9Frula%207Q4M-2XKD",
+    );
+    expect(waMeLink(null, "x")).toBeNull();
+    expect(waMeLink("+90 535", "x")).toBeNull();
+    expect(waMeLink("0535", "x")).toBeNull();
   });
 });
 

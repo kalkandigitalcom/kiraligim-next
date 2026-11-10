@@ -857,13 +857,18 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_public_villa_rates",
       "app_public_villa_visible",
       "app_reservations_external_guard",
-      // 0031 (A1): WhatsApp ağ geçidi ve panelden bağlantı kesme
+      // 0031 (A1): WhatsApp ağ geçidi ve panelden bağlantı kesme; 0034 (A1.1): eşleştirme
+      "app_wa_claim_group",
+      "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
+      "app_wa_pending_groups",
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
       "app_wa_sync_group",
+      "app_wa_sync_group",
       "app_wa_unlink_group",
+      "app_wa_verify_phone",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -883,6 +888,10 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_connection uuid, p_jid text, p_code text, p_sender_pn text": `gen_random_uuid(), '120363000000000001@g.us', 'AAAAAAAA', null`,
         "p_connection uuid, p_jid text, p_subject text, p_participants integer, p_bot_is_admin boolean, p_admins_only boolean, p_present boolean": `gen_random_uuid(), '120363000000000001@g.us', null, 1, false, false, true`,
         "p_group uuid": `gen_random_uuid()`,
+        "p_label text, p_status text, p_error text, p_account_pn text": `'yetkisiz', 'open', null, null`,
+        "p_connection uuid, p_jid text, p_subject text, p_participants integer, p_bot_is_admin boolean, p_admins_only boolean, p_present boolean, p_added_by_pn text, p_owner_pn text": `gen_random_uuid(), '120363000000000001@g.us', null, 1, false, false, true, null, null`,
+        "p_code text, p_sender_pn text": `'ABCDEFGH', null`,
+        "p_group uuid, p_property uuid": `gen_random_uuid(), gen_random_uuid()`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;

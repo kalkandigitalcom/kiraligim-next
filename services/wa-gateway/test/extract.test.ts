@@ -3,7 +3,13 @@ import { describe, it } from "node:test";
 
 import type { WAMessage } from "baileys";
 
-import { extractGroupMessage, istanbulTime, maskNumber, numberFromJid } from "../src/extract.ts";
+import {
+  extractDirectMessage,
+  extractGroupMessage,
+  istanbulTime,
+  maskNumber,
+  numberFromJid,
+} from "../src/extract.ts";
 
 const GROUP = "120363025555555555@g.us";
 const TEXT = "Villa Zeytin'in 10-15 Temmuz tarihlerini kapat.";
@@ -94,5 +100,64 @@ describe("yardımcılar", () => {
 
   it("zaman Europe/Istanbul'da gösterilir", () => {
     assert.match(istanbulTime("2026-07-01T09:00:00.000Z"), /12:00:00/);
+  });
+});
+
+describe("özel mesaj (asistana)", () => {
+  const base = {
+    messageTimestamp: 1_784_000_000,
+    message: { conversation: "kiraligim doğrula 7Q4M-2XKD" },
+  };
+  it("telefon veya gizli kimlikten gelen metin; numara alternatif JID'den", () => {
+    assert.deepEqual(
+      extractDirectMessage({
+        ...base,
+        key: { remoteJid: "905329998877@s.whatsapp.net", id: "D1", fromMe: false },
+      } as WAMessage),
+      {
+        messageId: "D1",
+        senderPn: "905329998877",
+        senderLid: null,
+        text: "kiraligim doğrula 7Q4M-2XKD",
+      },
+    );
+    assert.deepEqual(
+      extractDirectMessage({
+        ...base,
+        key: {
+          remoteJid: "111@lid",
+          remoteJidAlt: "905320000002@s.whatsapp.net",
+          id: "D2",
+          fromMe: false,
+        },
+      } as WAMessage),
+      {
+        messageId: "D2",
+        senderPn: "905320000002",
+        senderLid: "111@lid",
+        text: "kiraligim doğrula 7Q4M-2XKD",
+      },
+    );
+  });
+  it("grup, durum, kendi mesajı ve metinsiz mesaj alınmaz", () => {
+    for (const key of [
+      {
+        remoteJid: "120363025555555555@g.us",
+        id: "x",
+        fromMe: false,
+        participant: "905329998877@s.whatsapp.net",
+      },
+      { remoteJid: "status@broadcast", id: "x", fromMe: false },
+      { remoteJid: "905329998877@s.whatsapp.net", id: "x", fromMe: true },
+    ]) {
+      assert.equal(extractDirectMessage({ ...base, key } as WAMessage), null);
+    }
+    assert.equal(
+      extractDirectMessage({
+        key: { remoteJid: "905329998877@s.whatsapp.net", id: "y", fromMe: false },
+        message: {},
+      } as WAMessage),
+      null,
+    );
   });
 });

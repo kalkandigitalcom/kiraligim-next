@@ -232,6 +232,20 @@
       "when": 1794213473754,
       "tag": "0032_whatsapp_purge_floor",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794258235432,
+      "tag": "0033_whatsapp_group_claim",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794258241562,
+      "tag": "0034_whatsapp_group_claim_security",
+      "breakpoints": true
     }
   ]
 }

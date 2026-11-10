@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { parseLinkMessage, selfIds, selfRemoved, toGroupSync } from "../src/groups.ts";
+import {
+  groupPeople,
+  parseVerifyMessage,
+  personOf,
+  pnFromJid,
+  selfAdded,
+  selfIds,
+  selfRemoved,
+  toGroupSync,
+} from "../src/groups.ts";
 
 /** Aynı vektörler tests/unit/whatsapp-meta.test.ts içinde de denetlenir (iki kopya uyumlu kalmalı). */
-export const LINK_VECTORS: [string, string | null][] = [
+export const VERIFY_VECTORS: [string, string | null][] = [
+  ["kiraligim doğrula 7Q4M-2XKD", "7Q4M2XKD"],
+  ["Kiraligim Dogrula 7q4m2xkd", "7Q4M2XKD"],
+  ["KİRALIĞIM DOĞRULA 7Q4M-2XKD", "7Q4M2XKD"],
+  ["kiraligim dogrula7Q4M-2XKD", null],
+  ["kiraligim doğrula", null],
   ["kiraligim 7Q4M-2XKD", "7Q4M2XKD"],
   ["  Kiraligim 7q4m2xkd ", "7Q4M2XKD"],
   ["KİRALIĞIM 7Q4M-2XKD", "7Q4M2XKD"],
@@ -17,10 +31,52 @@ export const LINK_VECTORS: [string, string | null][] = [
   ["Villa Zeytin'in 10-15 Temmuz tarihlerini kapat.", null],
 ];
 
-describe("bağlama kodu mesajı", () => {
-  it("yalnız mesajın tamamı kod ise tanınır", () => {
-    for (const [text, expected] of LINK_VECTORS)
-      assert.equal(parseLinkMessage(text), expected, text);
+describe("numara doğrulama mesajı (asistana özel mesaj)", () => {
+  it("yalnız mesajın tamamı kod ise tanınır; 'doğrula' isteğe bağlı", () => {
+    for (const [text, expected] of VERIFY_VECTORS)
+      assert.equal(parseVerifyMessage(text), expected, text);
+  });
+});
+
+describe("grubu ekleyen kişi ve kurucu", () => {
+  it("numara telefon JID'inden; gizli kimlik (LID) yalnız numara yoksa", () => {
+    assert.equal(pnFromJid("905321112233:7@s.whatsapp.net"), "905321112233");
+    assert.equal(pnFromJid("111222333444@lid"), null);
+    assert.equal(pnFromJid(undefined), null);
+    assert.deepEqual(personOf("111222333444@lid", "905329998877@s.whatsapp.net"), {
+      pn: "905329998877",
+      lid: null,
+    });
+    assert.deepEqual(personOf("111222333444:3@lid", undefined), {
+      pn: null,
+      lid: "111222333444@lid",
+    });
+    assert.deepEqual(personOf("905321110000@s.whatsapp.net", null), {
+      pn: "905321110000",
+      lid: null,
+    });
+    assert.deepEqual(personOf(undefined, undefined), { pn: null, lid: null });
+  });
+
+  it("katılım bildiriminde ekleyen (author) ve kurucu (owner) okunur", () => {
+    assert.deepEqual(
+      groupPeople({
+        id: "120363025555555555@g.us",
+        owner: "222@lid",
+        ownerPn: "905320000001@s.whatsapp.net",
+        author: "333@lid",
+        authorPn: "905320000002@s.whatsapp.net",
+      }),
+      {
+        addedBy: { pn: "905320000002", lid: null },
+        owner: { pn: "905320000001", lid: null },
+      },
+    );
+    // Toplu grup listesinde (katılım bildirimi değil) ekleyen bilinmez.
+    assert.deepEqual(groupPeople({ id: "120363025555555555@g.us", owner: "444@lid" }).addedBy, {
+      pn: null,
+      lid: null,
+    });
   });
 });
 
@@ -74,5 +130,11 @@ describe("grup kaydı", () => {
     assert.equal(selfRemoved("remove", ["905321112233@s.whatsapp.net"], self), true);
     assert.equal(selfRemoved("remove", [{ id: "905329998877@s.whatsapp.net" }], self), false);
     assert.equal(selfRemoved("add", [{ id: "111222333444@lid" }], self), false);
+  });
+
+  it("gruba eklenme yalnız kendi kimliğiyle ve 'add' ile", () => {
+    assert.equal(selfAdded("add", [{ id: "111222333444@lid" }], self), true);
+    assert.equal(selfAdded("add", [{ id: "905329998877@s.whatsapp.net" }], self), false);
+    assert.equal(selfAdded("promote", [{ id: "111222333444@lid" }], self), false);
   });
 });

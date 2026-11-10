@@ -55,12 +55,19 @@ describe("fonksiyonlar", () => {
       "app_uuid_v7",
       // 0031 (A1): WhatsApp Asistanı — yetki yardımcısı (invoker) ve ağ geçidi/panel fonksiyonları
       "app_wa_can_manage",
+      // 0034 (A1.1): kodsuz eşleştirme (panel), numara doğrulama ve yeni ağ geçidi sürümleri
+      "app_wa_claim_group",
+      "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
+      "app_wa_pending_groups",
+      "app_wa_phone_hash",
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
       "app_wa_sync_group",
+      "app_wa_sync_group",
       "app_wa_unlink_group",
+      "app_wa_verify_phone",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -90,12 +97,18 @@ describe("fonksiyonlar", () => {
       // 0029 (3.1): harici doluluk tetikleyicisi her bağlamda (F3 dahil) olayları okuyabilmeli
       "app_reservations_external_guard",
       // 0031 (A1): WhatsApp ağ geçidinin tek yazma yolu ve panelden bağlantı kesme (app.wa_fn)
+      // 0034 (A1.1): eşleştirme (bekleyen gruplar, eşleştir) ve numara doğrulama
+      "app_wa_claim_group",
+      "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
+      "app_wa_pending_groups",
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
       "app_wa_sync_group",
+      "app_wa_sync_group",
       "app_wa_unlink_group",
+      "app_wa_verify_phone",
       "app_workspace_members_keep_owner",
       "app_workspace_start_trial",
     ]);
@@ -120,13 +133,20 @@ describe("fonksiyonlar", () => {
     const wa = await admin.query(`
       select proname, pg_get_function_identity_arguments(oid) as args from pg_proc
        where pronamespace = 'public'::regnamespace and prosecdef and proname like 'app\\_wa\\_%'
-       order by 1`);
+       order by 1, 2`);
     expect(wa.rows).toEqual([
+      // 0034: panel; işletme ve kullanıcı oturum bağlamından (parametre değil)
+      { proname: "app_wa_claim_group", args: "p_group uuid, p_property uuid" },
       { proname: "app_wa_heartbeat", args: "p_label text, p_status text, p_error text" },
+      {
+        proname: "app_wa_heartbeat",
+        args: "p_label text, p_status text, p_error text, p_account_pn text",
+      },
       {
         proname: "app_wa_ingest_message",
         args: "p_connection uuid, p_jid text, p_message_id text, p_sender_jid text, p_sender_pn text, p_sender_lid text, p_body text, p_sent_at timestamp with time zone, p_kind text",
       },
+      { proname: "app_wa_pending_groups", args: "" },
       { proname: "app_wa_purge_messages", args: "p_days integer" },
       {
         proname: "app_wa_redeem_link_code",
@@ -136,7 +156,12 @@ describe("fonksiyonlar", () => {
         proname: "app_wa_sync_group",
         args: "p_connection uuid, p_jid text, p_subject text, p_participants integer, p_bot_is_admin boolean, p_admins_only boolean, p_present boolean",
       },
+      {
+        proname: "app_wa_sync_group",
+        args: "p_connection uuid, p_jid text, p_subject text, p_participants integer, p_bot_is_admin boolean, p_admins_only boolean, p_present boolean, p_added_by_pn text, p_owner_pn text",
+      },
       { proname: "app_wa_unlink_group", args: "p_group uuid" },
+      { proname: "app_wa_verify_phone", args: "p_code text, p_sender_pn text" },
     ]);
     // 0024 (F2a): public okuma fonksiyonları parametre alır (adres / mülk kimliği / tarih), ancak
     // yalnız yayındaki ve görünür villaların sabit kolonlarını döndürür (tests/integration/public-villa.test.ts).
@@ -198,12 +223,17 @@ describe("fonksiyonlar", () => {
       app_subscription_is_current: ["app_user"],
       app_uuid_v7: [],
       app_wa_can_manage: ["app_user"],
-      app_wa_heartbeat: ["app_user"],
+      app_wa_claim_group: ["app_user"],
+      // İki imza (0031 ve 0034); ikisi de yalnız app_user'da (ayrı ağ geçidi rolü yoksa).
+      app_wa_heartbeat: ["app_user", "app_user"],
       app_wa_ingest_message: ["app_user"],
+      app_wa_pending_groups: ["app_user"],
+      app_wa_phone_hash: [],
       app_wa_purge_messages: ["app_user"],
       app_wa_redeem_link_code: ["app_user"],
-      app_wa_sync_group: ["app_user"],
+      app_wa_sync_group: ["app_user", "app_user"],
       app_wa_unlink_group: ["app_user"],
+      app_wa_verify_phone: ["app_user"],
       app_workspace_members_keep_owner: [],
       app_workspace_start_trial: [],
     });
