@@ -1264,24 +1264,31 @@ export class WaGateway {
    */
   async flushReactions(): Promise<void> {
     if (this.reactionFlushing) return this.reactionFlushing;
-    this.reactionFlushing = (async () => {
-      try {
-        const store = this.store;
-        const sock = this.sock;
-        if (!store || !sock || this.status !== "open" || !this.lease.held) return;
-        const budget = Math.min(5, this.reactions.remaining(this.now()));
-        if (budget === 0) return;
-        const claimed = await this.db("claim_reactions", (s) => s.claimReactions(budget));
-        for (const r of claimed ?? []) {
-          // Bağlantı bu arada kapandıysa gönderilmez; kilit dolunca yeniden alınır.
-          if (this.sock !== sock || this.status !== "open") break;
-          await this.sendQueuedReaction(sock, store, r);
-        }
-      } finally {
-        this.reactionFlushing = null;
+    // Ön koşullar promise oluşturulmadan ÖNCE denetlenir. (Eski sürümde erken çıkış, "finally"
+    // atamadan önce çalıştığı için tek uçuş kilidini bitmiş bir promise olarak bırakıyor ve
+    // bağlantı bir kez koptuktan sonra kuyruk bir daha hiç okunmuyordu.)
+    const store = this.store;
+    const sock = this.sock;
+    if (!store || !sock || this.status !== "open" || !this.lease.held) return;
+    const budget = Math.min(5, this.reactions.remaining(this.now()));
+    if (budget === 0) return;
+    const run = (async () => {
+      const claimed = await this.db("claim_reactions", (s) => s.claimReactions(budget));
+      for (const r of claimed ?? []) {
+        // Bağlantı bu arada kapandıysa gönderilmez; kilit dolunca yeniden alınır.
+        if (this.sock !== sock || this.status !== "open") break;
+        await this.sendQueuedReaction(sock, store, r);
       }
-    })();
-    return this.reactionFlushing;
+    })().catch((e: unknown) => {
+      // Beklenmeyen hata süreci düşürmez; kuyruk bir sonraki yoklamada yeniden denenir.
+      this.note("error", `Tepki kuyruğu hatası: ${errName(e)}`);
+    });
+    // Kilit, atamadan SONRA ve yalnız bu uçuş bitince bırakılır (.finally her zaman eşzamansızdır).
+    const flight = run.finally(() => {
+      if (this.reactionFlushing === flight) this.reactionFlushing = null;
+    });
+    this.reactionFlushing = flight;
+    return flight;
   }
 
   private async sendQueuedReaction(sock: WASocket, store: WaStore, r: QueuedReaction) {
@@ -1291,7 +1298,7 @@ export class WaGateway {
       code = "rate_limited";
     } else {
       try {
-        await withTimeout(
+        const sent = await withTimeout(
           sock.sendMessage(r.groupJid, {
             react: {
               text: r.emoji,
@@ -1307,6 +1314,9 @@ export class WaGateway {
           "reaction_timeout",
         );
         ok = true;
+        // Sunucu onayı/reddi "messages.update" ile loglanır (yalnız mesaj kimliği ve emoji).
+        const id = sent?.key?.id ?? "";
+        if (id) this.trackReaction(id, `${r.emoji} → ${r.waMessageId}`);
       } catch (e: unknown) {
         code = e instanceof Error && e.message === "reaction_timeout" ? "timeout" : "send_error";
       }
@@ -1322,6 +1332,15 @@ export class WaGateway {
     await this.db("finish_reaction", () => store.finishReaction(r, ok, code));
   }
 
+  /** Sunucu onayı beklenen tepki (sınırlı: onay hiç gelmezse en eskisi düşer). */
+  private trackReaction(id: string, label: string) {
+    this.pendingReactions.set(id, label);
+    if (this.pendingReactions.size > 200) {
+      const oldest = this.pendingReactions.keys().next().value;
+      if (oldest !== undefined) this.pendingReactions.delete(oldest);
+    }
+  }
+
   /** Emoji tepkisi (dakikada en fazla 10). Metin mesajı gönderilmez. */
   private async sendReaction(sock: WASocket, msg: WAMessage, emoji: string, messageId: string) {
     const groupJid = msg.key.remoteJid;
@@ -1333,7 +1352,7 @@ export class WaGateway {
     try {
       const sent = await sock.sendMessage(groupJid, { react: { text: emoji, key: msg.key } });
       const id = sent?.key?.id ?? "";
-      if (id) this.pendingReactions.set(id, `${emoji} → ${messageId}`);
+      if (id) this.trackReaction(id, `${emoji} → ${messageId}`);
       this.note("reaction", `Tepki gönderildi: ${emoji} → ${messageId}.`);
     } catch (e: unknown) {
       this.note(
@@ -1356,7 +1375,7 @@ export class WaGateway {
         react: { text: this.config.reaction, key: msg.key },
       });
       const id = sent?.key?.id ?? "";
-      if (id) this.pendingReactions.set(id, `${this.config.reaction} → ${messageId}`);
+      if (id) this.trackReaction(id, `${this.config.reaction} → ${messageId}`);
       this.note(
         "reaction",
         `Tepki gönderildi: ${this.config.reaction} → ${messageId}. Sunucu onayı bekleniyor.`,

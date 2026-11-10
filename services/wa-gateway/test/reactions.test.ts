@@ -294,6 +294,121 @@ describe("işlem tepkisi gönderimi (A2f)", () => {
   });
 });
 
+/**
+ * Regresyon (canlı arıza, 2026-11-10): bağlantı kesikken (veya kilit/bağlantı yokken) yapılan bir
+ * yoklama, "tek uçuş" kilidini bitmiş bir promise olarak bırakıyordu; sonraki TÜM yoklamalar
+ * kuyruğa hiç bakmadan dönüyordu. 428 kopması + yeniden bağlantıdan sonra hiçbir tepki gitmedi.
+ */
+describe("bağlantı kopup geri gelince tepki kuyruğu yeniden çalışır (regresyon)", () => {
+  it("bağlantı açılmadan önceki yoklama, açıldıktan sonraki gönderimi engellemez", async () => {
+    const queue: QueuedReaction[] = [];
+    const { gw, sockets, st } = await setup(queue);
+    await gw.start();
+    await gw.flushReactions(); // henüz açık değil: erken çıkış
+    assert.deepEqual(st.claims, []);
+    await openSock(gw, sockets[0]!);
+    await waitFor(() => st.claims.length >= 1); // bağlanınca yapılan yoklama (kuyruk boş)
+    await gw.flushReactions(); // varsa süren uçuşun bitmesi
+    queue.push(Q(1));
+    await gw.flushReactions();
+    assert.equal(sockets[0]!.sent.length, 1);
+    assert.deepEqual(st.finished, [{ id: "m1", ok: true, code: null }]);
+    await gw.stop();
+  });
+
+  it("428 kopması → kesikken yoklama → yeniden bağlantı: yeni sokete tepki gider", async () => {
+    const queue = [Q(1)];
+    const { gw, sockets, st } = await setup(queue);
+    await gw.start();
+    await openSock(gw, sockets[0]!);
+    await gw.flushReactions();
+    assert.equal(sockets[0]!.sent.length, 1);
+    sockets[0]!.ev.emit("connection.update", {
+      connection: "close",
+      lastDisconnect: { error: { output: { statusCode: 428 } } },
+    });
+    assert.notEqual(gw.status, "open");
+    // Kopukken zamanlayıcı yoklaması (canlıdaki durum): erken çıkış, kuyruk alınmaz.
+    const claimsBefore = st.claims.length;
+    await gw.flushReactions();
+    await gw.flushReactions();
+    assert.equal(st.claims.length, claimsBefore);
+    // Yeniden bağlanma (aynı oturum; yeni soket).
+    await waitFor(() => sockets.length === 2);
+    await openSock(gw, sockets[1]!);
+    await waitFor(() => st.claims.length > claimsBefore); // bağlanınca yapılan yoklama
+    await gw.flushReactions();
+    queue.push(Q(2));
+    await gw.flushReactions();
+    assert.equal(sockets[1]!.sent.length, 1);
+    assert.equal(
+      (sockets[1]!.sent[0]!.content as { react: { key: { id: string } } }).react.key.id,
+      "WAID2",
+    );
+    assert.deepEqual(
+      st.finished.map((f) => [f.id, f.ok]),
+      [
+        ["m1", true],
+        ["m2", true],
+      ],
+    );
+    await gw.stop();
+  });
+
+  it("kopya kilidi geçici olarak kaybedilip geri gelince kuyruk yeniden alınır", async () => {
+    const queue: QueuedReaction[] = [];
+    const { gw, sockets, lease, st } = await setup(queue);
+    await gw.start();
+    await openSock(gw, sockets[0]!);
+    lease.held = false;
+    await gw.flushReactions(); // kilit yok: erken çıkış
+    lease.held = true;
+    queue.push(Q(1));
+    await gw.flushReactions();
+    assert.equal(sockets[0]!.sent.length, 1);
+    assert.equal(st.finished.length, 1);
+    await gw.stop();
+  });
+
+  it("dakikalık sınır dolu yoklama (bütçe 0) sonraki yoklamaları kilitlemez", async () => {
+    const queue = Array.from({ length: 10 }, (_, i) => Q(i + 1));
+    const { gw, sockets, st } = await setup(queue);
+    await gw.start();
+    await openSock(gw, sockets[0]!);
+    for (let i = 0; i < 3; i++) await gw.flushReactions();
+    assert.equal(sockets[0]!.sent.length, 10);
+    const claims = st.claims.length;
+    await gw.flushReactions(); // bütçe 0: erken çıkış
+    assert.equal(st.claims.length, claims);
+    // Tek uçuş kilidi serbest kaldı: yeni yoklama yeniden değerlendirilir (bütçe hâlâ 0).
+    const p = gw.flushReactions();
+    assert.ok(p instanceof Promise);
+    await p;
+    assert.equal(st.claims.length, claims);
+    await gw.stop();
+  });
+
+  it("gönderilen tepkinin sunucu onayı ve reddi loglanır", async () => {
+    const { gw, sockets } = await setup([Q(1), Q(2)]);
+    await gw.start();
+    await openSock(gw, sockets[0]!);
+    await gw.flushReactions();
+    assert.equal(sockets[0]!.sent.length, 2);
+    // Sahte soket gönderim kimlikleri: R1, R2.
+    sockets[0]!.ev.emit("messages.update", [
+      { key: { id: "R1" }, update: { status: 2 } }, // SERVER_ACK
+      { key: { id: "R2" }, update: { status: 0 } }, // ERROR
+    ]);
+    const texts = gw.events.map((e) => e.text);
+    assert.ok(
+      texts.some((t) => t.includes("Tepki sunucuya ulaştı (✅ → WAID1)")),
+      texts.join(" | "),
+    );
+    assert.ok(texts.some((t) => t.includes("Tepki sunucu tarafından reddedildi (✅ → WAID2)")));
+    await gw.stop();
+  });
+});
+
 describe("döngü yok: kendi tepkilerimiz yeniden işlenmez", () => {
   const ours = (content: WAMessage["message"]) =>
     ({
