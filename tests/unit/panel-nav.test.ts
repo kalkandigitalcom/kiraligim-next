@@ -10,7 +10,6 @@ describe("panel menüsü", () => {
       ["Mülkler", "/villalar"],
       ["Rezervasyonlar", "/rezervasyonlar"],
       ["Takvim", "/takvim"],
-      ["WhatsApp Asistanı", "/whatsapp"],
     ]);
   });
 
@@ -23,13 +22,15 @@ describe("panel menüsü", () => {
     );
     expect(activeNavHref("/rezervasyonlar/yeni")).toBe("/rezervasyonlar");
     expect(activeNavHref("/takvim")).toBe("/takvim");
-    expect(activeNavHref("/whatsapp")).toBe("/whatsapp");
   });
 
   it("benzer önekli ya da menü dışı adresler etkin değildir", () => {
     expect(activeNavHref("/villalarx")).toBeNull();
     expect(activeNavHref("/panelim")).toBeNull();
     expect(activeNavHref("/isletmeler")).toBeNull();
+    // İşletme panelinde WhatsApp modülü yok (eski adres ana panele yönlenir).
+    expect(activeNavHref("/whatsapp")).toBeNull();
+    expect(activeNavHref("/whatsapp/oneriler")).toBeNull();
     expect(activeNavHref("/")).toBeNull();
   });
 });

@@ -628,7 +628,7 @@ işlemi YOKTUR (fonksiyonlar bu tablolara hiç referans vermez; entegrasyon test
   erişemez; yalnız `app_wa_heartbeat`, `app_wa_sync_group`, `app_wa_redeem_link_code`,
   `app_wa_ingest_message`, `app_wa_purge_messages` (SECURITY DEFINER, `app.wa_fn` ayarıyla) çağrılır.
   Mesaj kaydında `pg_notify('wa_inbound', <id>)` (ileride worker için).
-- **Panel** (`/whatsapp`, menü "WhatsApp Asistanı"): grupları tüm üyeler görür; mesajları owner ve
+- **Panel** (`/whatsapp`, menü "WhatsApp Asistanı"; **kaldırıldı**, bkz. Aşama 2): grupları tüm üyeler görür; mesajları owner ve
   manager görür; kod üretme, askıya alma ve bağlantı kesme owner ile owner'ın yetkilendirdiği manager'a
   açıktır (`app_wa_can_manage`, politikalarda da). Bağlantı kesilince grubun mesajları hemen silinir.
 - **Kodsuz grup eşleştirme (A1.1, 0033–0034):** gruba kod veya komut YAZILMAZ.
@@ -689,7 +689,7 @@ gruplar, kodlar, mesajlar). Uygulanmış migration değiştirilmez; kalıcı ger
 
 Bağlı gruplardan gelen mesajlar için worker **işlem önerisi** (`wa_calendar_proposals`) oluşturur.
 Rezervasyonlar yalnız panelde, oturumdaki owner/manager onayıyla ve rezervasyon servisiyle oluşur
-(A2d, `/whatsapp/oneriler`). Tek istisna **otomatik kapatma (A2e, 0038)**: aşağıya bakın. Ağ geçidi
+(A2d, `/whatsapp/oneriler`; bu panel sayfası **kaldırıldı**, bekleyen öneriler süresi dolunca kapanır). Tek istisna **otomatik kapatma (A2e, 0038)**: aşağıya bakın. Ağ geçidi
 değişmez ve yeni yetki almaz.
 
 - **Worker:** `node dist/wa-calendar.js` (kaynak `src/server/whatsapp/calendar/`). Coolify → uygulama →
@@ -797,9 +797,10 @@ girişi kapatır. Tablolar ileri bir migration'la kaldırılabilir.
 ## Merkezi WhatsApp grup yönetimi — Aşama 2 (0043–0045)
 
 Grup keşfi, işletmeye atama, villa eşleştirme, aktif/pasif, villa değişikliği, bağlantı kaldırma ve
-"yok say / arşivle" **yalnız** `admin.<alan-adı>` → **WhatsApp grupları** sayfasındadır. İşletme paneli
-(`app.<alan-adı>/whatsapp`) kendi gruplarını **salt okunur** görür (durum, villa, mesajlar, öneriler);
-numara doğrulama 3. aşamaya kadar durur. Bütün Super Admin hesaplarının yetkisi aynıdır.
+"yok say / arşivle" **yalnız** `admin.<alan-adı>` → **WhatsApp grupları** sayfasındadır. İşletme panelinde
+WhatsApp modülü **yoktur** (menü, `/whatsapp` ve `/whatsapp/oneriler` kaldırıldı; eski adresler `/panel`'e
+kalıcı yönlenir): işletme sahibi yalnız Kiraligim numarasını grubuna ekler; telefon doğrulaması, grup
+eşleştirmesi veya öneri onayı istenmez. Bütün Super Admin hesaplarının yetkisi aynıdır.
 
 - **Veritabanı (0044):** `app_wa_admin_*` fonksiyonları (SECURITY DEFINER, sahip `app_migrator`,
   **yalnız `app_admin`** çağırır). Her çağrıda yönetici `admin_users`'ta aktif mi denetlenir (değilse

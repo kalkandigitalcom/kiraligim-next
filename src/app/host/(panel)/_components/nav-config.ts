@@ -1,11 +1,4 @@
-import {
-  CalendarDays,
-  CalendarRange,
-  House,
-  LayoutDashboard,
-  type LucideIcon,
-  MessageCircle,
-} from "lucide-react";
+import { CalendarDays, CalendarRange, House, LayoutDashboard, type LucideIcon } from "lucide-react";
 
 /**
  * Panel kenar çubuğu menüsü. Yeni bir bölüm eklemek için ilgili gruba öğe ekleyin (ya da yeni
@@ -41,12 +34,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         match: under("/rezervasyonlar"),
       },
       { href: "/takvim", label: "Takvim", icon: CalendarDays, match: under("/takvim") },
-      {
-        href: "/whatsapp",
-        label: "WhatsApp Asistanı",
-        icon: MessageCircle,
-        match: under("/whatsapp"),
-      },
     ],
   },
 ];
