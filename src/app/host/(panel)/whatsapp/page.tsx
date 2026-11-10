@@ -21,6 +21,7 @@ import {
   listPropertyOptions,
   listRecentMessages,
 } from "@/server/whatsapp/service";
+import { canDecideProposals, countPendingProposals } from "@/server/whatsapp/proposals";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
 import {
@@ -118,6 +119,8 @@ export default async function WhatsAppPage({ searchParams }: Props) {
       myPhone: canManage ? await getMyPhone(tx) : null,
       pending: canManage ? await listPendingGroups(tx, ctx) : [],
       properties: canManage ? await listPropertyOptions(tx) : [],
+      canDecide: canDecideProposals(ctx),
+      pendingProposals: await countPendingProposals(tx, ctx),
     };
   });
   const {
@@ -132,6 +135,8 @@ export default async function WhatsAppPage({ searchParams }: Props) {
     myPhone,
     pending,
     properties,
+    canDecide,
+    pendingProposals,
   } = view;
   const propertyOptions = properties.map((p) => ({
     value: p.id,
@@ -148,12 +153,32 @@ export default async function WhatsAppPage({ searchParams }: Props) {
         </h1>
         <p className="mt-1 text-[15px] text-muted-foreground">
           Kiraligim asistan numarasını WhatsApp grubunuza ekleyin, ardından grubu buradan bir
-          villayla eşleştirin. Gruba kod veya komut yazmanız gerekmez. Bu aşamada mesajlar yalnız
-          kaydedilir; takvim veya fiyat işlemi yapılmaz.
+          villayla eşleştirin. Gruba kod veya komut yazmanız gerekmez. Rezervasyon ve kapatma
+          mesajlarından öneri çıkarılır; takvim yalnız siz onayladığınızda değişir.
         </p>
       </div>
 
       {notice ? <Alert tone={notice.tone}>{notice.text}</Alert> : null}
+
+      {canDecide ? (
+        <Link
+          href="/whatsapp/oneriler"
+          data-testid="wa-proposals-link"
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-5 py-3 text-sm",
+            pendingProposals > 0
+              ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100/70"
+              : "border-border bg-white text-navy-900 hover:bg-mist/60",
+          )}
+        >
+          <span className="font-semibold">
+            {pendingProposals > 0
+              ? `${pendingProposals} takvim önerisi onayınızı bekliyor`
+              : "Onay bekleyen takvim önerisi yok"}
+          </span>
+          <span className="text-turquoise-700">Önerileri aç →</span>
+        </Link>
+      ) : null}
 
       {/* ── Bağlantı durumu ── */}
       <section

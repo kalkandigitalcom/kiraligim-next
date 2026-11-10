@@ -380,11 +380,17 @@ async function mapWriteError(
 
 export type CreateInput = Record<string, unknown> & { kind?: unknown; propertyId?: unknown };
 
-/** Yeni rezervasyon veya blok (owner/manager). Pasif mülke eklenemez. */
+/**
+ * Yeni rezervasyon veya blok (owner/manager). Pasif mülke eklenemez.
+ * opts.originProposalId: kayıt bir WhatsApp önerisinin panelde onaylanmasıyla oluşuyorsa öneri
+ * kimliği (bileşik yabancı anahtar: yalnız bu işletmenin önerisi). Ham mesaj ASLA doğrudan kayıt
+ * oluşturmaz; bu yol yalnız src/server/whatsapp/proposals.ts onay akışından kullanılır.
+ */
 export async function createReservation(
   tx: Tx,
   ctx: TenantContext,
   input: CreateInput,
+  opts: { originProposalId?: string } = {},
 ): Promise<string> {
   if (!canManageReservations(ctx.role)) throw forbidden();
   const kind =
@@ -414,14 +420,14 @@ export async function createReservation(
       insert into reservations (
         id, workspace_id, property_id, kind, status, source, check_in, check_out,
         guest_name, guest_phone, guest_email, adults, children,
-        total_amount_minor, deposit_amount_minor, currency, note, created_by)
+        total_amount_minor, deposit_amount_minor, currency, note, created_by, origin_proposal_id)
       values (
         ${id}, app_current_workspace_id(), ${propertyId}, ${kind},
         ${r ? r.status : "confirmed"}, ${r?.source ?? null}, ${v.checkIn}, ${v.checkOut},
         ${r?.guestName ?? null}, ${r?.guestPhone ?? null}, ${r?.guestEmail ?? null},
         ${r?.adults ?? null}, ${r?.children ?? null},
         ${r?.totalAmountMinor ?? null}, ${r?.depositAmountMinor ?? null}, ${r?.currency ?? null},
-        ${v.note}, app_current_user_id())`);
+        ${v.note}, app_current_user_id(), ${opts.originProposalId ?? null})`);
     await tx.execute(sql`release savepoint create_reservation`);
   } catch (err) {
     await tx.execute(sql`rollback to savepoint create_reservation`);

@@ -61,3 +61,22 @@ describe("fotoğraf denetim kayıtları", () => {
     expect(bad({ action, metadata: { property: "x" } })).toThrow();
   });
 });
+
+describe("WhatsApp önerisi kararları", () => {
+  const property = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+  const reservation = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c";
+  it("onay yalnız kimlik, eylem ve düzenleme bayrağı taşır", () => {
+    const metadata = { property, action: "reserve", reservation, edited: false };
+    expect(validateAuditEntry({ action: "whatsapp.proposal_applied", metadata })).toEqual(metadata);
+    expect(
+      bad({ action: "whatsapp.proposal_applied", metadata: { ...metadata, guest: "Ayşe" } }),
+    ).toThrow();
+    expect(
+      bad({ action: "whatsapp.proposal_applied", metadata: { ...metadata, action: "open" } }),
+    ).toThrow();
+  });
+  it("ret meta veri taşımaz (not yazılmaz)", () => {
+    expect(validateAuditEntry({ action: "whatsapp.proposal_rejected", metadata: {} })).toEqual({});
+    expect(bad({ action: "whatsapp.proposal_rejected", metadata: { note: "x" } })).toThrow();
+  });
+});

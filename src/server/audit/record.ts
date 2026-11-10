@@ -146,6 +146,14 @@ export const AUDIT_ACTIONS = {
   "whatsapp.group_unlinked": z.strictObject({}),
   "whatsapp.link_manager_granted": z.strictObject({}),
   "whatsapp.link_manager_revoked": z.strictObject({}),
+  // A2d: WhatsApp önerisinin panelde kararı. Mesaj metni, misafir adı ve numara yazılmaz.
+  "whatsapp.proposal_applied": z.strictObject({
+    property: z.uuid(),
+    action: z.enum(["reserve", "close"]),
+    reservation: z.uuid(),
+    edited: z.boolean(),
+  }),
+  "whatsapp.proposal_rejected": z.strictObject({}),
   "reservation.status_changed": z.strictObject({
     property: z.uuid(),
     from: z.enum(RESERVATION_STATUSES),
@@ -167,7 +175,8 @@ export type AuditEntry<A extends AuditAction = AuditAction> = {
     | "external_calendar_source"
     | "reservation"
     | "whatsapp_group"
-    | "whatsapp_link_code";
+    | "whatsapp_link_code"
+    | "whatsapp_proposal";
   targetId?: string;
   metadata: z.input<(typeof AUDIT_ACTIONS)[A]>;
 };

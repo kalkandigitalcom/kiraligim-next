@@ -946,3 +946,50 @@ export function reviewRequirement(
   if (band !== "high") reasons.push("low_confidence");
   return { quickApprove: reasons.length === 0, score, band, reasons };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Kişi sayısı (onay ekranında ön doldurma; öneri kaydına yazılmaz, yönetici düzeltir)
+// ---------------------------------------------------------------------------------------------
+
+export type WaGuestCount = {
+  /** Yetişkin sayısı; yalnız "N kişi" yazıldıysa N. */
+  adults: number | null;
+  children: number | null;
+  /** Toplam kişi (yetişkin + çocuk ya da "N kişi"). */
+  total: number | null;
+};
+
+const GUESTS_MAX = 50;
+
+/**
+ * "4 kişi", "4 kişilik", "2 yetişkin 1 çocuk", "6 misafir", "3 pax". Tarih ve tutar sayıları
+ * kişi sayısı sayılmaz (yalnız ardından kişi sözcüğü gelen 1–2 haneli sayı). Bulunamazsa null.
+ * Saf fonksiyon; sonuç yalnız onay formunu önceden doldurur, yönetici her zaman düzeltebilir.
+ */
+export function parseGuestCount(text: string): WaGuestCount {
+  const folded = foldTr(text.slice(0, MAX_INPUT));
+  const pick = (re: RegExp): number | null => {
+    const m = re.exec(folded);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return Number.isInteger(n) && n >= 0 && n <= GUESTS_MAX ? n : null;
+  };
+  const boundary = "(?![a-z0-9])";
+  const pre = "(?<![0-9.,:/-])";
+  const adults = pick(new RegExp(`${pre}\\b(\\d{1,2})\\s*(?:yetiskin|buyuk)`, "u"));
+  const children = pick(new RegExp(`${pre}\\b(\\d{1,2})\\s*(?:cocuk|bebek)`, "u"));
+  const total = pick(
+    new RegExp(`${pre}\\b(\\d{1,2})\\s*(?:kisi[a-z]*|misafir[a-z]*|pax)${boundary}`, "u"),
+  );
+  if (adults !== null) {
+    return { adults, children, total: adults + (children ?? 0) };
+  }
+  if (total !== null) {
+    return {
+      adults: total - (children ?? 0) > 0 ? total - (children ?? 0) : total,
+      children,
+      total,
+    };
+  }
+  return { adults: null, children, total: children };
+}

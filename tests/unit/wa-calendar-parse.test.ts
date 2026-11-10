@@ -5,6 +5,7 @@ import {
   foldTr,
   matchVillaName,
   parseCalendarMessage,
+  parseGuestCount,
   reviewRequirement,
   scoreProposal,
   villaKey,
@@ -777,4 +778,25 @@ describe("grup dışı villa (A2b)", () => {
   it("ayrıştırıcı sürümü değişmedi", () => {
     expect(WA_CALENDAR_PARSER_VERSION).toBe(2);
   });
+});
+
+describe("kişi sayısı (onay formu ön doldurma)", () => {
+  it.each([
+    ["Villa 15 Kasım giriş, 18 Kasım çıkış, 4 kişi.", { adults: 4, children: null, total: 4 }],
+    ["2 yetişkin 1 çocuk", { adults: 2, children: 1, total: 3 }],
+    ["6 kişilik aile", { adults: 6, children: null, total: 6 }],
+    ["12 kişiyiz", { adults: 12, children: null, total: 12 }],
+    ["5 kişi 2 çocuk", { adults: 3, children: 2, total: 5 }],
+    ["3 pax", { adults: 3, children: null, total: 3 }],
+    ["4 MİSAFİR", { adults: 4, children: null, total: 4 }],
+  ])("%s", (text, expected) => {
+    expect(parseGuestCount(text)).toEqual(expected);
+  });
+
+  it.each(["15-20 Haziran 3.500 EUR", "Villa Mavi 3-8 Temmuz kapalı", "1.5 kişi", "99 kişi", ""])(
+    "sayı yok veya geçersiz: %s",
+    (text) => {
+      expect(parseGuestCount(text)).toEqual({ adults: null, children: null, total: null });
+    },
+  );
 });
