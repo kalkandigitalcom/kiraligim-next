@@ -553,3 +553,21 @@ export const waCalendarProposals = pgTable(
     ),
   ],
 );
+
+/**
+ * WhatsApp Asistanı — A2c: takvim worker'ının tek satırlık durumu (drizzle/0037).
+ *
+ * activatedAt: worker'ın İLK iş almasında (app_wa_claim_messages) atomik olarak doldurulur; o ana
+ * kadar kuyruktaki tüm mesajlar "ignored" (before_activation) yapılır ve yalnız bu andan SONRA
+ * alınan ve gönderilen mesajlar işlenir. Kimseye tablo yetkisi verilmez; yalnız worker
+ * fonksiyonları (app_migrator, app.wa_calendar bayrağı) okur ve yazar.
+ */
+export const waCalendarWorkerState = pgTable(
+  "wa_calendar_worker_state",
+  {
+    id: smallint().primaryKey().default(1),
+    activatedAt: ts(),
+    updatedAt: ts().notNull().defaultNow(),
+  },
+  (t) => [check("wa_calendar_worker_state_singleton", sql`${t.id} = 1`)],
+);

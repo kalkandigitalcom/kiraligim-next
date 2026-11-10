@@ -164,3 +164,33 @@ export const WA_PROPOSAL_LIMITS = {
 
 /** Saklama süresi dolan karar verilmiş önerilerde mesaj alıntısının yerine yazılan metin. */
 export const WA_PROPOSAL_EXCERPT_PURGED = "(silindi)";
+
+/**
+ * A2c takvim worker'ı (dist/wa-calendar.js, Coolify Scheduled Task, her dakika). Süre bütçesi
+ * zamanlama aralığından (60 sn) kısadır; çalıştırmalar üst üste binse bile iş alma SKIP LOCKED ile
+ * aynı mesajı iki kez vermez.
+ */
+export const WA_WORKER_LIMITS = {
+  /** Tek iş almada alınacak mesaj (≤ claimBatchMax). Küçük tutulur: kilit 120 sn. */
+  batchSize: 10,
+  /** Bir çalıştırmanın süre bütçesi (ms). Bütçe dolunca yeni iş alınmaz. */
+  budgetMs: 45_000,
+  /** Bir çalıştırmada en fazla işlenecek mesaj. */
+  maxMessagesPerRun: 500,
+  /** app_wa_busy'nin kabul ettiği en uzun aralık (gece). */
+  busyMaxNights: 400,
+} as const;
+
+/**
+ * Worker'ın mesaja yazdığı kısa hata kodları (wa_inbound_messages.last_error; ^[a-z0-9_]{1,60}$).
+ * context_changed: worker'ın bağlamı yazım anında eskimişti (grup villası değişti, villa pasife
+ * alındı…); mesaj yeniden denenir.
+ */
+export const WA_WORKER_ERRORS = [
+  "parse_error",
+  "context_error",
+  "busy_error",
+  "store_error",
+  "context_changed",
+] as const;
+export type WaWorkerError = (typeof WA_WORKER_ERRORS)[number];

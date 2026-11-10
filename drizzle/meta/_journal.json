@@ -260,6 +260,13 @@
       "when": 1794298838587,
       "tag": "0036_wa_calendar_proposals_security",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794300511006,
+      "tag": "0037_wa_calendar_worker",
+      "breakpoints": true
     }
   ]
 }

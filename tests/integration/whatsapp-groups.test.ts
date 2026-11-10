@@ -482,6 +482,7 @@ describe("veritabanı güvenliği", () => {
     expect(t.rows).toEqual(
       [
         "wa_calendar_proposals", // 0035 (A2)
+        "wa_calendar_worker_state", // 0037 (A2c)
         "wa_connections",
         "wa_groups",
         "wa_inbound_messages",

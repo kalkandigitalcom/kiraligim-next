@@ -685,6 +685,45 @@ sıkılaştırır; 0033–0034 yeni kolonlar, iki tablo ve fonksiyonlar ekler, `
 (`workspaces_wa_read`, `audit_log_wa_insert`). Kaldırma komutları 0031'in başındaki yorumdadır (veri kaybı:
 gruplar, kodlar, mesajlar). Uygulanmış migration değiştirilmez; kalıcı geri alma yeni bir ileri migration'la.
 
+## WhatsApp Asistanı — A2 takvim önerileri ve worker (0035–0037)
+
+Bağlı gruplardan gelen mesajlar **takvimi değiştirmez**; worker yalnız **işlem önerisi**
+(`wa_calendar_proposals`) oluşturur. Rezervasyon ve bloklar yalnız panelde, oturumdaki owner/manager
+onayıyla ve rezervasyon servisiyle değişir (A2d). Ağ geçidi değişmez ve yeni yetki almaz.
+
+- **Worker:** `node dist/wa-calendar.js` (kaynak `src/server/whatsapp/calendar/`). Coolify → uygulama →
+  **Scheduled Tasks** → komut `node dist/wa-calendar.js`, sıklık `* * * * *` (her dakika), uygulama
+  konteyneri. Uygulamanın `DATABASE_URL`'ini (`app_user`, RLS) kullanır; ek ortam değişkeni, HTTP uç noktası
+  veya sır yoktur. Bir çalıştırma en fazla ~45 sn sürer; çalıştırmalar üst üste binse de aynı mesaj iki kez
+  işlenmez (`FOR UPDATE SKIP LOCKED`, kilit belirteci, `UNIQUE(message_id, item_no)`).
+- **Akış:** süresi geçen bekleyen öneriler `expired` → mesaj alma (`app_wa_claim_messages`, 120 sn kilit)
+  → ayrıştırma (parser v2; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
+  sonuç) → villa eşleştirme (işletmenin aktif villaları; grup villası yalnız adsız mesajda) → çakışma
+  özeti (yalnız okuma) → tek atomik yazım (`app_wa_store_proposals`). Hata: mesaj yeniden denenir, 5.
+  denemeden sonra `failed`.
+- **İlk aktivasyon (0037):** worker'ın İLK çalıştırması kendini atomik olarak etkinleştirir
+  (`wa_calendar_worker_state.activated_at`); o ana kadar kuyruktaki tüm mesajlar `ignored`
+  (`before_activation`) olur. Migration ile Scheduled Task'ın açılması arasında gelen mesajlar da öneri
+  üretmez. Aktivasyondan önce gönderilmiş veya kaydedilmiş mesaj sonradan da işlenmez. 7 günden eski
+  mesajlar (`too_old`) ve backlog hiç işlenmez.
+- **Yazım anında yeniden denetim (0037):** öneri yazılmadan hemen önce aynı transaction'da kilit
+  belirteci, grubun hâlâ bağlı olduğu (grup satırı kilitlenir; bağlantı kesme ile sıralanır), işletmenin
+  aktifliği, gönderen yetkisi, villanın aktifliği ve grubun güncel villası denetlenir. Bağlam eskidiyse
+  (`context_changed`) hiçbir şey yazılmaz ve mesaj yeniden denenir. Staff önerisine
+  `staff_review_required`, grup dışı villaya `villa_needs_review` nedeni veritabanında eklenir: ikisi de
+  tek tıkla onaylanamaz.
+- **Log:** yalnız mesaj/öneri kimliği, deneme sayısı, sonuç ve sayaçlar. Mesaj metni, alıntı, villa adı,
+  telefon veya numara özeti yazılmaz; veritabanı hata nesnesi yerine yalnız SQLSTATE ve kısa kod.
+- **Kod sınırı:** `src/server/whatsapp/calendar/**` rezervasyon, iCal ve fiyat servislerini import edemez
+  (eslint).
+
+**Yayın sırası (A2):** 0035–0037 web uygulamasının açılışında uygulanır (production'da önce yedek). 0036
+migration anında kuyruğu boşaltır; 0037 ilk worker çalıştırmasında yeniden boşaltır. Ardından Scheduled
+Task eklenir. Task'ı durdurmak yeterlidir (mesajlar kuyrukta bekler, 7 gün sonra `too_old`).
+
+**Geri alma.** Komutlar 0036 ve 0037'nin başındaki yorumdadır (0037: iki fonksiyon 0036 tanımına döner,
+`wa_calendar_worker_state` kaldırılır). Uygulanmış migration değiştirilmez.
+
 ## Veritabanı rolleri ve migration
 
 ### Roller

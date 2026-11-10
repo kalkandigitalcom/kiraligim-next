@@ -50,6 +50,40 @@ const eslintConfig = defineConfig([
   surfaceRule("admin"),
   surfaceRule("site"),
   {
+    // WhatsApp takvim worker'ı yalnız öneri oluşturur: rezervasyon, iCal ve fiyat servislerini
+    // (takvime yazan kodu) import edemez.
+    files: ["src/server/whatsapp/calendar/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          ...dbOnly,
+          patterns: [
+            ...dbOnly.patterns,
+            {
+              group: [
+                "@/server/reservations",
+                "@/server/reservations/*",
+                "@/server/ical",
+                "@/server/ical/*",
+                "@/server/rates",
+                "@/server/rates/*",
+                "**/server/reservations/**",
+                "**/server/ical/**",
+                "**/server/rates/**",
+                "../../reservations/*",
+                "../../ical/*",
+                "../../rates/*",
+              ],
+              message:
+                "WhatsApp takvim worker'ı yalnız öneri oluşturur; rezervasyon/iCal/fiyat servislerini import edemez.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["src/components/**"],
     rules: {
       "no-restricted-imports": [

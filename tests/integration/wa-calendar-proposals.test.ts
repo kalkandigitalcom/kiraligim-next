@@ -238,6 +238,9 @@ beforeAll(async () => {
   G = await linkedGroup(ws, mavi);
   // Önceki dosyaların bıraktığı bekleyen mesajlar bu testleri etkilemesin.
   await admin.query("select public.app_wa_calendar_cutover()");
+  // A2c (0037): worker ilk iş almada etkinleşir ve o ana kadarki mesajları yok sayar. Bu dosyanın
+  // mesajları etkinleşmeden SONRA gelsin diye burada etkinleştirilir (zaten etkinse değişmez).
+  await appPool.query("select * from public.app_wa_claim_messages(1)");
 });
 
 afterAll(async () => {
@@ -554,7 +557,13 @@ describe("worker: öneri kaydı", () => {
     const c = await claimOne(m);
     const n = await store(c, [
       item({ item_no: 0 }),
-      item({ item_no: 1, property_id: asya, villa_name_raw: "Asya" }),
+      // Grup dışı villa (A2c, 0037): bayrak zorunlu; veritabanı villa_needs_review ekler.
+      item({
+        item_no: 1,
+        property_id: asya,
+        villa_name_raw: "Asya",
+        flags: ["villa_outside_group"],
+      }),
     ]);
     expect(n.rows[0]!.n).toBe(2);
     const rows = await proposalsOf(m);
@@ -572,6 +581,10 @@ describe("worker: öneri kaydı", () => {
       action: "close",
       property_id: mavi,
       parser_version: WA_CALENDAR_PARSER_VERSION,
+    });
+    expect(rows[1]).toMatchObject({
+      property_id: asya,
+      review_reasons: ["villa_needs_review", "staff_review_required"],
     });
     expect(await msgRow(m)).toMatchObject({
       status: "processed",
