@@ -33,7 +33,7 @@ fi
 
 export TEST_ADMIN_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:${PORT}/postgres"
 # db-bootstrap.sql konteynerin içindeki psql ile çalıştırılır (Mac'e psql kurmak gerekmez).
-export PSQL_CMD="docker exec -i -e KG_MIGRATOR_PASSWORD -e KG_APP_PASSWORD -e KG_WA_GATEWAY_PASSWORD $NAME psql"
+export PSQL_CMD="docker exec -i -e KG_MIGRATOR_PASSWORD -e KG_APP_PASSWORD -e KG_WA_GATEWAY_PASSWORD -e KG_ADMIN_DB_PASSWORD $NAME psql"
 export PSQL_URL="postgres://postgres:postgres@localhost:5432/postgres"
 
 npx vitest run --project integration

@@ -2,7 +2,7 @@
  * Gerçek scripts/db-bootstrap.sql (ve scripts/wa-gateway-role.sql) dosyasını psql ile çalıştırır.
  * - CI ve sunucu: yerel `psql` (PSQL_CMD boş).
  * - Mac: konteyner içindeki psql (PSQL_CMD="docker exec -i -e KG_MIGRATOR_PASSWORD -e KG_APP_PASSWORD
- *   -e KG_WA_GATEWAY_PASSWORD <ad> psql").
+ *   -e KG_WA_GATEWAY_PASSWORD -e KG_ADMIN_DB_PASSWORD <ad> psql").
  * Parolalar, script'in beklediği gibi komut satırından değil ortam değişkeninden verilir.
  */
 import { spawnSync } from "node:child_process";
@@ -46,6 +46,22 @@ export function runWaGatewayRole(input: { dbName: string; password?: string }) {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.KG_WA_GATEWAY_PASSWORD;
   if (input.password !== undefined) env.KG_WA_GATEWAY_PASSWORD = input.password;
+  const args = [...pre, adminUrl, "-X", "-v", "ON_ERROR_STOP=1", "-v", `db_name=${input.dbName}`];
+  const res = spawnSync(bin!, [...args, "-f", "-"], { input: sql, encoding: "utf8", env });
+  return {
+    status: res.status,
+    output: `${res.stdout ?? ""}${res.stderr ?? ""}${res.error ? String(res.error) : ""}`,
+  };
+}
+
+/** scripts/admin-role.sql: Super Admin rolü (app_admin) için LOGIN ve parola. */
+export function runAdminRole(input: { dbName: string; password?: string }) {
+  const adminUrl = process.env.PSQL_URL ?? process.env.TEST_ADMIN_DATABASE_URL ?? "";
+  const [bin, ...pre] = (process.env.PSQL_CMD ?? "psql").split(" ").filter(Boolean);
+  const sql = fs.readFileSync(path.resolve(__dirname, "../../scripts/admin-role.sql"), "utf8");
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.KG_ADMIN_DB_PASSWORD;
+  if (input.password !== undefined) env.KG_ADMIN_DB_PASSWORD = input.password;
   const args = [...pre, adminUrl, "-X", "-v", "ON_ERROR_STOP=1", "-v", `db_name=${input.dbName}`];
   const res = spawnSync(bin!, [...args, "-f", "-"], { input: sql, encoding: "utf8", env });
   return {

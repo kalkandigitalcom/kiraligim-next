@@ -5,6 +5,7 @@
 // dist/ical-sync.js: harici takvim (iCal) otomatik senkronu (Coolify Scheduled Task).
 // dist/wa-retention.js: WhatsApp mesaj saklama süresi temizliği (Coolify Scheduled Task).
 // dist/wa-calendar.js: WhatsApp takvim worker'ı — mesajlardan öneri (Coolify Scheduled Task, her dakika).
+// dist/admin-user.js: Super Admin hesap aracı (oluştur, 2FA/şifre yenile, devre dışı bırak, listele).
 import { build } from "esbuild";
 
 await build({
@@ -15,6 +16,7 @@ await build({
     "ical-sync": "src/server/ical/cron.ts",
     "wa-retention": "src/server/whatsapp/retention.ts",
     "wa-calendar": "src/server/whatsapp/calendar/cron.ts",
+    "admin-user": "src/server/admin/cli.ts",
   },
   outdir: "dist",
   bundle: true,

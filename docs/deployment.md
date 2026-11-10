@@ -758,6 +758,42 @@ yeterlidir (öneriler panelde onaylanır); 0038'in geri alma komutu dosyanın ba
 **Geri alma.** Komutlar 0036 ve 0037'nin başındaki yorumdadır (0037: iki fonksiyon 0036 tanımına döner,
 `wa_calendar_worker_state` kaldırılır). Uygulanmış migration değiştirilmez.
 
+## Super Admin — minimal (Aşama 2.8; 0041–0042)
+
+`admin.<alan-adı>` yalnız Kiralığım platform yöneticileri içindir. İşletme kimlik sisteminden (Better
+Auth) **tamamen ayrıdır**: ayrı tablolar (`admin_users`, `admin_login_challenges`, `admin_sessions`,
+`admin_audit_log`), ayrı çerez ve ayrı veritabanı rolü (`app_admin`).
+
+- **Güvenlik modeli:** şifre (en az 12 karakter, scrypt) + **zorunlu TOTP** (Google Authenticator,
+  1Password…; aynı kod ikinci kez geçmez). Art arda 5 hatalı deneme hesabı 15 dk kilitler. Oturum en
+  fazla 12 saat; 2 saat hareketsizlikte biter. Çerez yalnız admin alan adında (`__Host-kg_admin`,
+  Secure, HttpOnly, SameSite=Strict). Belirteçler veritabanında yalnız SHA-256 özetiyle, TOTP sırları
+  AES-256-GCM ile şifreli tutulur (anahtar veritabanında değil). Hata mesajları geneldir. Giriş,
+  çıkış, başarısız deneme ve hesap işlemleri `admin_audit_log`'a yazılır (yalnız eklenir).
+- **Veritabanı:** `app_admin` yalnız `admin_*` tablolarını kullanır (FORCE RLS, en dar yetki); işletme
+  tablolarına doğrudan yetkisi yoktur. `app_user` (işletme paneli) `admin_*` tablolarına erişemez.
+  Platform işlemleri (WhatsApp grup eşleştirme vb.) sonraki aşamada dar SECURITY DEFINER
+  fonksiyonlarla verilecek. Kayıt (sign-up) yoktur.
+- **Ortam değişkenleri (web uygulaması):** `DATABASE_ADMIN_URL=postgres://app_admin:<parola>@<host>:5432/kiraligim_prod`
+  ve `ADMIN_SECRET_KEY` (`openssl rand -base64 32`). Tanımlı değilse yönetim paneli "yapılandırılmamış"
+  der; uygulamanın geri kalanı etkilenmez. `ADMIN_SECRET_KEY` değişirse yöneticilerin 2FA'sı
+  yenilenmelidir.
+
+**Kurulum sırası (bir kez):**
+
+1. Deploy (0041–0042 açılışta uygulanır).
+2. `scripts/admin-role.sql` ile `app_admin` girişini açın (kullanım dosyanın başında; parola ortam
+   değişkeninden). Coolify'a `DATABASE_ADMIN_URL` ve `ADMIN_SECRET_KEY` ekleyip yeniden başlatın.
+3. Uygulama konteynerinde ilk yöneticiyi oluşturun (şifre komut satırında değil):
+   `read -rs ADMIN_NEW_PASSWORD; export ADMIN_NEW_PASSWORD; node dist/admin-user.js create --email <e-posta> --name "<Ad>"; unset ADMIN_NEW_PASSWORD`.
+   Ekrandaki sırrı/bağlantıyı kimlik doğrulama uygulamasına ekleyin, sonra terminali temizleyin.
+4. `https://admin.kiraligim.com/giris` → e-posta, şifre, 6 haneli kod.
+
+Diğer komutlar: `reset-2fa`, `reset-password`, `disable`, `enable`, `list` (`dist/admin-user.js`).
+
+**Geri alma:** `DATABASE_ADMIN_URL`'i kaldırmak paneli kapatır; `ALTER ROLE app_admin NOLOGIN PASSWORD NULL;`
+girişi kapatır. Tablolar ileri bir migration'la kaldırılabilir.
+
 ## Veritabanı rolleri ve migration
 
 ### Roller
@@ -767,7 +803,7 @@ yeterlidir (öneriler panelde onaylanır); 0038'in geri alma komutu dosyanın ba
 | `postgres` (Coolify)      | Yalnız kurulum ve acil durum  | Süper kullanıcı; RLS'i yok sayar                                                            | **Hiçbir uygulama env'inde olmaz** |
 | `app_migrator`            | Yalnız migration              | Veritabanı ve `public` şema sahibi; tablo oluşturur. Süper kullanıcı değil, RLS'i atlayamaz | `MIGRATION_DATABASE_URL`           |
 | `app_user`                | Web uygulaması                | Nesne oluşturamaz; tablo yetkileri her migration'da açıkça verilir; RLS her zaman uygulanır | `DATABASE_URL`                     |
-| `app_admin`, `app_worker` | Super Admin, arka plan işleri | Şimdilik giriş kapalı                                                                       | —                                  |
+| `app_admin`, `app_worker` | Super Admin, arka plan işleri | app_admin: scripts/admin-role.sql ile açılır (yalnız admin_*); app_worker: kapalı           | —                                  |
 
 Tenant tabloları `ENABLE` **ve** `FORCE ROW LEVEL SECURITY` ile oluşturulur: FORCE olmadan tablo
 sahibi (`app_migrator`) RLS'ten muaftır. Süper kullanıcı FORCE'u da atlar; bu yüzden uygulama asla

@@ -288,6 +288,20 @@
       "when": 1794332694929,
       "tag": "0040_wa_reaction_security",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794335849327,
+      "tag": "0041_admin_core",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794335870732,
+      "tag": "0042_admin_security",
+      "breakpoints": true
     }
   ]
 }
