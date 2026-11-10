@@ -72,7 +72,6 @@ describe("otomatik kapatma kuralı", () => {
   });
 
   it.each([
-    "Villa Asya 10–15 Haziran kapatalım.", // grubun villası değil
     "Villa Testo 10 Haziran kapatalım", // tek tarih
     "Villa Testo kapatalım", // tarih yok
     "Villa Testo 10–15 Haziran kapatalım mı?", // soru
@@ -96,6 +95,60 @@ describe("otomatik kapatma kuralı", () => {
       },
     ];
     expect(cand("Villa Testo 10–15 Haziran kapatalım.", { busy })).toBeNull();
+  });
+});
+
+describe("grup eşleştirmesi kesin kaynak (production senaryosu)", () => {
+  // Grup adı "villa testo", bağlı villa "Villa In Love" (işletmenin tek villası değil: Asya da var).
+  const prod: ResolveContext = {
+    workspaceId: WS,
+    villas: [
+      { id: "inlove", workspaceId: WS, name: "Villa In Love" },
+      { id: "asya", workspaceId: WS, name: "Villa Asya" },
+    ],
+    groupPropertyId: "inlove",
+  };
+  const candFor = (text: string, role: "owner" | "manager" | "staff" | null = "owner") =>
+    autoCloseCandidate(
+      parseCalendarMessage(text, TODAY).items.map((item, i) =>
+        buildStoreItem({
+          item,
+          itemNo: i,
+          villa: resolveProposal(item, prod),
+          busy: [],
+          senderRole: role,
+        }),
+      ),
+      { senderRole: role, groupPropertyId: prod.groupPropertyId },
+    );
+
+  it.each([
+    ["ad gerçek villa adıyla aynı", "Villa In Love 10–15 Haziran kapatalım.", []],
+    ["ad farklı (grubun adı)", "Villa Testo 10–15 Haziran kapatalım.", ["villa_name_mismatch"]],
+    ["ad hiç yok", "10–15 Haziran kapatalım.", ["villa_missing"]],
+    ["başka villanın adı", "Villa Asya 10–15 Haziran kapatalım.", ["villa_name_mismatch"]],
+  ])("%s → grubun villası bloklanır", (_label, text, extra) => {
+    const c = candFor(text);
+    expect(c).toMatchObject({ property_id: "inlove", action: "close", review_reasons: [] });
+    expect(c!.flags.filter((f) => f !== "year_inferred")).toEqual(extra);
+  });
+
+  it("grup eşleştirmesi yoksa (villasız grup) aday yok", () => {
+    const items = parseCalendarMessage("Villa In Love 10–15 Haziran kapatalım.", TODAY).items;
+    const store = items.map((item, i) =>
+      buildStoreItem({
+        item,
+        itemNo: i,
+        villa: resolveProposal(item, { ...prod, groupPropertyId: null }),
+        busy: [],
+        senderRole: "owner",
+      }),
+    );
+    expect(autoCloseCandidate(store, { senderRole: "owner", groupPropertyId: null })).toBeNull();
+  });
+
+  it.each(["manager", "staff", null] as const)("yetkisiz gönderen (%s) → aday yok", (role) => {
+    expect(candFor("Villa Testo 10–15 Haziran kapatalım.", role)).toBeNull();
   });
 });
 

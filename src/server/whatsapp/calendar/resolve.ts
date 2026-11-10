@@ -14,10 +14,14 @@
  * Yazım hatası tahmin edilmez ("Lavnta" eşleşmez). Türkçe harfler ve büyük/küçük harf katlanır
  * (villaKey).
  *
- * Grup villası yalnız mesajda villa adı YOKSA varsayılan olarak kullanılır. Ad yazılmış ama
- * bulunamamışsa grup villasına düşülmez. Ad, grubun villası dışında bir villaya eşleşirse öneri
- * yine oluşturulur, ancak "villa_outside_group" bayrağı eklenir ve reviewRequirement
- * (villaOutsideGroup) "villa_needs_review" nedeniyle tek tıkla onayı engeller.
+ * GRUP VİLLASI KESİN KAYNAKTIR (A2e iş kuralı): grup panelde bir villaya bağlıysa öneri HER ZAMAN
+ * o villaya aittir (ad grubun villasını anlatıyorsa "named", aksi hâlde "single"); mesajda yazan ad (grup adı, takma ad, yazım farkı ya da başka bir
+ * villanın adı) villayı değiştirmez. Yazan ad grubun villasının adıyla eşleşmiyorsa yalnız bilgi
+ * veren "villa_name_mismatch" bayrağı eklenir (panelde gösterilir; onayı engellemez). Grubun
+ * villası aktif değilse (pasif/silinmiş) ada göre başka villa ARANMAZ: "villa_not_found".
+ *
+ * Ada göre eşleştirme (aşağıdaki basamaklar) yalnız grup bir villaya bağlı DEĞİLKEN yapılır
+ * (birden çok villanın konuşulduğu grup). Böyle gruplar otomatik işleme hiçbir zaman girmez.
  */
 import { type VillaResolution, type WaCalendarItem, villaKey } from "@/lib/wa-calendar-parse";
 import { WA_PROPOSAL_LIMITS } from "@/lib/whatsapp-meta";
@@ -46,7 +50,12 @@ export type ResolveContext = {
 };
 
 /** Çözümleyicinin öneriye eklediği bayraklar (ayrıştırıcı bayraklarından ayrı tutulur). */
-export const WA_VILLA_SERVER_FLAGS = ["villa_outside_group", "villa_not_found"] as const;
+export const WA_VILLA_SERVER_FLAGS = [
+  "villa_outside_group",
+  "villa_not_found",
+  /** Bilgi: mesajda yazan ad grubun villasının adı değil; grup eşleştirmesi esas alındı. */
+  "villa_name_mismatch",
+] as const;
 export type WaVillaServerFlag = (typeof WA_VILLA_SERVER_FLAGS)[number];
 
 export type VillaMatchTier = "exact" | "alias" | "first_word" | "prefix" | "group_default";
@@ -149,12 +158,24 @@ export function resolveProposal(
   if (item.flags.includes("villa_ambiguous")) return result("ambiguous", null, null);
 
   const raw = item.villaName?.trim() ?? "";
-  if (!raw) {
-    if (group) return result("single", group.id, "group_default");
-    // Grup bir villaya bağlı ama villa listede yok (pasif veya silinmiş).
-    if (ctx.groupPropertyId) return result("none", null, null, ["villa_not_found"]);
-    return result("none", null, null);
+  // Grup bir villaya bağlı: grup eşleştirmesi kesin kaynaktır (yazılan ad villayı değiştirmez).
+  if (ctx.groupPropertyId) {
+    // Grubun villası aktif değil (pasif veya silinmiş): başka villa aranmaz.
+    if (!group) return result("none", null, null, ["villa_not_found"]);
+    const rawKey = raw ? villaKey(raw) : "";
+    // Ad yok (veya yalnız genel sözcük): grubun villası varsayılan.
+    if (!rawKey || isGeneric(rawKey)) return result("single", group.id, "group_default");
+    // Ad grubun villasını anlatıyor: "named" (aynı villa; grup dışı değil).
+    if (group.nameKey === rawKey) return result("named", group.id, "exact");
+    if (group.aliasKeys.has(rawKey)) return result("named", group.id, "alias");
+    if (namePrefixMatches(group, rawKey)) {
+      return result("named", group.id, rawKey.includes(" ") ? "prefix" : "first_word");
+    }
+    // Ad başka (grubun adı, başka villa, yazım farkı): grup eşleştirmesi kazanır; bilgi bayrağı.
+    return result("single", group.id, "group_default", ["villa_name_mismatch"]);
   }
+
+  if (!raw) return result("none", null, null);
 
   const key = villaKey(raw);
   if (!key || isGeneric(key)) return result("none", null, null, ["villa_not_found"]);
@@ -202,6 +223,16 @@ export function resolveProposal(
   }
 
   return result("none", null, null, ["villa_not_found"]);
+}
+
+/** Yazılan ad grubun villasını ilk sözcüğüyle veya baş sözcükleriyle anlatıyor mu (bilgi bayrağı için). */
+function namePrefixMatches(v: Indexed, key: string): boolean {
+  const words = key.split(" ");
+  if (words.length === 1) {
+    const vw = v.nameKey.split(" ");
+    return vw.length > 1 && vw[0] === words[0];
+  }
+  return v.nameKey.startsWith(`${key} `);
 }
 
 /** resolveProposal sonucunu reviewRequirement bağlamının villa alanlarına çevirir. */

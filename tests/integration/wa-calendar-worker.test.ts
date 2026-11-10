@@ -386,19 +386,32 @@ describe("uçtan uca öneri", () => {
     expect(p.review_reasons).toContain("staff_review_required");
   });
 
-  it("GRUP DIŞI villa: öneri oluşur, bayrak + villa_needs_review (tek tık yok)", async () => {
-    const m = await ingest(G.jid, msg("Villa Asya", 84, 86));
+  it("GRUP VİLLASI KESİN KAYNAK (A2e): başka villanın, pasif veya bilinmeyen villanın adı grubun villasına yazılır", async () => {
+    const ids = [
+      await ingest(G.jid, msg("Villa Asya", 84, 86)),
+      await ingest(G.jid, msg("Villa Pasif", 88, 90)),
+      await ingest(G.jid, msg("Villa Lavnta", 91, 93)),
+    ];
     await run();
-    const [p] = await proposalsOf(m);
-    expect(p).toMatchObject({ property_id: asya, villa_resolution: "named", score: 100 });
-    expect(p.flags).toContain("villa_outside_group");
-    expect(p.review_reasons).toEqual(["villa_needs_review"]);
+    for (const id of ids) {
+      const [p] = await proposalsOf(id);
+      expect(p).toMatchObject({ property_id: mavi, villa_resolution: "single" });
+      expect(p.flags).toContain("villa_name_mismatch");
+      expect(p.flags).not.toContain("villa_outside_group");
+      expect(p.review_reasons).toEqual([]);
+    }
   });
 
-  it("pasif ve bilinmeyen villa: bulunamadı; grubun villasına düşülmez", async () => {
-    const a = await ingest(G.jid, msg("Villa Pasif", 88, 90));
-    const b = await ingest(G.jid, msg("Villa Lavnta", 91, 93));
+  it("villasız grup: ada göre eşleşir; pasif ve bilinmeyen villa bulunamadı", async () => {
+    const g = await linkedGroup(null);
+    const ok = await ingest(g.jid, msg("Villa Asya", 84, 86));
+    const a = await ingest(g.jid, msg("Villa Pasif", 88, 90));
+    const b = await ingest(g.jid, msg("Villa Lavnta", 91, 93));
     await run();
+    expect((await proposalsOf(ok))[0]).toMatchObject({
+      property_id: asya,
+      villa_resolution: "named",
+    });
     for (const id of [a, b]) {
       const [p] = await proposalsOf(id);
       expect(p).toMatchObject({ property_id: null, villa_resolution: "none" });
@@ -408,7 +421,8 @@ describe("uçtan uca öneri", () => {
   });
 
   it("çakışma: mevcut blok bilgi olarak yazılır ve 'conflict' nedeni eklenir; misafir bilgisi yok", async () => {
-    const m = await ingest(G.jid, msg("Villa Asya", 72, 74));
+    const ga = await linkedGroup(asya);
+    const m = await ingest(ga.jid, msg("Villa Asya", 72, 74));
     await run();
     const [p] = await proposalsOf(m);
     expect(p.review_reasons).toContain("conflict");
@@ -643,7 +657,8 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
 
   it("VİLLA PASİFE ALINDI: yazım reddedilir, mesaj yeniden denenir; ikinci denemede 'bulunamadı'", async () => {
     const lale = await villa("Villa Lale");
-    const m = await ingest(G.jid, msg("Villa Lale", 202, 204));
+    const gl = await linkedGroup(lale);
+    const m = await ingest(gl.jid, msg("Villa Lale", 202, 204));
     const c = await claimOnly(m);
     const out = await processClaimed(
       app,
@@ -668,7 +683,7 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
     expect(await msgRow(m)).toMatchObject({ status: "processed", attempts: 2 });
   });
 
-  it("GRUP VİLLASI DEĞİŞTİ: eski bağlamla yazılmaz; yeniden denemede grup dışı olarak işaretlenir", async () => {
+  it("GRUP VİLLASI DEĞİŞTİ: eski bağlamla yazılmaz; yeniden denemede grubun YENİ villası esas alınır", async () => {
     const g = await linkedGroup(mavi);
     const m = await ingest(g.jid, msg("Villa Mavi", 206, 208));
     const c = await claimOnly(m);
@@ -684,9 +699,9 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
     expect(out).toEqual({ outcome: "retry", code: "context_changed" });
     await run();
     const [p] = await proposalsOf(m);
-    expect(p).toMatchObject({ property_id: mavi, villa_resolution: "named" });
-    expect(p.flags).toContain("villa_outside_group");
-    expect(p.review_reasons).toContain("villa_needs_review");
+    expect(p).toMatchObject({ property_id: asya, villa_resolution: "single" });
+    expect(p.flags).toContain("villa_name_mismatch");
+    expect(p.review_reasons).not.toContain("villa_needs_review");
   });
 
   it("veritabanı savunması: grup dışı villa bayraksız yazılamaz; 'single' yalnız grubun villası", async () => {

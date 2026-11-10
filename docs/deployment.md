@@ -699,7 +699,8 @@ değişmez ve yeni yetki almaz.
   işlenmez (`FOR UPDATE SKIP LOCKED`, kilit belirteci, `UNIQUE(message_id, item_no)`).
 - **Akış:** süresi geçen bekleyen öneriler `expired` → mesaj alma (`app_wa_claim_messages`, 120 sn kilit)
   → ayrıştırma (parser v3; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
-  sonuç) → villa eşleştirme (işletmenin aktif villaları; grup villası yalnız adsız mesajda) → çakışma
+  sonuç) → villa eşleştirme (grup bir villaya bağlıysa HER ZAMAN o villa; mesajdaki ad farklıysa yalnız bilgi
+  bayrağı `villa_name_mismatch`; ada göre eşleştirme yalnız villasız grupta) → çakışma
   özeti (yalnız okuma) → tek atomik yazım (`app_wa_store_proposals`). Hata: mesaj yeniden denenir, 5.
   denemeden sonra `failed`.
 - **İlk aktivasyon (0037):** worker'ın İLK çalıştırması kendini atomik olarak etkinleştirir
@@ -725,7 +726,8 @@ değişmez ve yeni yetki almaz.
   öneri aynı transaction'da `applied` (`decision_mode = 'quick'`, `decided_by` = sahip) olur. Denetim:
   `whatsapp.proposal_auto_applied`. Uygulanamazsa (yarışta oluşan çakışma, pasif villa, değişen öneri)
   takvim değişmez, öneri panelde bekler ve `whatsapp.proposal_auto_failed` (yalnız neden kodu) yazılır.
-  Yönetici/personel gönderimi, villasız grup, başka villa adı, tek/eksik tarih, soru, birden çok öğe,
+  Mesajda yazan villa adı önemsizdir: grubun bağlı villası esas alınır. Yönetici/personel gönderimi,
+  villasız grup, pasif grup villası, tek/eksik tarih, soru, birden çok öğe,
   rezervasyon, açma ve iptal **hiçbir zaman** otomatik uygulanmaz. Aynı mesajın yeniden teslimi ikinci blok
   üretmez (ağ geçidi `duplicate`; karar verilmiş öneri yeniden işlenmez).
 

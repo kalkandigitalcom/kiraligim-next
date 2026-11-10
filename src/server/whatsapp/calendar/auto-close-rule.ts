@@ -4,7 +4,8 @@
  * YALNIZ şu durumda: mesajda TEK öğe var ve bu öğe
  *  - açık bir kapatma talimatı (action = close; soru, belirsiz veya çelişen eylem değil),
  *  - işletme SAHİBİNİN doğrulanmış numarasından (manager ve staff → panel onayı),
- *  - grubun eşleştirildiği villa için (grup villasız ise veya başka villa yazıldıysa → panel),
+ *  - grubun eşleştirildiği villa için (grup villasız ise → panel; mesajda yazan ad önemsizdir:
+ *    grup eşleştirmesi kesin kaynaktır, resolve.ts),
  *  - iki tarihi de açıkça yazılmış (yıl tahmini dışında bayrak yok),
  *  - çakışmasız (app_wa_busy boş),
  *  - inceleme nedeni YOK (reviewRequirement: güven bandı yüksek).
@@ -15,8 +16,13 @@ import type { WaSenderRole } from "@/lib/wa-calendar-parse";
 
 import type { StoreItem } from "./proposal";
 
-/** Otomatik kapatmayı engellemeyen bayraklar ("villa_missing" yalnız grubun tek villasıyla). */
-const ALLOWED_FLAGS: ReadonlySet<string> = new Set(["year_inferred", "villa_missing"]);
+/** Otomatik kapatmayı engellemeyen (yalnız bilgi veren) bayraklar. */
+const ALLOWED_FLAGS: ReadonlySet<string> = new Set([
+  "year_inferred",
+  "villa_missing",
+  // Mesajda başka bir ad yazılmış; grup eşleştirmesi esas alındı (resolve.ts).
+  "villa_name_mismatch",
+]);
 
 export function autoCloseCandidate(
   items: readonly StoreItem[],

@@ -144,9 +144,14 @@ describe("aynı isimli birden fazla villa", () => {
     });
   });
 
-  it("grubun villası adaylar arasındaysa bile seçilmez, yalnız ilk sıraya alınır", () => {
+  it("grup bir villaya bağlıysa aynı adlı villalar arasında seçim gerekmez: grubun villası", () => {
     const r = resolveProposal(item("Mavi"), ctx({ villas, groupPropertyId: "m2" }));
-    expect([r.resolution, r.propertyId, r.candidateIds]).toEqual(["ambiguous", null, ["m2", "m1"]]);
+    expect([r.resolution, r.propertyId, r.candidateIds, r.serverFlags]).toEqual([
+      "named",
+      "m2",
+      [],
+      [],
+    ]);
   });
 
   it("belirsiz villa tek tıkla onaylanamaz", () => {
@@ -205,55 +210,88 @@ describe("grup villasının varsayılan kullanımı", () => {
     expect([r.resolution, r.propertyId, r.serverFlags]).toEqual(["none", null, []]);
   });
 
-  it("ad yazılmış ama bulunamamışsa grubun villasına DÜŞÜLMEZ", () => {
-    const r = resolveProposal(item("Begonya"), ctx({ groupPropertyId: "mavi" }));
-    expect([r.resolution, r.propertyId, r.serverFlags]).toEqual([
-      "none",
-      null,
-      ["villa_not_found"],
-    ]);
-  });
-
-  it("ad grubun villasıysa grup dışı bayrağı yoktur", () => {
-    const r = resolveProposal(item("Mavi"), ctx({ groupPropertyId: "mavi" }));
-    expect([r.resolution, r.propertyId, r.serverFlags]).toEqual(["named", "mavi", []]);
+  it("ad grubun villasının adıysa grubun villası, bilgi bayrağı yok", () => {
+    for (const name of ["Mavi", "Villa Mavi", "MAVİ"]) {
+      const r = resolveProposal(item(name), ctx({ groupPropertyId: "mavi" }));
+      expect([name, r.resolution, r.propertyId, r.serverFlags]).toEqual([
+        name,
+        "named",
+        "mavi",
+        [],
+      ]);
+    }
+    // İlk sözcük / baş sözcükler / takma ad da grubun villasını anlatır.
+    expect(
+      resolveProposal(item("Zeytin Bahçe"), ctx({ groupPropertyId: "zbahce" })).serverFlags,
+    ).toEqual([]);
+    expect(resolveProposal(item("Işık"), ctx({ groupPropertyId: "isik" })).serverFlags).toEqual([]);
+    const aliases = [{ propertyId: "mavi", alias: "Kalamar Evi" }];
+    expect(
+      resolveProposal(item("Kalamar Evi"), ctx({ groupPropertyId: "mavi", aliases })).serverFlags,
+    ).toEqual([]);
   });
 });
 
-describe("grup dışı villa", () => {
-  it("doğru eşleşirse öneri oluşur, villa_outside_group bayrağı eklenir", () => {
-    const r = resolveProposal(
-      fromMessage("Villa Lavanta 1-7 Haziran kapalı"),
-      ctx({ groupPropertyId: "mavi" }),
-    );
+describe("grup eşleştirmesi kesin kaynak (A2e)", () => {
+  it("mesajdaki ad bulunamasa da (ör. grubun adı) grubun villası kullanılır; bilgi bayrağı", () => {
+    // Grup "villa testo", bağlı villa "Villa Mavi"; mesaj "Villa Testo 10–15 Haziran kapatalım."
+    const i = fromMessage("Villa Testo 10–15 Haziran kapatalım.");
+    expect(i.villaName).toBe("Testo");
+    const r = resolveProposal(i, ctx({ groupPropertyId: "mavi" }));
+    expect(r).toEqual({
+      resolution: "single",
+      propertyId: "mavi",
+      candidateIds: [],
+      tier: "group_default",
+      serverFlags: ["villa_name_mismatch"],
+    });
+    const d = reviewRequirement(i, {
+      ...villaReviewContext(r),
+      senderRole: "owner",
+      conflictFree: true,
+    });
+    expect([d.quickApprove, d.band, d.reasons]).toEqual([true, "high", []]);
+  });
+
+  it("başka bir villanın adı yazılsa da grubun villası kazanır (grup dışı villa seçilmez)", () => {
+    for (const name of ["Lavanta", "Villa Lavanta", "Işık"]) {
+      const r = resolveProposal(item(name), ctx({ groupPropertyId: "mavi" }));
+      expect([name, r.resolution, r.propertyId, r.serverFlags]).toEqual([
+        name,
+        "single",
+        "mavi",
+        ["villa_name_mismatch"],
+      ]);
+    }
+    const aliases = [{ propertyId: "lavanta", alias: "Mor Ev" }];
+    expect(
+      resolveProposal(item("Mor Ev"), ctx({ groupPropertyId: "mavi", aliases })),
+    ).toMatchObject({
+      resolution: "single",
+      propertyId: "mavi",
+      serverFlags: ["villa_name_mismatch"],
+    });
+  });
+
+  it("grup villasızsa ada göre eşleşir (otomatik işlem yok; grup dışı kavramı yok)", () => {
+    const r = resolveProposal(fromMessage("Villa Lavanta 1-7 Haziran kapalı"), ctx());
     expect(r).toEqual({
       resolution: "named",
       propertyId: "lavanta",
       candidateIds: [],
       tier: "exact",
-      serverFlags: ["villa_outside_group"],
+      serverFlags: [],
     });
   });
 
-  it("tek tıkla onay hiçbir zaman mümkün değil (villa_needs_review)", () => {
-    const i = fromMessage("Villa Lavanta 1-7 Haziran kapalı");
-    const r = resolveProposal(i, ctx({ groupPropertyId: "mavi" }));
-    for (const senderRole of ["owner", "manager"] as const) {
-      const d = reviewRequirement(i, { ...villaReviewContext(r), senderRole, conflictFree: true });
-      expect(d.score).toBe(100);
-      expect(d.quickApprove).toBe(false);
-      expect(d.reasons).toEqual(["villa_needs_review"]);
-    }
-  });
-
-  it("ilk sözcük ve takma adla eşleşmede de bayrak eklenir", () => {
-    expect(resolveProposal(item("Işık"), ctx({ groupPropertyId: "mavi" })).serverFlags).toEqual([
-      "villa_outside_group",
+  it("grubun villası pasifse yazılan ad başka bir aktif villaya düşmez", () => {
+    const active = VILLAS.filter((x) => x.id !== "mavi");
+    const r = resolveProposal(item("Lavanta"), ctx({ villas: active, groupPropertyId: "mavi" }));
+    expect([r.resolution, r.propertyId, r.serverFlags]).toEqual([
+      "none",
+      null,
+      ["villa_not_found"],
     ]);
-    const aliases = [{ propertyId: "lavanta", alias: "Mor Ev" }];
-    expect(
-      resolveProposal(item("Mor Ev"), ctx({ groupPropertyId: "mavi", aliases })).serverFlags,
-    ).toEqual(["villa_outside_group"]);
   });
 });
 
@@ -292,9 +330,13 @@ describe("pasif / bulunamayan villa", () => {
 
   it("genel sözcük villa adı sayılmaz", () => {
     for (const name of ["Villa", "Ev", "Konak", "Konağı", "villası"]) {
-      expect(resolveProposal(item(name), ctx({ groupPropertyId: "mavi" })).resolution, name).toBe(
-        "none",
-      );
+      expect(resolveProposal(item(name), ctx()).resolution, name).toBe("none");
+      // Grup villaya bağlıysa grubun villası; genel sözcük "farklı ad" sayılmaz.
+      expect(resolveProposal(item(name), ctx({ groupPropertyId: "mavi" })), name).toMatchObject({
+        resolution: "single",
+        propertyId: "mavi",
+        serverFlags: [],
+      });
     }
   });
 

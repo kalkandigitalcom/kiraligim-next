@@ -79,10 +79,16 @@ describe("öğe (app_wa_store_proposals girdisi)", () => {
     });
   });
 
-  it("grup dışı villa: sunucu bayrağı + villa_needs_review", () => {
+  it("başka villanın adı yazılsa da grubun villası (A2e); bilgi bayrağı, inceleme nedeni yok", () => {
     const s = build("Villa Asya 15-20 Haziran kapalı");
-    expect(s.flags).toEqual(["year_inferred", "villa_outside_group"]);
-    expect(s.review_reasons).toEqual(["villa_needs_review"]);
+    expect([s.property_id, s.villa_resolution]).toEqual(["mavi", "single"]);
+    expect(s.flags).toEqual(["year_inferred", "villa_name_mismatch"]);
+    expect(s.review_reasons).toEqual([]);
+  });
+
+  it("grup villasızsa ada göre eşleşen villa (grup dışı kavramı yok)", () => {
+    const s = build("Villa Asya 15-20 Haziran kapalı", { ctx: { ...ctx, groupPropertyId: null } });
+    expect([s.property_id, s.villa_resolution, s.review_reasons]).toEqual(["asya", "named", []]);
   });
 
   it("staff ve rolsüz gönderen tek tıkla onaylanamaz", () => {
@@ -124,14 +130,20 @@ describe("öğe (app_wa_store_proposals girdisi)", () => {
 
   it("belirsiz ve bulunamayan villa: villa alanı boş, adaylar/bayrak dolu", () => {
     const amb = build("Villa Mavi 15-20 Haziran kapalı", {
-      ctx: { ...ctx, villas: [...ctx.villas, { id: "m2", workspaceId: WS, name: "Mavi Villa" }] },
+      ctx: {
+        ...ctx,
+        groupPropertyId: null,
+        villas: [...ctx.villas, { id: "m2", workspaceId: WS, name: "Mavi Villa" }],
+      },
     });
     expect([amb.property_id, amb.villa_resolution, amb.candidate_property_ids]).toEqual([
       null,
       "ambiguous",
-      ["mavi", "m2"],
+      ["m2", "mavi"], // grup villasız: ada göre sıralı
     ]);
-    const none = build("Villa Lavnta 15-20 Haziran kapalı");
+    const none = build("Villa Lavnta 15-20 Haziran kapalı", {
+      ctx: { ...ctx, groupPropertyId: null },
+    });
     expect([none.property_id, none.villa_resolution]).toEqual([null, "none"]);
     expect(none.flags).toContain("villa_not_found");
     expect(none.review_reasons).toContain("villa_unresolved");

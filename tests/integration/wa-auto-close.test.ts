@@ -311,6 +311,68 @@ describe("otomatik kapatma: yetkili sahibin açık talimatı", () => {
   });
 });
 
+describe("grup eşleştirmesi kesin kaynak: mesajdaki villa adı önemsiz", () => {
+  const asyaEntries = () =>
+    admin.query(
+      "select count(*)::int n from reservations where workspace_id = $1 and property_id = $2",
+      [ws, asya],
+    );
+
+  it("mesajdaki ad farklı (ör. grubun adı 'Villa Testo'): grubun villası bloklanır; panelde gerçek villa", async () => {
+    const asyaBefore = (await asyaEntries()).rows[0].n;
+    const r = await send(`Villa Testo ${tr(day(160))}–${tr(day(163))} kapatalım.`);
+    const p = r.proposals[0];
+    expect(p).toMatchObject({
+      status: "applied",
+      decision_mode: "quick",
+      property_id: mavi,
+      villa_resolution: "single",
+      villa_name_raw: "Testo",
+    });
+    expect(p.flags).toContain("villa_name_mismatch");
+    expect(p.review_reasons).toEqual([]);
+    const b = (await blocks()).filter((x) => x.origin_proposal_id === p.id);
+    expect(b).toHaveLength(1);
+    expect(b[0]).toMatchObject({ property_id: mavi, kind: "block" });
+    expect((await asyaEntries()).rows[0].n).toBe(asyaBefore);
+    const view = await as(O, ws, (tx, ctx) => getProposal(tx, ctx, p.id));
+    expect([view.propertyId, view.propertyName]).toEqual([mavi, "Villa Mavi"]);
+  });
+
+  it("başka bir villanın adı yazılsa bile grubun villası bloklanır; o villa değişmez", async () => {
+    const asyaBefore = (await asyaEntries()).rows[0].n;
+    const r = await send(`Villa Asya ${tr(day(170))}–${tr(day(172))} kapatalım.`);
+    const p = r.proposals[0];
+    expect(p).toMatchObject({ status: "applied", property_id: mavi, villa_resolution: "single" });
+    expect(p.flags).toContain("villa_name_mismatch");
+    expect((await blocks()).filter((x) => x.origin_proposal_id === p.id)).toHaveLength(1);
+    expect((await asyaEntries()).rows[0].n).toBe(asyaBefore);
+  });
+
+  it("farklı adlı mesajı yetkisiz gönderen (yönetici) yazarsa blok yok", async () => {
+    const before = await calendarDigest();
+    const r = await send(`Villa Testo ${tr(day(175))}–${tr(day(177))} kapatalım.`, {
+      pn: PN_MANAGER,
+    });
+    expect(r.proposals[0]).toMatchObject({ status: "pending", property_id: mavi });
+    expect(await calendarDigest()).toEqual(before);
+  });
+
+  it("rezervasyon mesajı farklı adla da yönetici onayına düşer (villa = grubun villası)", async () => {
+    const before = await calendarDigest();
+    const r = await send(
+      `Villa Testo ${tr(day(180))} giriş, ${tr(day(184))} çıkış, 4 kişi rezervasyon.`,
+    );
+    expect(r.proposals[0]).toMatchObject({
+      status: "pending",
+      action: "reserve",
+      property_id: mavi,
+    });
+    expect(r.proposals[0].review_reasons).toContain("action_requires_review");
+    expect(await calendarDigest()).toEqual(before);
+  });
+});
+
 describe("otomatik kapatma yapılmayan durumlar (takvim değişmez)", () => {
   it("4. eşleştirilmemiş grup: mesaj kaydedilmez, blok yok", async () => {
     const before = await calendarDigest();
@@ -355,14 +417,6 @@ describe("otomatik kapatma yapılmayan durumlar (takvim değişmez)", () => {
       last_error: "sender_not_authorized",
     });
     expect(stranger.proposals).toHaveLength(0);
-    expect(await calendarDigest()).toEqual(before);
-  });
-
-  it("5b. sahip başka bir villayı yazarsa (grubun villası değil) blok yok", async () => {
-    const before = await calendarDigest();
-    const r = await send(`Villa Asya ${tr(day(74))}–${tr(day(76))} kapatalım.`);
-    expect(r.proposals[0]).toMatchObject({ status: "pending", property_id: asya });
-    expect(r.proposals[0].review_reasons).toContain("villa_needs_review");
     expect(await calendarDigest()).toEqual(before);
   });
 

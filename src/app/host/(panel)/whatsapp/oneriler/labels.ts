@@ -36,6 +36,7 @@ export const FLAG_LABELS: Record<string, string> = {
   villa_ambiguous: "villa–tarih eşleşmesi belirsiz",
   villa_outside_group: "grup dışı villa",
   villa_not_found: "villa bulunamadı",
+  villa_name_mismatch: "mesajda farklı villa adı yazılmış; grubun villası esas alındı",
   date_missing: "tarih yok",
   date_incomplete: "tek tarih",
   date_ambiguous: "tarih belirsiz",
