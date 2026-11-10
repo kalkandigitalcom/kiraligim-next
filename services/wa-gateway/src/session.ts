@@ -46,9 +46,10 @@ import makeWASocket, {
 } from "baileys";
 
 import { authDirProblem, type Config } from "./config.ts";
+import { MessageDiagnostics } from "./diagnostics.ts";
 import {
-  extractDirectMessage,
-  extractGroupMessage,
+  explainDirectMessage,
+  explainGroupMessage,
   type InboundGroupMessage,
   istanbulTime,
   maskNumber,
@@ -268,6 +269,10 @@ export class WaGateway {
   private watchdogFired = false;
   private watchdogWindow: number;
   private readonly seen = new SeenSet();
+  /** Aşama 1.1: mesaj alımı teşhisi (yalnız gözlem). */
+  readonly diag: MessageDiagnostics;
+  /** Güncel soketin ham WebSocket dinleyicilerini kaldırır. */
+  private detachRaw: (() => void) | null = null;
   private readonly inFlight = new Set<string>();
   private readonly pending: PendingIngest[] = [];
   private flushing: Promise<void> | null = null;
@@ -309,6 +314,7 @@ export class WaGateway {
     this.loadAuth = deps.loadAuth ?? useMultiFileAuthState;
     this.makeSocket = deps.makeSocket ?? ((o) => this.defaultSocket(o));
     this.notOpenSince = this.now();
+    this.diag = new MessageDiagnostics(this.now, config.trace);
     this.watchdogWindow = watchdogWindowMs(deps.history?.read() ?? [], this.now());
     const v = config.protocolVersion ?? DEFAULT_CONNECTION_CONFIG.version;
     this.protocolVersion = v.join(".");
@@ -494,6 +500,8 @@ export class WaGateway {
     if (this.stableTimer) clearTimeout(this.stableTimer);
     this.stableTimer = null;
     this.openSince = null;
+    this.detachRaw?.();
+    this.detachRaw = null;
     if (!sock) return;
     for (const ev of SOCKET_EVENTS) {
       try {
@@ -567,11 +575,13 @@ export class WaGateway {
     // 3. Soket (protokol sürümü sabit; ağdan çekilmez).
     const sock = this.makeSocket({ auth: auth.state, version: this.config.protocolVersion });
     this.sock = sock;
+    this.diag.onSocket(gen);
     this.attach(sock, gen, auth.saveCreds);
   }
 
   private attach(sock: WASocket, gen: number, saveCreds: () => Promise<void>) {
     const live = () => gen === this.generation && sock === this.sock;
+    this.attachRaw(sock, live);
     sock.ev.on("creds.update", () => {
       void saveCreds().catch((e: unknown) =>
         this.note("error", `Oturum bilgisi kaydedilemedi: ${errName(e)}`),
@@ -587,6 +597,7 @@ export class WaGateway {
         this.note("info", "QR hazır: test arayüzünden okutun (QR günlüğe yazılmaz).");
       }
       if (u.connection === "connecting" && this.status !== "qr") this.setStatus("connecting");
+      if (u.receivedPendingNotifications) this.diag.onOfflineSynced();
       if (u.connection === "open") void this.onOpen(sock, gen);
       if (u.connection === "close") {
         const err = u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
@@ -595,15 +606,20 @@ export class WaGateway {
     });
 
     sock.ev.on("messages.upsert", ({ messages, type }) => {
+      const ciphertext = proto.WebMessageInfo.StubType.CIPHERTEXT;
+      this.diag.onUpsert(type, messages, live(), ciphertext);
       if (!live()) return;
       for (const msg of messages) {
-        if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT) {
+        if (msg.messageStubType === ciphertext) {
           // Çözülemeyen mesaj: Baileys yeniden deneme ister; başarılı olursa aynı kimlikle tekrar gelir.
           this.stats.undecryptable += 1;
         }
       }
       // A1: kesinti sonrası birikim ("append") de kaydedilir ama "backlog" olarak işaretlenir.
-      if (type !== "notify" && !(this.store && type === "append")) return;
+      if (type !== "notify" && !(this.store && type === "append")) {
+        this.diag.onSkippedType(type, messages.length);
+        return;
+      }
       for (const msg of messages) {
         if (this.store && !isJidGroup(msg.key?.remoteJid ?? "")) {
           void this.onDirectMessage(sock, msg);
@@ -652,6 +668,51 @@ export class WaGateway {
     });
   }
 
+  /**
+   * Aşama 1.1: Baileys'ten ÖNCE, WebSocket'ten gelen ham "message" paketlerini yalnız sayar
+   * (pasif dinleyici; Baileys'in işleyişini değiştirmez, paketin içeriğine bakılmaz).
+   */
+  private attachRaw(sock: WASocket, live: () => boolean) {
+    type WsLike = {
+      on(ev: string, fn: (...a: unknown[]) => void): unknown;
+      off?(ev: string, fn: (...a: unknown[]) => void): unknown;
+      removeListener?(ev: string, fn: (...a: unknown[]) => void): unknown;
+    };
+    const ws = (sock as unknown as { ws?: WsLike }).ws;
+    if (!ws || typeof ws.on !== "function") return;
+    // Teşhis kodu hiçbir koşulda Baileys'in paket işleyişini etkilememeli: hatalar yutulur.
+    const safe =
+      (fn: (node: unknown) => void) =>
+      (node: unknown): void => {
+        try {
+          fn(node);
+        } catch {
+          /* yalnız gözlem */
+        }
+      };
+    const onMessage = safe((node) =>
+      this.diag.onRawMessage((node ?? {}) as { attrs?: Record<string, string> }, live()),
+    );
+    const onNotification = safe(() => this.diag.onRawNotification());
+    const onFrame = safe(() => this.diag.onFrame());
+    ws.on("CB:message", onMessage);
+    ws.on("CB:notification", onNotification);
+    ws.on("frame", onFrame);
+    this.detachRaw = () => {
+      const off = (ev: string, fn: (...a: unknown[]) => void) => {
+        try {
+          if (typeof ws.off === "function") ws.off(ev, fn);
+          else ws.removeListener?.(ev, fn);
+        } catch {
+          /* soket kapalı */
+        }
+      };
+      off("CB:message", onMessage);
+      off("CB:notification", onNotification);
+      off("frame", onFrame);
+    };
+  }
+
   private async onOpen(sock: WASocket, gen: number) {
     if (gen !== this.generation || sock !== this.sock) return;
     if (!isAllowedAccount(sock.user?.id, this.config.allowedNumber)) {
@@ -678,6 +739,7 @@ export class WaGateway {
     this.account = numberFromJid(sock.user?.id ?? null);
     this.connectedAt = new Date(this.now()).toISOString();
     this.openSince = this.now();
+    this.diag.onOpen();
     this.setStatus("open", null);
     this.note("info", `Bağlandı: ${maskNumber(this.account)}.`);
     // Kısa süre açık kalıp düşen bağlantıda sayaç sıfırlanmaz ("açıl-hemen-düş" döngüsü yavaşlar).
@@ -809,6 +871,7 @@ export class WaGateway {
    * Bağlantı pencere boyunca açık kalırsa yeniden başlatma geçmişi temizlenir.
    */
   watchdogTick() {
+    this.diag.checkStall((msg) => this.note("error", msg));
     const now = this.now();
     if (
       this.status === "open" &&
@@ -932,15 +995,26 @@ export class WaGateway {
   }
 
   private async onMessage(sock: WASocket, msg: WAMessage, backlog = false) {
-    const m = extractGroupMessage(msg);
-    if (!m) return;
+    const explained = explainGroupMessage(msg);
+    if (!explained.ok) {
+      this.diag.onGroupFiltered(
+        msg.key?.remoteJid,
+        msg.key?.id,
+        explained.reason,
+        explained.contentType,
+      );
+      return;
+    }
+    const m = explained.message;
     const key = `${m.groupJid}|${m.messageId}`;
     if (this.store) {
       // Aynı mesaj ikinci kez işlenmez: kaydedilmiş, şu an yazılıyor ya da kuyrukta bekliyor.
       // Kayıtlı sayılması YALNIZ veritabanı yazımı başarılı olunca (yazılamazsa kuyrukta bekler).
       if (this.seen.has(key) || this.inFlight.has(key) || this.pending.some((p) => p.key === key)) {
+        this.diag.onGroupFiltered(m.groupJid, m.messageId, "duplicate");
         return;
       }
+      this.diag.onGroupAccepted(m.groupJid, m.messageId);
       this.inFlight.add(key);
       try {
         await this.onA1Message(sock, msg, m, backlog, key);
@@ -949,7 +1023,11 @@ export class WaGateway {
       }
       return;
     }
-    if (!this.seen.add(key)) return; // aynı mesaj ikinci kez işlenmez
+    if (!this.seen.add(key)) {
+      this.diag.onGroupFiltered(m.groupJid, m.messageId, "duplicate");
+      return; // aynı mesaj ikinci kez işlenmez
+    }
+    this.diag.onGroupAccepted(m.groupJid, m.messageId);
 
     const subject = await this.groupSubject(sock, m.groupJid);
     const prev = this.groups.get(m.groupJid);
@@ -1024,6 +1102,7 @@ export class WaGateway {
       sentAt: m.sentAt,
       kind: backlog ? "backlog" : "live",
     });
+    this.diag.onOutcome(m.groupJid, m.messageId, out);
     if (out) this.stats[out] += 1;
     if (out === "stored") {
       const g = this.groups.get(m.groupJid);
@@ -1097,6 +1176,7 @@ export class WaGateway {
         this.pending.shift();
         this.seen.add(p.key);
         this.stats[out] += 1;
+        this.diag.onOutcome(p.record.groupJid, p.record.messageId, out);
         wrote += 1;
       }
       if (wrote > 0) {
@@ -1117,10 +1197,18 @@ export class WaGateway {
    * başarıda o mesaja ✅. Başka özel mesajlar okunmaz, saklanmaz, günlüğe yazılmaz, yanıtlanmaz.
    */
   private async onDirectMessage(sock: WASocket, msg: WAMessage) {
-    const m = extractDirectMessage(msg);
-    if (!m) return;
+    const explained = explainDirectMessage(msg);
+    if (!explained.ok) {
+      this.diag.onDirect("filtered", explained.reason);
+      return;
+    }
+    const m = explained.message;
     const code = parseVerifyMessage(m.text);
-    if (!code) return;
+    if (!code) {
+      this.diag.onDirect("not_code");
+      return;
+    }
+    this.diag.onDirect("code");
     if (!this.seen.add(`dm|${m.messageId}`)) return;
     const senderPn = await this.resolvePn(sock, { pn: m.senderPn, lid: m.senderLid });
     const out = await this.db("verify_phone", (s) => s.verifyPhone(code, senderPn));

@@ -40,6 +40,8 @@ export function statusJson(gw: WaGateway, testGroupJid: string | null) {
     pendingMessages: gw.pendingCount,
     protocolVersion: gw.protocolVersion,
     watchdogMinutes: Math.round(gw.watchdogWindowMs / 60_000),
+    // Aşama 1.1: mesaj alımı teşhisi (sayaçlar ve zamanlar; metin/numara yok).
+    diagnostics: gw.diag?.snapshot() ?? null,
     account: maskNumber(gw.account),
     connectedAt: gw.connectedAt ? istanbulTime(gw.connectedAt) : null,
     testGroupJid,

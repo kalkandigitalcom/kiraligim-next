@@ -156,6 +156,34 @@ izin verilmeyen bir hesap bağlanırsa o hesaba ait yeni oturum silinir.
 - **Çözülemeyen mesajlar** (`No session found to decrypt message` / CIPHERTEXT) `undecryptable`
   sayacında görünür. Baileys yeniden deneme ister; başarılı olursa mesaj aynı kimlikle tekrar gelir.
 
+## Mesaj alımı teşhisi (Aşama 1.1)
+
+Yalnız gözlemdir; bağlantı davranışını değiştirmez, yeniden başlatma yapmaz. Bir mesajın nerede
+kaybolduğu dört katmanda ayrı sayılır ve `/status.json` → `diagnostics` altında görünür:
+
+| Katman           | Alan                                                                                                                                             | Anlamı                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| 1. Ham paket     | `raw.group`, `raw.direct`, `raw.lastGroupAt`, `raw.lastFrameAt`                                                                                  | WhatsApp WebSocket'inden paket geldi mi (Baileys'ten önce)? `lastFrameAt` bağlantının canlı olduğunu gösterir |
+| 2. Baileys olayı | `upsert.notify`, `upsert.append`, `upsert.other`, `upsert.skippedType`, `upsert.stale`                                                           | Baileys paketi `messages.upsert` olayına çevirdi mi?                                                          |
+| 3. Filtre        | `filtered.*` (`from_me`, `ciphertext`, `non_text`, `reaction`, `protocol`, `stub`, `no_sender`, `duplicate`…), `nonTextTypes`, `undecryptable.*` | Bizim ayıklama katmanımız neden eledi? Çözülemeyen mesajın türü (`no_session`, `bad_mac`…)                    |
+| 4. Kayıt         | `processing.accepted`, `stored`, `duplicate`, `ignored`, `failed`                                                                                | Veritabanı sonucu                                                                                             |
+
+- `groups[]`: grup başına aynı sayaçlar ve son karar (`lastDecision`).
+- `stallSuspected`: ham paket geldiği halde 2 dk boyunca hiç upsert oluşmadıysa `true` olur ve bir kez
+  uyarı yazılır. Bu, Baileys işleme hattında takılma şüphesidir; otomatik işlem yapılmaz.
+
+**Okuma kılavuzu:**
+
+- Test mesajından sonra `raw.group` artmıyorsa: paket WebSocket'e hiç gelmedi (WhatsApp bu cihaza
+  teslim etmiyor).
+- `raw` artıyor, `upsert` artmıyorsa: Baileys içinde kalıyor (çözülemedi ya da takıldı; Baileys hata
+  günlüğüne de bakın).
+- `upsert` artıyor ama kayıt yoksa: `filtered` alanı nedeni gösterir.
+
+**`WA_TRACE=1`:** her adım için tek satırlık `[wa-trace]` günlüğü yazılır (paket, olay, filtre
+nedeni, kayıt sonucu). Mesaj metni, numara, gönderen kimliği ve tam grup kimliği yazılmaz; grup son 6
+hanesiyle (`grp=…827787`), mesaj kimliğiyle gösterilir. Teşhisten sonra kapatın (varsayılan kapalı).
+
 ## Protokol sürümü
 
 WhatsApp Web protokol sürümü **sabittir**: kurulu ve test edilmiş Baileys sürümünün kendi değeri

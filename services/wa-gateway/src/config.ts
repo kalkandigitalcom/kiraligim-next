@@ -42,6 +42,8 @@ export type Config = {
    * (README → "Protokol sürümü"); WA_PROTOCOL_VERSION yalnız geçici geçersiz kılma içindir.
    */
   protocolVersion: [number, number, number] | null;
+  /** WA_TRACE=1: mesaj alımı için yalnız metadata günlüğü (metin/numara yok). */
+  trace: boolean;
 };
 
 const GROUP_JID_RE = /^[0-9]{6,40}(-[0-9]{6,20})?@g\.us$/;
@@ -172,6 +174,12 @@ export function loadConfig(
     else errors.push("WA_PROTOCOL_VERSION biçimi geçersiz (ör. 2.3000.1043857760).");
   }
 
+  const traceRaw = (env.WA_TRACE ?? "").trim();
+  if (traceRaw && !["0", "1", "true", "false"].includes(traceRaw)) {
+    errors.push("WA_TRACE yalnız 0, 1, true veya false olabilir.");
+  }
+  const trace = traceRaw === "1" || traceRaw === "true";
+
   if (errors.length) throw new Error(`Yapılandırma hatası:\n- ${errors.join("\n- ")}`);
   return {
     env: waEnv,
@@ -185,5 +193,6 @@ export function loadConfig(
     httpPort,
     authDir,
     protocolVersion,
+    trace,
   };
 }

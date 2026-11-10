@@ -10,6 +10,7 @@ import {
   isPnUser,
   jidNormalizedUser,
   normalizeMessageContent,
+  proto,
   type WAMessage,
 } from "baileys";
 
@@ -55,34 +56,95 @@ function toIso(ts: WAMessage["messageTimestamp"]): string {
 }
 
 /**
- * Yalnız başkasının gruba yazdığı metin mesajı. Kendi mesajları, tepkiler, sistem/protokol
- * mesajları, durum ve kanal yayınları null döner.
+ * Bir mesajın neden işlenmediği (teşhis; içerik ve numara içermez).
+ *  - no_key: anahtar veya mesaj kimliği yok;  from_me: asistanın kendi mesajı;
+ *  - not_group / not_direct: beklenen sohbet türü değil;
+ *  - ciphertext: çözülemeyen mesaj yer tutucusu (Baileys yeniden deneme ister);
+ *  - stub: içeriksiz sistem kaydı (grup bildirimi vb.);  no_content: içerik yok;
+ *  - reaction / protocol: tepki, düzenleme/silme/ayar gibi protokol mesajı;
+ *  - non_text: metin veya açıklama içermeyen tür (çıkartma, ses, anket…);
+ *  - no_sender: gönderen kimliği yok.
  */
-export function extractGroupMessage(msg: WAMessage): InboundGroupMessage | null {
+export type FilterReason =
+  | "no_key"
+  | "from_me"
+  | "not_group"
+  | "not_direct"
+  | "ciphertext"
+  | "stub"
+  | "no_content"
+  | "reaction"
+  | "protocol"
+  | "non_text"
+  | "no_sender";
+
+export type Explained<T> =
+  { ok: true; message: T } | { ok: false; reason: FilterReason; contentType?: string };
+
+/** İçeriğin ilk alan adı (ör. "stickerMessage"); teşhis için, içerik değil. */
+function contentTypeOf(content: object): string | undefined {
+  const k = Object.keys(content).find((x) => /^[a-zA-Z]{1,40}$/.test(x));
+  return k;
+}
+
+function contentReason(
+  msg: WAMessage,
+): { ok: false; reason: FilterReason; contentType?: string } | { ok: true; text: string } {
+  const content = normalizeMessageContent(msg.message);
+  if (!content) {
+    if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT) {
+      return { ok: false, reason: "ciphertext" };
+    }
+    return { ok: false, reason: msg.messageStubType ? "stub" : "no_content" };
+  }
+  if (content.reactionMessage) return { ok: false, reason: "reaction" };
+  if (content.protocolMessage) return { ok: false, reason: "protocol" };
+  const text = messageText(msg);
+  if (text === null) {
+    const contentType = contentTypeOf(content);
+    return { ok: false, reason: "non_text", ...(contentType ? { contentType } : {}) };
+  }
+  return { ok: true, text };
+}
+
+/**
+ * Yalnız başkasının gruba yazdığı metin mesajı; değilse NEDENİ. Kendi mesajları, tepkiler,
+ * sistem/protokol mesajları, durum ve kanal yayınları elenir.
+ */
+export function explainGroupMessage(msg: WAMessage): Explained<InboundGroupMessage> {
   const key = msg.key;
   const groupJid = key?.remoteJid ?? "";
-  if (!key || key.fromMe || !isJidGroup(groupJid) || !key.id) return null;
-  const content = normalizeMessageContent(msg.message);
-  if (!content || content.reactionMessage || content.protocolMessage) return null;
-  const text = messageText(msg);
-  if (text === null) return null;
+  if (!key || !key.id) return { ok: false, reason: "no_key" };
+  if (key.fromMe) return { ok: false, reason: "from_me" };
+  if (!isJidGroup(groupJid)) return { ok: false, reason: "not_group" };
+  const c = contentReason(msg);
+  if (!c.ok) return c;
 
   const participant = key.participant ?? "";
   const alt = key.participantAlt ?? "";
   const pn = isPnUser(participant) ? participant : isPnUser(alt) ? alt : null;
   const lid = isLidUser(participant) ? participant : isLidUser(alt) ? alt : null;
   const senderJid = participant || alt;
-  if (!senderJid) return null;
+  if (!senderJid) return { ok: false, reason: "no_sender" };
 
   return {
-    groupJid,
-    messageId: key.id,
-    senderJid,
-    senderNumber: numberFromJid(pn),
-    senderLid: lid,
-    text,
-    sentAt: toIso(msg.messageTimestamp),
+    ok: true,
+    message: {
+      groupJid,
+      messageId: key.id,
+      senderJid,
+      senderNumber: numberFromJid(pn),
+      senderLid: lid,
+      text: c.text,
+      sentAt: toIso(msg.messageTimestamp),
+    },
   };
+}
+
+/** explainGroupMessage'ın kısa biçimi: işlenecek mesaj ya da null. */
+export function extractGroupMessage(msg: WAMessage): InboundGroupMessage | null {
+  const r = explainGroupMessage(msg);
+  return r.ok ? r.message : null;
 }
 
 export type InboundDirectMessage = {
@@ -94,27 +156,38 @@ export type InboundDirectMessage = {
 };
 
 /**
- * Asistana gelen ÖZEL (bire bir) metin mesajı. Grup, durum, kanal ve yayın mesajları ile kendi
- * mesajları null döner. İçerik yalnız numara doğrulama kodu için okunur; saklanmaz ve yazılmaz.
+ * Asistana gelen ÖZEL (bire bir) metin mesajı; değilse NEDENİ. Grup, durum, kanal ve yayın
+ * mesajları ile kendi mesajları elenir. İçerik yalnız numara doğrulama kodu için okunur;
+ * saklanmaz ve yazılmaz.
  */
-export function extractDirectMessage(msg: WAMessage): InboundDirectMessage | null {
+export function explainDirectMessage(msg: WAMessage): Explained<InboundDirectMessage> {
   const key = msg.key;
   const remote = key?.remoteJid ?? "";
-  if (!key || key.fromMe || !key.id || !remote) return null;
-  if (isJidGroup(remote) || !(isPnUser(remote) || isLidUser(remote))) return null;
-  const content = normalizeMessageContent(msg.message);
-  if (!content || content.reactionMessage || content.protocolMessage) return null;
-  const text = messageText(msg);
-  if (text === null) return null;
+  if (!key || !key.id || !remote) return { ok: false, reason: "no_key" };
+  if (key.fromMe) return { ok: false, reason: "from_me" };
+  if (isJidGroup(remote) || !(isPnUser(remote) || isLidUser(remote))) {
+    return { ok: false, reason: "not_direct" };
+  }
+  const c = contentReason(msg);
+  if (!c.ok) return c;
   const alt = key.remoteJidAlt ?? "";
   const pnJid = isPnUser(remote) ? remote : isPnUser(alt) ? alt : null;
   const lid = isLidUser(remote) ? remote : isLidUser(alt) ? alt : null;
   return {
-    messageId: key.id,
-    senderPn: numberFromJid(pnJid),
-    senderLid: lid ? jidNormalizedUser(lid) : null,
-    text,
+    ok: true,
+    message: {
+      messageId: key.id,
+      senderPn: numberFromJid(pnJid),
+      senderLid: lid ? jidNormalizedUser(lid) : null,
+      text: c.text,
+    },
   };
+}
+
+/** explainDirectMessage'ın kısa biçimi. */
+export function extractDirectMessage(msg: WAMessage): InboundDirectMessage | null {
+  const r = explainDirectMessage(msg);
+  return r.ok ? r.message : null;
 }
 
 /** "905321112233" → "+90 532 *** ** 33" (arayüzde ve konsolda numara gizlenir). */
