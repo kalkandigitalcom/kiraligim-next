@@ -871,14 +871,27 @@ export const WA_REVIEW_REASONS = [
   "dates_incomplete",
   /** Villa adla tekil eşleşmedi ve grupta tek villa da yok. */
   "villa_unresolved",
-  /** Gönderen doğrulanmamış. */
+  /** Gönderen doğrulanmamış (normalde öneri hiç oluşmaz; savunma amaçlı). */
   "sender_unverified",
+  /**
+   * Gönderen işletmenin "staff" üyesi (numarası doğrulanmış olsa da): staff WhatsApp üzerinden
+   * takvimi değiştiremez; öneri her zaman elle incelenir.
+   */
+  "staff_review_required",
   /** Mevcut kayıtla çakışma var. */
   "conflict",
   /** Güven puanı yüksek bantta değil. */
   "low_confidence",
 ] as const;
 export type WaReviewReason = (typeof WA_REVIEW_REASONS)[number];
+
+/**
+ * Gönderenin işletmedeki rolü (doğrulanmış numarasından). owner/manager doğrulanmış gönderendir;
+ * staff yalnız elle incelenecek öneri oluşturabilir. Kayıtsız/doğrulanmamış numara: null (öneri
+ * oluşmaz; veritabanı mesajı yok sayar).
+ */
+export const WA_SENDER_ROLES = ["owner", "manager", "staff"] as const;
+export type WaSenderRole = (typeof WA_SENDER_ROLES)[number];
 
 export type WaReviewDecision = {
   /** Yalnız `reasons` boşsa true. */
@@ -895,13 +908,14 @@ export type WaReviewDecision = {
  */
 export function reviewRequirement(
   item: WaCalendarItem,
-  ctx: { villa: VillaResolution; senderVerified: boolean; conflictFree: boolean },
+  ctx: { villa: VillaResolution; senderRole: WaSenderRole | null; conflictFree: boolean },
 ): WaReviewDecision {
+  const senderVerified = ctx.senderRole === "owner" || ctx.senderRole === "manager";
   const score = scoreProposal({
     villa: ctx.villa,
     datesExplicit: item.datesExplicit,
     actionClear: item.actionClear,
-    senderVerified: ctx.senderVerified,
+    senderVerified,
     conflictFree: ctx.conflictFree,
   });
   const band = confidenceBand(score);
@@ -914,7 +928,8 @@ export function reviewRequirement(
   if (item.flags.some((f) => !resolved(f))) reasons.push("flagged");
   if (!item.datesExplicit || !item.checkIn || !item.checkOut) reasons.push("dates_incomplete");
   if (ctx.villa !== "named" && ctx.villa !== "single") reasons.push("villa_unresolved");
-  if (!ctx.senderVerified) reasons.push("sender_unverified");
+  if (ctx.senderRole === "staff") reasons.push("staff_review_required");
+  else if (!senderVerified) reasons.push("sender_unverified");
   if (!ctx.conflictFree) reasons.push("conflict");
   if (band !== "high") reasons.push("low_confidence");
   return { quickApprove: reasons.length === 0, score, band, reasons };

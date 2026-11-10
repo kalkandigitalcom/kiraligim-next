@@ -53,17 +53,27 @@ describe("fonksiyonlar", () => {
       "app_set_updated_at",
       "app_subscription_is_current",
       "app_uuid_v7",
+      // 0036 (A2): takvim önerisi worker'ı, güvenli başlangıç ve durum makinesi tetikleyicisi
+      "app_wa_busy",
+      "app_wa_calendar_cutover",
       // 0031 (A1): WhatsApp Asistanı — yetki yardımcısı (invoker) ve ağ geçidi/panel fonksiyonları
       "app_wa_can_manage",
       // 0034 (A1.1): kodsuz eşleştirme (panel), numara doğrulama ve yeni ağ geçidi sürümleri
       "app_wa_claim_group",
+      "app_wa_claim_messages",
+      "app_wa_expire_proposals",
+      "app_wa_fail_message",
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
+      "app_wa_message_context",
       "app_wa_pending_groups",
       "app_wa_phone_hash",
+      "app_wa_proposals_guard",
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
+      "app_wa_sender_role",
+      "app_wa_store_proposals",
       "app_wa_sync_group",
       "app_wa_sync_group",
       "app_wa_unlink_group",
@@ -98,13 +108,20 @@ describe("fonksiyonlar", () => {
       "app_reservations_external_guard",
       // 0031 (A1): WhatsApp ağ geçidinin tek yazma yolu ve panelden bağlantı kesme (app.wa_fn)
       // 0034 (A1.1): eşleştirme (bekleyen gruplar, eşleştir) ve numara doğrulama
+      // 0036 (A2): takvim önerisi worker'ı (iş alma, bağlam, çakışma özeti, kayıt, hata, süre)
+      "app_wa_busy",
       "app_wa_claim_group",
+      "app_wa_claim_messages",
+      "app_wa_expire_proposals",
+      "app_wa_fail_message",
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
+      "app_wa_message_context",
       "app_wa_pending_groups",
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
+      "app_wa_store_proposals",
       "app_wa_sync_group",
       "app_wa_sync_group",
       "app_wa_unlink_group",
@@ -135,8 +152,16 @@ describe("fonksiyonlar", () => {
        where pronamespace = 'public'::regnamespace and prosecdef and proname like 'app\\_wa\\_%'
        order by 1, 2`);
     expect(wa.rows).toEqual([
+      // 0036 (A2): worker; işletme kilitli mesajdan bulunur (mesaj + kilit belirteci), parametre değil
+      {
+        proname: "app_wa_busy",
+        args: "p_message uuid, p_token uuid, p_property uuid, p_from date, p_to date",
+      },
       // 0034: panel; işletme ve kullanıcı oturum bağlamından (parametre değil)
       { proname: "app_wa_claim_group", args: "p_group uuid, p_property uuid" },
+      { proname: "app_wa_claim_messages", args: "p_limit integer" },
+      { proname: "app_wa_expire_proposals", args: "" },
+      { proname: "app_wa_fail_message", args: "p_message uuid, p_token uuid, p_error text" },
       { proname: "app_wa_heartbeat", args: "p_label text, p_status text, p_error text" },
       {
         proname: "app_wa_heartbeat",
@@ -146,12 +171,14 @@ describe("fonksiyonlar", () => {
         proname: "app_wa_ingest_message",
         args: "p_connection uuid, p_jid text, p_message_id text, p_sender_jid text, p_sender_pn text, p_sender_lid text, p_body text, p_sent_at timestamp with time zone, p_kind text",
       },
+      { proname: "app_wa_message_context", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_pending_groups", args: "" },
       { proname: "app_wa_purge_messages", args: "p_days integer" },
       {
         proname: "app_wa_redeem_link_code",
         args: "p_connection uuid, p_jid text, p_code text, p_sender_pn text",
       },
+      { proname: "app_wa_store_proposals", args: "p_message uuid, p_token uuid, p_items jsonb" },
       {
         proname: "app_wa_sync_group",
         args: "p_connection uuid, p_jid text, p_subject text, p_participants integer, p_bot_is_admin boolean, p_admins_only boolean, p_present boolean",
@@ -222,15 +249,26 @@ describe("fonksiyonlar", () => {
       app_set_updated_at: [],
       app_subscription_is_current: ["app_user"],
       app_uuid_v7: [],
+      // 0036 (A2): worker fonksiyonları yalnız app_user'da; güvenli başlangıç, tetikleyici ve
+      // gönderen doğrulama yardımcısı kimsede (ağ geçidi rolüne de verilmez).
+      app_wa_busy: ["app_user"],
+      app_wa_calendar_cutover: [],
       app_wa_can_manage: ["app_user"],
       app_wa_claim_group: ["app_user"],
+      app_wa_claim_messages: ["app_user"],
+      app_wa_expire_proposals: ["app_user"],
+      app_wa_fail_message: ["app_user"],
       // İki imza (0031 ve 0034); ikisi de yalnız app_user'da (ayrı ağ geçidi rolü yoksa).
       app_wa_heartbeat: ["app_user", "app_user"],
       app_wa_ingest_message: ["app_user"],
+      app_wa_message_context: ["app_user"],
       app_wa_pending_groups: ["app_user"],
       app_wa_phone_hash: [],
+      app_wa_proposals_guard: [],
       app_wa_purge_messages: ["app_user"],
       app_wa_redeem_link_code: ["app_user"],
+      app_wa_sender_role: [],
+      app_wa_store_proposals: ["app_user"],
       app_wa_sync_group: ["app_user", "app_user"],
       app_wa_unlink_group: ["app_user"],
       app_wa_verify_phone: ["app_user"],

@@ -180,6 +180,7 @@ describe("varsayılanlar ve yetkiler (0022, 0023)", () => {
       "properties_public_read", // 0024 (F2a): app_migrator, yalnız SELECT
       "properties_select",
       "properties_update",
+      "properties_wa_calendar_read", // 0036 (A2): app_migrator, yalnız SELECT (app.wa_calendar)
       "workspaces_ical_export_read", // 0029 (3.1): app_migrator, yalnız SELECT
       "workspaces_ical_sync_read", // 0029 (3.1): app_migrator, yalnız SELECT (cron)
       "workspaces_insert",

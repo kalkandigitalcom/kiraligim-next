@@ -105,3 +105,62 @@ export const WA_CLAIM_OUTCOMES = [
   "property_not_found",
 ] as const;
 export type WaClaimOutcome = (typeof WA_CLAIM_OUTCOMES)[number];
+
+/* ── Takvim önerileri (A2: wa_calendar_proposals, drizzle/0035–0036) ───────── */
+
+/**
+ * Gelen mesajın kuyruk durumu. received → processing (worker işi aldı) → processed (öneri yazıldı)
+ * | ignored (takvimle ilgisiz, geçmiş birikim, eski ya da worker öncesi mesaj) | failed (deneme
+ * sınırı aşıldı).
+ */
+export const WA_INBOUND_STATUSES = [
+  "received",
+  "processing",
+  "processed",
+  "ignored",
+  "failed",
+] as const;
+export type WaInboundStatus = (typeof WA_INBOUND_STATUSES)[number];
+
+/**
+ * Önerinin durumu. Yalnız "pending" değişebilir. applied/rejected yalnız oturumdaki yönetici
+ * tarafından; superseded/expired/noop yalnız veritabanı fonksiyonlarıyla (worker, temizlik).
+ */
+export const WA_PROPOSAL_STATUSES = [
+  "pending",
+  "applied",
+  "rejected",
+  "superseded",
+  "expired",
+  "noop",
+] as const;
+export type WaProposalStatus = (typeof WA_PROPOSAL_STATUSES)[number];
+
+/** Villa çözümü (ayrıştırıcının VillaResolution tipiyle aynı değerler). */
+export const WA_VILLA_RESOLUTIONS = ["named", "single", "ambiguous", "none"] as const;
+
+/** Onay biçimi: quick yalnız nedensiz kapatma; diğer her şey reviewed (veritabanı CHECK'i). */
+export const WA_DECISION_MODES = ["quick", "reviewed"] as const;
+export type WaDecisionMode = (typeof WA_DECISION_MODES)[number];
+
+/** Worker ve öneri sınırları (veritabanı fonksiyonları aynı değerlerle yazılmıştır). */
+export const WA_PROPOSAL_LIMITS = {
+  /** Bir çalıştırmada en fazla alınacak mesaj. */
+  claimBatchMax: 50,
+  /** İş kilidi süresi (sn): dolan kilit bir sonraki çalıştırmada yeniden alınır. */
+  lockSeconds: 120,
+  /** Bu kadar denemeden sonra mesaj "failed" olur. */
+  maxAttempts: 5,
+  /** Gönderimi bundan eski mesajlar öneri üretmez (gün). */
+  maxMessageAgeDays: 7,
+  /** Mesaj başına en fazla öneri (WA_CALENDAR_MAX_ITEMS ile aynı). */
+  itemsPerMessage: 10,
+  excerptMax: 500,
+  villaNameMax: 120,
+  decisionNoteMax: 500,
+  /** Bayrak, neden ve kimlik dizilerinin en fazla eleman sayısı. */
+  arrayMax: 20,
+} as const;
+
+/** Saklama süresi dolan karar verilmiş önerilerde mesaj alıntısının yerine yazılan metin. */
+export const WA_PROPOSAL_EXCERPT_PURGED = "(silindi)";

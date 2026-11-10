@@ -406,16 +406,37 @@ describe("veritabanı güvenliği", () => {
              has_function_privilege('app_admin', p.oid, 'EXECUTE') adm
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname like 'app_wa_%' order by p.proname`);
+    // 0036 (A2): takvim önerisi worker'ı, durum makinesi tetikleyicisi ve güvenli başlangıç.
+    const A2 = [
+      "app_wa_busy",
+      "app_wa_calendar_cutover",
+      "app_wa_claim_messages",
+      "app_wa_expire_proposals",
+      "app_wa_fail_message",
+      "app_wa_message_context",
+      "app_wa_proposals_guard",
+      "app_wa_sender_role",
+      "app_wa_store_proposals",
+    ];
     expect(fns.rows.map((r) => r.proname)).toEqual([
+      "app_wa_busy", // 0036
+      "app_wa_calendar_cutover", // 0036 (yalnız migration; kimseye açık değil)
       "app_wa_can_manage",
       "app_wa_claim_group", // 0034
+      "app_wa_claim_messages", // 0036
+      "app_wa_expire_proposals", // 0036
+      "app_wa_fail_message", // 0036
       "app_wa_heartbeat",
       "app_wa_heartbeat", // 0034: 4 parametreli (asistan numarası)
       "app_wa_ingest_message",
+      "app_wa_message_context", // 0036
       "app_wa_pending_groups", // 0034
       "app_wa_phone_hash", // 0034 (yalnız fonksiyonlar içinden)
+      "app_wa_proposals_guard", // 0036 (tetikleyici)
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
+      "app_wa_sender_role", // 0036 (yalnız fonksiyonlar içinden)
+      "app_wa_store_proposals", // 0036
       "app_wa_sync_group",
       "app_wa_sync_group", // 0034: 9 parametreli (ekleyen/kurucu)
       "app_wa_unlink_group",
@@ -424,16 +445,29 @@ describe("veritabanı güvenliği", () => {
     for (const f of fns.rows) {
       expect(f.owner, f.proname).toBe("app_migrator");
       expect(f.definer, f.proname).toBe(
-        !["app_wa_can_manage", "app_wa_phone_hash"].includes(f.proname),
+        ![
+          "app_wa_can_manage",
+          "app_wa_phone_hash",
+          "app_wa_calendar_cutover",
+          "app_wa_proposals_guard",
+          "app_wa_sender_role",
+        ].includes(f.proname),
       );
       expect(f.proconfig, f.proname).toContain("search_path=pg_catalog, pg_temp");
       expect(f.worker, f.proname).toBe(false);
       expect(f.adm, f.proname).toBe(false);
-      // A1 kapsamı: rezervasyon, fiyat, takvim ve iCal nesnelerine dokunulmaz. (0034'teki
-      // eşleştirme villayı yalnız bileşik yabancı anahtarla doğrular; properties tablosunu okumaz.)
+      // HİÇBİR WhatsApp fonksiyonu rezervasyon, fiyat veya iCal tablolarına yazmaz.
       expect(f.prosrc, f.proname).not.toMatch(
-        /reservation|property_rate|external_calendar|ical|public\.propert/i,
+        /(insert\s+into|update|delete\s+from)\s+public\.(reservations|property_rates|external_calendar|property_ical)/i,
       );
+      // A1 kapsamı: rezervasyon, fiyat, takvim ve iCal nesnelerine hiç dokunulmaz. (0034'teki
+      // eşleştirme villayı yalnız bileşik yabancı anahtarla doğrular; properties tablosunu okumaz.)
+      // A2 worker'ı rezervasyon ve harici olayları YALNIZ OKUR (tests/integration/wa-calendar-proposals.test.ts).
+      if (!A2.includes(f.proname)) {
+        expect(f.prosrc, f.proname).not.toMatch(
+          /reservation|property_rate|external_calendar|ical|public\.propert/i,
+        );
+      }
     }
   });
 
@@ -447,6 +481,7 @@ describe("veritabanı güvenliği", () => {
        order by c.relname`);
     expect(t.rows).toEqual(
       [
+        "wa_calendar_proposals", // 0035 (A2)
         "wa_connections",
         "wa_groups",
         "wa_inbound_messages",

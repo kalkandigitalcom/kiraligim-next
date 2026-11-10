@@ -246,6 +246,20 @@
       "when": 1794258241562,
       "tag": "0034_whatsapp_group_claim_security",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794298837734,
+      "tag": "0035_wa_calendar_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794298838587,
+      "tag": "0036_wa_calendar_proposals_security",
+      "breakpoints": true
     }
   ]
 }

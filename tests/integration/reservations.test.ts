@@ -974,6 +974,8 @@ describe("yetkiler, politikalar, kısıtlar, fonksiyon", () => {
       ["reservations_public_request", "INSERT", ["app_migrator"]],
       ["reservations_select", "SELECT", ["app_user"]],
       ["reservations_update", "UPDATE", ["app_user"]],
+      // 0036 (A2): WhatsApp takvim önerisi worker'ının çakışma özeti için dar SELECT (app.wa_calendar).
+      ["reservations_wa_calendar_read", "SELECT", ["app_migrator"]],
     ]);
   });
 

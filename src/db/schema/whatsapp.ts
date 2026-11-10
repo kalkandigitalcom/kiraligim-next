@@ -2,17 +2,28 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
+import { WA_CALENDAR_ACTIONS, WA_SENDER_ROLES } from "../../lib/wa-calendar-parse";
+import {
+  WA_DECISION_MODES,
+  WA_INBOUND_STATUSES,
+  WA_PROPOSAL_LIMITS as PL,
+  WA_PROPOSAL_STATUSES,
+  WA_VILLA_RESOLUTIONS,
+} from "../../lib/whatsapp-meta";
 import { users } from "./auth";
 import { properties } from "./properties";
 import { workspaceMembers, workspaces } from "./tenancy";
@@ -234,13 +245,15 @@ export const waInboundMessages = pgTable(
     receivedAt: ts().notNull().defaultNow(),
     /** live: gerçek zamanlı; backlog: bağlantı kesintisinden sonra gelen birikim. */
     kind: text({ enum: ["live", "backlog"] }).notNull(),
-    /** A3'te worker durumları eklenir; A1'de yalnız "received". */
-    status: text({ enum: ["received"] })
-      .notNull()
-      .default("received"),
+    /** Kuyruk durumu (A2): received → processing → processed | ignored | failed. */
+    status: text({ enum: WA_INBOUND_STATUSES }).notNull().default("received"),
     attempts: integer().notNull().default(0),
     lockedUntil: ts(),
     lockToken: uuid(),
+    /** Worker'ın mesajı sonuçlandırdığı an (processed / ignored / failed). */
+    processedAt: ts(),
+    /** Son hatanın kodu (yalnız kısa kod; mesaj içeriği veya kişisel veri yazılmaz). */
+    lastError: text(),
   },
   (t) => [
     foreignKey({
@@ -254,7 +267,19 @@ export const waInboundMessages = pgTable(
     index("wa_inbound_messages_connection_idx").on(t.connectionId),
     index("wa_inbound_messages_received_idx").on(t.receivedAt),
     check("wa_inbound_messages_kind_check", sql`${t.kind} in ('live', 'backlog')`),
-    check("wa_inbound_messages_status_check", sql`${t.status} in ('received')`),
+    check(
+      "wa_inbound_messages_status_check",
+      sql`${t.status} in (${sql.raw(WA_INBOUND_STATUSES.map((s) => `'${s}'`).join(", "))})`,
+    ),
+    check(
+      "wa_inbound_messages_last_error_format",
+      sql`${t.lastError} is null or ${t.lastError} ~ '^[a-z0-9_]{1,60}$'`,
+    ),
+    check("wa_inbound_messages_attempts", sql`${t.attempts} >= 0`),
+    // Worker'ın bekleyen işleri: yalnız received ve (kilidi dolmuş olabilecek) processing.
+    index("wa_inbound_messages_pending_idx")
+      .on(t.receivedAt)
+      .where(sql`${t.status} in ('received', 'processing')`),
     check(
       "wa_inbound_messages_lengths",
       sql`length(${t.body}) between 1 and 4000 and length(${t.waMessageId}) between 1 and 128
@@ -320,6 +345,211 @@ export const waPhoneChallenges = pgTable(
     check(
       "wa_phone_challenges_ttl",
       sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '15 minutes'`,
+    ),
+  ],
+);
+
+const inList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
+/** text[] öğeleri kısa kodlardır ("year_inferred", "action_requires_review"). */
+const codeArray = (col: unknown) =>
+  sql`cardinality(${col}) <= ${sql.raw(String(PL.arrayMax))} and array_position(${col}, null) is null
+    and (cardinality(${col}) = 0 or array_to_string(${col}, ',') ~ '^[a-z_]{1,40}(,[a-z_]{1,40})*$')`;
+
+/**
+ * WhatsApp mesajından çıkarılan takvim İŞLEM ÖNERİSİ (A2). Takvim DEĞİLDİR: rezervasyonlara
+ * yalnız panelde, oturumdaki yönetici onayıyla ve rezervasyon servisiyle yazılır.
+ *
+ * Elle yazılan migration'da (drizzle/0036):
+ *  - ENABLE/FORCE RLS; app_user yalnız kendi işletmesinde owner/manager iken okur ve düzenlenebilir
+ *    kolonları günceller; INSERT/DELETE yok (öneriyi yalnız worker fonksiyonu yazar);
+ *  - durum makinesi tetikleyicisi: karar verilmiş öneri değişmez; applied/rejected yalnız oturumdaki
+ *    kullanıcıyla; her değişiklikte version + 1 (iyimser kilit);
+ *  - worker fonksiyonları (app_wa_claim_messages, app_wa_store_proposals, …): rezervasyonları
+ *    yalnız OKUR.
+ *
+ * Gönderen numarası saklanmaz (yalnız özet). Mesaj alıntısı 90 gün sonra boşaltılır.
+ */
+export const waCalendarProposals = pgTable(
+  "wa_calendar_proposals",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "restrict" }),
+    /** Kaynak mesaj; 90 günlük temizlikte silinince boşalır (öneri kalır). */
+    messageId: uuid().references(() => waInboundMessages.id, { onDelete: "set null" }),
+    groupId: uuid()
+      .notNull()
+      .references(() => waGroups.id, { onDelete: "restrict" }),
+    /** Mesaj içindeki sıra (0..9). */
+    itemNo: smallint().notNull(),
+    parserVersion: smallint().notNull(),
+    messageExcerpt: text().notNull(),
+    sentAt: ts().notNull(),
+    /** Gönderen numarasının özeti (ham numara saklanmaz). */
+    senderHash: text().notNull(),
+    /**
+     * Gönderenin öneri anındaki rolü (doğrulanmış numarasından): owner/manager doğrulanmış
+     * gönderendir; staff önerisi her zaman elle incelenir. Kayıtsız numara öneri oluşturamaz.
+     */
+    senderRole: text({ enum: WA_SENDER_ROLES }).notNull(),
+    /** sender_role in (owner, manager) — veritabanı CHECK'i ile eş tutulur. */
+    senderVerified: boolean().notNull(),
+    action: text({ enum: WA_CALENDAR_ACTIONS }),
+    villaNameRaw: text(),
+    propertyId: uuid(),
+    villaResolution: text({ enum: WA_VILLA_RESOLUTIONS }).notNull(),
+    candidatePropertyIds: uuid()
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    checkIn: date({ mode: "string" }),
+    checkOut: date({ mode: "string" }),
+    reservationStatus: text({ enum: ["confirmed", "pending"] }),
+    flags: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** Öneri anındaki çakışma özeti (yalnız bilgi; onayda yeniden denetlenir). */
+    conflicts: jsonb().$type<unknown[]>().notNull().default([]),
+    score: smallint().notNull(),
+    band: text({ enum: ["high", "medium", "low"] }).notNull(),
+    reviewReasons: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** open/cancel: yöneticinin seçtiği kayıtlar (onayda yeniden doğrulanır). */
+    targetReservationIds: uuid()
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    status: text({ enum: WA_PROPOSAL_STATUSES }).notNull().default("pending"),
+    version: integer().notNull().default(1),
+    edited: boolean().notNull().default(false),
+    appliedReservationIds: uuid()
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    supersededBy: uuid(),
+    decidedBy: uuid().references(() => users.id, { onDelete: "set null" }),
+    decidedAt: ts(),
+    decisionNote: text(),
+    decisionMode: text({ enum: WA_DECISION_MODES }),
+    /** Onay anında sunucuda yeniden hesaplanan inceleme nedenleri (yöneticinin onayladıkları). */
+    decisionReasons: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    createdAt: ts().notNull().defaultNow(),
+    updatedAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    unique("wa_calendar_proposals_message_item_key").on(t.messageId, t.itemNo),
+    // Rezervasyonun kaynak önerisi aynı işletmeden olmalı (reservations_origin_proposal_fk).
+    unique("wa_calendar_proposals_scope_key").on(t.id, t.workspaceId),
+    foreignKey({
+      name: "wa_calendar_proposals_property_fk",
+      columns: [t.propertyId, t.workspaceId],
+      foreignColumns: [properties.id, properties.workspaceId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "wa_calendar_proposals_superseded_by_fk",
+      columns: [t.supersededBy],
+      foreignColumns: [t.id],
+    }).onDelete("restrict"),
+    index("wa_calendar_proposals_pending_idx")
+      .on(t.workspaceId, t.createdAt)
+      .where(sql`${t.status} = 'pending'`),
+    index("wa_calendar_proposals_property_pending_idx")
+      .on(t.propertyId, t.checkIn)
+      .where(sql`${t.status} = 'pending'`),
+    index("wa_calendar_proposals_workspace_idx").on(t.workspaceId, t.createdAt),
+    index("wa_calendar_proposals_group_idx").on(t.groupId),
+    index("wa_calendar_proposals_property_idx").on(t.propertyId),
+    index("wa_calendar_proposals_decided_by_idx").on(t.decidedBy),
+    index("wa_calendar_proposals_superseded_by_idx").on(t.supersededBy),
+    check(
+      "wa_calendar_proposals_action_check",
+      sql`${t.action} is null or ${t.action} in (${inList(WA_CALENDAR_ACTIONS)})`,
+    ),
+    check(
+      "wa_calendar_proposals_status_check",
+      sql`${t.status} in (${inList(WA_PROPOSAL_STATUSES)})`,
+    ),
+    check(
+      "wa_calendar_proposals_villa_resolution_check",
+      sql`${t.villaResolution} in (${inList(WA_VILLA_RESOLUTIONS)})`,
+    ),
+    check("wa_calendar_proposals_band_check", sql`${t.band} in ('high', 'medium', 'low')`),
+    check(
+      "wa_calendar_proposals_decision_mode_check",
+      sql`${t.decisionMode} is null or ${t.decisionMode} in (${inList(WA_DECISION_MODES)})`,
+    ),
+    check(
+      "wa_calendar_proposals_reservation_status",
+      sql`(${t.action} = 'reserve') = (${t.reservationStatus} is not null)
+        and (${t.reservationStatus} is null or ${t.reservationStatus} in ('confirmed', 'pending'))`,
+    ),
+    check(
+      "wa_calendar_proposals_dates",
+      sql`${t.checkOut} is null or (${t.checkIn} is not null and ${t.checkOut} > ${t.checkIn})`,
+    ),
+    check(
+      "wa_calendar_proposals_numbers",
+      sql`${t.itemNo} between 0 and ${sql.raw(String(PL.itemsPerMessage - 1))}
+        and ${t.parserVersion} >= 1 and ${t.score} between 0 and 100 and ${t.version} >= 1`,
+    ),
+    check(
+      "wa_calendar_proposals_lengths",
+      sql`length(${t.messageExcerpt}) between 1 and ${sql.raw(String(PL.excerptMax))}
+        and (${t.villaNameRaw} is null or length(${t.villaNameRaw}) between 1 and ${sql.raw(String(PL.villaNameMax))})
+        and (${t.decisionNote} is null or length(${t.decisionNote}) <= ${sql.raw(String(PL.decisionNoteMax))})`,
+    ),
+    check(
+      "wa_calendar_proposals_sender_hash_format",
+      sql`${t.senderHash} ~ ${sql.raw(`'${PHONE_HASH}'`)}`,
+    ),
+    // GÜVENLİK (gönderen politikası): yalnız owner/manager doğrulanmış gönderendir; staff önerisi
+    // "staff_review_required" nedeni taşımadan kaydedilemez.
+    check(
+      "wa_calendar_proposals_sender_role",
+      sql`${t.senderRole} in (${inList(WA_SENDER_ROLES)})
+        and ${t.senderVerified} = (${t.senderRole} in ('owner', 'manager'))
+        and (${t.senderRole} <> 'staff' or 'staff_review_required' = any(${t.reviewReasons}))`,
+    ),
+    check("wa_calendar_proposals_flags", codeArray(t.flags)),
+    check("wa_calendar_proposals_review_reasons", codeArray(t.reviewReasons)),
+    check("wa_calendar_proposals_decision_reasons", codeArray(t.decisionReasons)),
+    check(
+      "wa_calendar_proposals_id_arrays",
+      sql`cardinality(${t.candidatePropertyIds}) <= ${sql.raw(String(PL.arrayMax))}
+        and cardinality(${t.targetReservationIds}) <= ${sql.raw(String(PL.arrayMax))}
+        and cardinality(${t.appliedReservationIds}) <= ${sql.raw(String(PL.arrayMax))}`,
+    ),
+    check(
+      "wa_calendar_proposals_conflicts",
+      sql`jsonb_typeof(${t.conflicts}) = 'array' and jsonb_array_length(${t.conflicts}) <= ${sql.raw(String(PL.arrayMax))}`,
+    ),
+    // Karar verilmiş öneri: karar zamanı ve (onaylıysa) uygulanabilir alanlar dolu.
+    check(
+      "wa_calendar_proposals_decision",
+      sql`(${t.status} in ('applied', 'rejected')) = (${t.decidedAt} is not null)
+        and (${t.status} = 'applied') = (${t.decisionMode} is not null)
+        and (${t.status} <> 'applied' or (${t.action} is not null and ${t.propertyId} is not null
+             and ${t.checkIn} is not null and ${t.checkOut} is not null))`,
+    ),
+    // GÜVENLİK: "tek tık" yalnız nedensiz kapatma; rezervasyon, iptal ve açma her zaman incelenir.
+    // Güven puanı bu kuralı aşamaz (uygulama kodu atlansa bile veritabanı reddeder).
+    // Staff önerisi de "tek tık" olamaz (staff WhatsApp'tan takvimi doğrudan değiştiremez).
+    check(
+      "wa_calendar_proposals_quick_only_close",
+      sql`${t.decisionMode} is distinct from 'quick'
+        or (${t.action} = 'close' and cardinality(${t.decisionReasons}) = 0
+            and ${t.senderRole} in ('owner', 'manager'))`,
+    ),
+    check(
+      "wa_calendar_proposals_superseded",
+      sql`(${t.status} = 'superseded') = (${t.supersededBy} is not null) and ${t.supersededBy} is distinct from ${t.id}`,
     ),
   ],
 );

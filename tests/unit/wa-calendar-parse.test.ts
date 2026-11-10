@@ -658,7 +658,7 @@ describe("v2 villa adı: eylemden ayrı ayrıştırılır", () => {
 });
 
 describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
-  const ok = { villa: "named" as const, senderVerified: true, conflictFree: true };
+  const ok = { villa: "named" as const, senderRole: "owner" as const, conflictFree: true };
 
   it("yalnız 'close' tek tıkla onaylanabilir", () => {
     expect(WA_QUICK_APPROVE_ACTIONS).toEqual(["close"]);
@@ -699,7 +699,7 @@ describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
 
   it("doğrulanmamış gönderen, çakışma ve çözülemeyen villa tek tıkı engeller", () => {
     const i = one("Villa A 15-20 Haziran kapalı.");
-    expect(reviewRequirement(i, { ...ok, senderVerified: false }).reasons).toEqual([
+    expect(reviewRequirement(i, { ...ok, senderRole: null }).reasons).toEqual([
       "sender_unverified",
     ]);
     expect(reviewRequirement(i, { ...ok, conflictFree: false }).reasons).toEqual(["conflict"]);
@@ -714,5 +714,36 @@ describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
     expect(
       reviewRequirement(one("15-20 Haziran kapalı"), { ...ok, villa: "none" }).reasons,
     ).toEqual(["flagged", "villa_unresolved", "low_confidence"]);
+  });
+});
+
+describe("gönderen rolü (A2 politikası)", () => {
+  const base = { villa: "named" as const, conflictFree: true };
+  const close = () => parseCalendarMessage("Villa A 15-20 Haziran kapalı.", TODAY).items[0]!;
+
+  it("owner ve manager doğrulanmış gönderendir: nedensiz kapatma tek tıkla onaylanabilir", () => {
+    for (const senderRole of ["owner", "manager"] as const) {
+      expect(reviewRequirement(close(), { ...base, senderRole })).toEqual({
+        quickApprove: true,
+        score: 100,
+        band: "high",
+        reasons: [],
+      });
+    }
+  });
+
+  it("staff: numarası doğrulanmış olsa da 'doğrulanmamış' değil, ayrı nedenle elle incelenir", () => {
+    const d = reviewRequirement(close(), { ...base, senderRole: "staff" });
+    expect(d.quickApprove).toBe(false);
+    expect(d.reasons).toEqual(["staff_review_required"]);
+    expect(d.reasons).not.toContain("sender_unverified");
+    // Puan yüksek olsa da (85) staff kuralı kalkmaz.
+    expect([d.score, d.band]).toEqual([85, "high"]);
+  });
+
+  it("rolsüz gönderen (savunma): sender_unverified", () => {
+    expect(reviewRequirement(close(), { ...base, senderRole: null }).reasons).toContain(
+      "sender_unverified",
+    );
   });
 });

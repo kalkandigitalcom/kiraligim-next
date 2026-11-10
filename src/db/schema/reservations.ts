@@ -23,6 +23,7 @@ import {
 import { users } from "./auth";
 import { properties } from "./properties";
 import { workspaces } from "./tenancy";
+import { waCalendarProposals } from "./whatsapp";
 
 /**
  * Rezervasyonlar ve sahibin takvim blokları (Aşama 3.0a). Tenant tablosu: workspace_id +
@@ -71,6 +72,8 @@ export const reservations = pgTable(
     cancelledBy: uuid().references(() => users.id, { onDelete: "set null" }),
     cancelReason: text(),
     createdBy: uuid().references(() => users.id, { onDelete: "set null" }),
+    /** Kaydı oluşturan WhatsApp takvim önerisi (A2); elle eklenen kayıtta boş. */
+    originProposalId: uuid(),
     createdAt: timestamp({ withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
@@ -84,11 +87,18 @@ export const reservations = pgTable(
     index("reservations_workspace_check_in_idx").on(t.workspaceId, t.checkIn),
     index("reservations_property_check_in_idx").on(t.propertyId, t.checkIn),
     index("reservations_created_by_idx").on(t.createdBy),
+    // WhatsApp önerisinden oluşan kayıt (A2): öneri aynı işletmenin olmalı. Öneriler silinmez.
+    foreignKey({
+      name: "reservations_origin_proposal_fk",
+      columns: [t.originProposalId, t.workspaceId],
+      foreignColumns: [waCalendarProposals.id, waCalendarProposals.workspaceId],
+    }).onDelete("restrict"),
+    index("reservations_origin_proposal_idx").on(t.originProposalId),
     check("reservations_kind_check", sql`${t.kind} in ('reservation', 'block')`),
     check("reservations_status_check", sql`${t.status} in ('pending', 'confirmed', 'cancelled')`),
     check(
       "reservations_source_check",
-      sql`${t.source} is null or ${t.source} in ('direct', 'phone', 'airbnb', 'booking', 'other', 'web')`,
+      sql`${t.source} is null or ${t.source} in ('direct', 'phone', 'airbnb', 'booking', 'other', 'web', 'whatsapp')`,
     ),
     check(
       "reservations_dates",

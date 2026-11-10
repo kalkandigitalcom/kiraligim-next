@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  WA_CALENDAR_EXCERPT_MAX,
+  WA_CALENDAR_FLAGS,
+  WA_CALENDAR_MAX_ITEMS,
+  WA_REVIEW_REASONS,
+  type VillaResolution,
+} from "@/lib/wa-calendar-parse";
+import {
+  WA_DECISION_MODES,
+  WA_INBOUND_STATUSES,
+  WA_PROPOSAL_LIMITS,
+  WA_PROPOSAL_STATUSES,
+  WA_VILLA_RESOLUTIONS,
   formatLinkCode,
   generateLinkCode,
   verifyMessage,
@@ -97,5 +109,34 @@ describe("telefon", () => {
     expect(maskPhone("905321112233")).toBe("+90 532 *** ** 33");
     expect(maskPhone(null)).toBe("gizli kimlik");
     expect(maskPhone("1234")).toBe("***");
+  });
+});
+
+describe("takvim önerileri: veritabanı sınırlarıyla uyum (drizzle/0035)", () => {
+  it("ayrıştırıcı sabitleri öneri tablosunun sınırlarıyla aynı", () => {
+    expect(WA_PROPOSAL_LIMITS.itemsPerMessage).toBe(WA_CALENDAR_MAX_ITEMS);
+    expect(WA_PROPOSAL_LIMITS.excerptMax).toBe(WA_CALENDAR_EXCERPT_MAX);
+    const resolutions: readonly VillaResolution[] = WA_VILLA_RESOLUTIONS;
+    expect([...resolutions].sort()).toEqual(["ambiguous", "named", "none", "single"]);
+  });
+
+  it("bayrak ve inceleme nedenleri tablodaki kısa kod biçimine uyar (^[a-z_]{1,40}$)", () => {
+    for (const c of [...WA_CALENDAR_FLAGS, ...WA_REVIEW_REASONS]) {
+      expect(c, c).toMatch(/^[a-z_]{1,40}$/);
+    }
+    expect(WA_CALENDAR_FLAGS.length + 1).toBeLessThanOrEqual(WA_PROPOSAL_LIMITS.arrayMax);
+    expect(WA_REVIEW_REASONS.length).toBeLessThanOrEqual(WA_PROPOSAL_LIMITS.arrayMax);
+  });
+
+  it("kuyruk ve öneri durumları", () => {
+    expect(WA_INBOUND_STATUSES).toEqual([
+      "received",
+      "processing",
+      "processed",
+      "ignored",
+      "failed",
+    ]);
+    expect(WA_PROPOSAL_STATUSES).toContain("pending");
+    expect(WA_DECISION_MODES).toEqual(["quick", "reviewed"]);
   });
 });

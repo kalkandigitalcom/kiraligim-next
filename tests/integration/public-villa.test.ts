@@ -539,8 +539,17 @@ describe("veritabanı güvenliği", () => {
       "workspace_subscriptions:subscriptions_public_read:r:app_migrator",
       "workspaces:workspaces_public_read:r:app_migrator",
     ]);
+    // 0036 (A2): WhatsApp takvim önerisi worker'ı için dar app_migrator SELECT (app.wa_calendar).
+    expect(list.filter((x) => x.includes("_wa_calendar_"))).toEqual([
+      "properties:properties_wa_calendar_read:r:app_migrator",
+      "reservations:reservations_wa_calendar_read:r:app_migrator",
+    ]);
     // Mevcut politikalar (0006–0018) aynen duruyor.
-    expect(list.filter((x) => !x.includes("_public_read") && !x.includes("_ical_"))).toEqual([
+    expect(
+      list.filter(
+        (x) => !x.includes("_public_read") && !x.includes("_ical_") && !x.includes("_wa_calendar_"),
+      ),
+    ).toEqual([
       "properties:properties_insert:a:app_user",
       "properties:properties_select:r:app_user",
       "properties:properties_update:w:app_user",
@@ -857,14 +866,21 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_public_villa_rates",
       "app_public_villa_visible",
       "app_reservations_external_guard",
-      // 0031 (A1): WhatsApp ağ geçidi ve panelden bağlantı kesme; 0034 (A1.1): eşleştirme
+      // 0031 (A1): WhatsApp ağ geçidi ve panelden bağlantı kesme; 0034 (A1.1): eşleştirme;
+      // 0036 (A2): takvim önerisi worker'ı (busy, claim_messages, expire, fail, context, store)
+      "app_wa_busy",
       "app_wa_claim_group",
+      "app_wa_claim_messages",
+      "app_wa_expire_proposals",
+      "app_wa_fail_message",
       "app_wa_heartbeat",
       "app_wa_heartbeat",
       "app_wa_ingest_message",
+      "app_wa_message_context",
       "app_wa_pending_groups",
       "app_wa_purge_messages",
       "app_wa_redeem_link_code",
+      "app_wa_store_proposals",
       "app_wa_sync_group",
       "app_wa_sync_group",
       "app_wa_unlink_group",
@@ -892,6 +908,11 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_connection uuid, p_jid text, p_subject text, p_participants integer, p_bot_is_admin boolean, p_admins_only boolean, p_present boolean, p_added_by_pn text, p_owner_pn text": `gen_random_uuid(), '120363000000000001@g.us', null, 1, false, false, true, null, null`,
         "p_code text, p_sender_pn text": `'ABCDEFGH', null`,
         "p_group uuid, p_property uuid": `gen_random_uuid(), gen_random_uuid()`,
+        "p_limit integer": `1`,
+        "p_message uuid, p_token uuid": `gen_random_uuid(), gen_random_uuid()`,
+        "p_message uuid, p_token uuid, p_property uuid, p_from date, p_to date": `gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), current_date, current_date + 1`,
+        "p_message uuid, p_token uuid, p_items jsonb": `gen_random_uuid(), gen_random_uuid(), '[]'::jsonb`,
+        "p_message uuid, p_token uuid, p_error text": `gen_random_uuid(), gen_random_uuid(), 'x'`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;

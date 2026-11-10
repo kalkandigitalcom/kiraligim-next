@@ -22,12 +22,14 @@ export const RESERVATION_SOURCES = [
   "booking",
   "other",
   "web",
+  "whatsapp",
 ] as const;
 export type ReservationSource = (typeof RESERVATION_SOURCES)[number];
 
 /**
  * Panelde elle seçilebilen kaynaklar. "web" yalnız villa sayfasındaki rezervasyon talebi
- * formundan gelir (drizzle/0027); elle eklenen kayıtta seçenek olarak sunulmaz.
+ * formundan gelir (drizzle/0027), "whatsapp" yalnız onaylanan WhatsApp önerisinden (drizzle/0035);
+ * elle eklenen kayıtta seçenek olarak sunulmaz.
  */
 export const MANUAL_RESERVATION_SOURCES = [
   "direct",
@@ -65,6 +67,7 @@ export const RESERVATION_SOURCE_LABELS: Record<ReservationSource, string> = {
   booking: "Booking.com",
   other: "Diğer",
   web: "Web sitesi talebi",
+  whatsapp: "WhatsApp",
 };
 
 export const RESERVATION_LIMITS = {

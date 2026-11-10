@@ -610,6 +610,8 @@ describe("yetkiler, politikalar, fonksiyon", () => {
       ["properties_public_read", "SELECT", ["app_migrator"]],
       ["properties_select", "SELECT", ["app_user"]],
       ["properties_update", "UPDATE", ["app_user"]],
+      // 0036 (A2): WhatsApp takvim önerisi worker'ı için app_migrator'a dar SELECT (app.wa_calendar).
+      ["properties_wa_calendar_read", "SELECT", ["app_migrator"]],
     ]);
   });
 
