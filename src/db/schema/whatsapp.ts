@@ -421,6 +421,12 @@ export const waCalendarProposals = pgTable(
       .default(sql`'{}'::uuid[]`),
     checkIn: date({ mode: "string" }),
     checkOut: date({ mode: "string" }),
+    /**
+     * Yalnız change (tarih değiştirme, drizzle/0049): taşınacak kaydın ESKİ aralığı; check_in /
+     * check_out YENİ aralıktır. Yalnız worker fonksiyonu yazar (app_user'a UPDATE yetkisi yok).
+     */
+    oldCheckIn: date({ mode: "string" }),
+    oldCheckOut: date({ mode: "string" }),
     reservationStatus: text({ enum: ["confirmed", "pending"] }),
     flags: text()
       .array()
@@ -510,6 +516,17 @@ export const waCalendarProposals = pgTable(
       "wa_calendar_proposals_dates",
       sql`${t.checkOut} is null or (${t.checkIn} is not null and ${t.checkOut} > ${t.checkIn})`,
     ),
+    // Eski aralık yalnız tarih değiştirmede; dolu ise geçerli. Uygulanmış değiştirmede zorunlu.
+    check(
+      "wa_calendar_proposals_old_dates",
+      sql`(${t.oldCheckIn} is null and ${t.oldCheckOut} is null)
+        or (${t.action} = 'change' and ${t.oldCheckIn} is not null and ${t.oldCheckOut} > ${t.oldCheckIn})`,
+    ),
+    check(
+      "wa_calendar_proposals_change_applied",
+      sql`${t.status} <> 'applied' or ${t.action} is distinct from 'change'
+        or (${t.oldCheckIn} is not null and ${t.oldCheckOut} is not null)`,
+    ),
     check(
       "wa_calendar_proposals_numbers",
       sql`${t.itemNo} between 0 and ${sql.raw(String(PL.itemsPerMessage - 1))}
@@ -558,11 +575,11 @@ export const waCalendarProposals = pgTable(
     // Güven puanı bu kuralı aşamaz (uygulama kodu atlansa bile veritabanı reddeder).
     // Gönderen rolü kısıtlamaz (B aşaması): engellenmemiş grup katılımcısının kapatması da "quick".
     // Aşama 2 (drizzle/0048): takvim AÇMA da "quick" olabilir (yalnız blokları kaldırır). Kısıt adı
-    // geriye uyum için korunur.
+    // geriye uyum için korunur. drizzle/0049: tarih DEĞİŞTİRME de (tek kaydın tarihleri taşınır).
     check(
       "wa_calendar_proposals_quick_only_close",
       sql`${t.decisionMode} is distinct from 'quick'
-        or (${t.action} in ('close', 'open') and cardinality(${t.decisionReasons}) = 0
+        or (${t.action} in ('close', 'open', 'change') and cardinality(${t.decisionReasons}) = 0
             and ${t.senderRole} in (${inList(WA_SENDER_ROLES)}))`,
     ),
     check(

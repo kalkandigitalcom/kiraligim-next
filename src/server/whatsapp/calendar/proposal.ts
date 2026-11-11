@@ -54,6 +54,9 @@ export type StoreItem = {
   candidate_property_ids: string[];
   check_in: string | null;
   check_out: string | null;
+  /** Yalnız change (v6): taşınacak kaydın eski aralığı (yoksa alan gönderilmez). */
+  old_check_in?: string | null;
+  old_check_out?: string | null;
   reservation_status: "confirmed" | "pending" | null;
   flags: string[];
   conflicts: {
@@ -88,11 +91,13 @@ export function busyRange(
 
 /**
  * Çakışma yok mu? close/reserve: aralıkta dolu kayıt yoksa. open/cancel: dolu kayıt beklenen
- * hedeftir, çakışma sayılmaz. Çakışma sorgulanamadıysa (busy === null) temkinli: false.
+ * hedeftir, çakışma sayılmaz. change: yeni aralık taşınacak kaydın kendisiyle örtüşebilir;
+ * başka kayıtlarla çakışma yazım anında (auto-change.ts) denetlenir. Çakışma sorgulanamadıysa
+ * (busy === null) temkinli: false.
  */
 export function conflictFreeFor(action: WaCalendarItem["action"], busy: readonly BusyRow[] | null) {
   if (busy === null) return false;
-  if (action === "open" || action === "cancel") return true;
+  if (action === "open" || action === "cancel" || action === "change") return true;
   return busy.length === 0;
 }
 
@@ -113,6 +118,11 @@ export function buildStoreItem(input: {
 
   const checkIn = item.checkIn;
   const checkOut = checkIn && item.checkOut && item.checkOut > checkIn ? item.checkOut : null;
+  // change: eski aralık yalnız iki ucu da geçerliyse yazılır (veritabanı kısıtı: ikisi ya da hiçbiri).
+  const oldIn = item.action === "change" ? (item.oldCheckIn ?? null) : null;
+  const oldOut = item.action === "change" ? (item.oldCheckOut ?? null) : null;
+  const old =
+    oldIn && oldOut && oldOut > oldIn ? { old_check_in: oldIn, old_check_out: oldOut } : null;
   const villaName = item.villaName?.trim() ? clip(item.villaName.trim(), PL.villaNameMax) : null;
   const excerpt = clip(item.excerpt.trim(), PL.excerptMax) || "-";
   const all = [...new Set<string>([...item.flags, ...villa.serverFlags])];
@@ -137,6 +147,7 @@ export function buildStoreItem(input: {
     candidate_property_ids: villa.candidateIds.slice(0, PL.arrayMax),
     check_in: checkIn,
     check_out: checkOut,
+    ...(item.action === "change" ? (old ?? { old_check_in: null, old_check_out: null }) : {}),
     // Ayrıştırıcı reserve için her zaman doldurur; boşsa temkinli "pending".
     reservation_status: item.action === "reserve" ? (item.reservationStatus ?? "pending") : null,
     flags,

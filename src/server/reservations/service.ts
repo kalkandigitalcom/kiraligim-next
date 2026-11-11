@@ -615,3 +615,59 @@ export async function cancelReservation(tx: Tx, ctx: TenantContext, id: string, 
   if (!parsed.success) throw validationError(zodFieldErrors(parsed.error));
   return changeStatus(tx, ctx, id, "cancelled", parsed.data ?? null);
 }
+
+/**
+ * Kaydın YALNIZ tarihlerini değiştirir (owner/manager); misafir, kişi sayısı, tutar, kaynak, durum
+ * ve not aynen kalır. WhatsApp tarih değiştirme talimatı (src/server/whatsapp/auto-change.ts)
+ * kullanır. Aynı kayıt güncellenir; yeni kayıt oluşturulmaz. Çakışma (başka kayıt veya harici
+ * takvim) veritabanı kısıtıyla reddedilir (CONFLICT); iptal edilmiş kayıt değiştirilemez.
+ * Tarih kuralları panel düzenlemesiyle aynıdır (blockInput: gece sınırı, giriş tarihi penceresi).
+ */
+export async function rescheduleReservation(
+  tx: Tx,
+  ctx: TenantContext,
+  id: string,
+  dates: { checkIn: string; checkOut: string },
+): Promise<{ changed: boolean }> {
+  if (!canManageReservations(ctx.role)) throw forbidden();
+  if (!isUuid(id)) throw notFoundReservation();
+  const lock = await tx.execute<{ id: string }>(sql`
+    select id from reservations where id = ${id} and workspace_id = app_current_workspace_id()
+       for update`);
+  if (!lock.rows[0]) throw notFoundReservation();
+  const before = (await getReservation(tx, id))!;
+  if (before.status === "cancelled") {
+    throw new AppError("CONFLICT", "İptal edilen kayıt değiştirilemez.");
+  }
+  if (before.checkIn === dates.checkIn && before.checkOut === dates.checkOut) {
+    return { changed: false };
+  }
+  const v = parseWith(blockInput({ today: istanbulToday(), checkWindow: true }), {
+    checkIn: dates.checkIn,
+    checkOut: dates.checkOut,
+  });
+  try {
+    await tx.execute(sql`savepoint reschedule_reservation`);
+    const res = await tx.execute(sql`
+      update reservations set check_in = ${v.checkIn}, check_out = ${v.checkOut}
+       where id = ${id} and workspace_id = app_current_workspace_id()`);
+    if (res.rowCount !== 1) throw notFoundReservation();
+    await tx.execute(sql`release savepoint reschedule_reservation`);
+  } catch (err) {
+    await tx.execute(sql`rollback to savepoint reschedule_reservation`);
+    if (err instanceof AppError) throw err;
+    await mapWriteError(tx, err, {
+      propertyId: before.propertyId,
+      checkIn: v.checkIn,
+      checkOut: v.checkOut,
+      excludeId: id,
+    });
+  }
+  await recordAudit(tx, {
+    action: "reservation.updated",
+    targetType: "reservation",
+    targetId: id,
+    metadata: { property: before.propertyId, fields: ["dates"] },
+  });
+  return { changed: true };
+}

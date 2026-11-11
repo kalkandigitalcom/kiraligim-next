@@ -698,7 +698,7 @@ değişmez ve yeni yetki almaz.
   veya sır yoktur. Bir çalıştırma en fazla ~45 sn sürer; çalıştırmalar üst üste binse de aynı mesaj iki kez
   işlenmez (`FOR UPDATE SKIP LOCKED`, kilit belirteci, `UNIQUE(message_id, item_no)`).
 - **Akış:** süresi geçen bekleyen öneriler `expired` → mesaj alma (`app_wa_claim_messages`, 120 sn kilit)
-  → ayrıştırma (parser v5, merkezi tarih modülü `src/lib/wa-date-parse.ts`; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
+  → ayrıştırma (parser v6, merkezi tarih modülü `src/lib/wa-date-parse.ts`; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
   sonuç) → villa eşleştirme (grup bir villaya bağlıysa HER ZAMAN o villa; mesajdaki ad farklıysa yalnız bilgi
   bayrağı `villa_name_mismatch`; ada göre eşleştirme yalnız villasız grupta) → çakışma
   özeti (yalnız okuma) → tek atomik yazım (`app_wa_store_proposals`). Hata: mesaj yeniden denenir, 5.
@@ -1092,3 +1092,39 @@ tarih, grup, villa ve katılımcı kuralları aynen geçerlidir.
 - **Noktalama:** ayrı cümlelerdeki tarih ve eylem birleştirilir ("20-25 Aralık. Kiralandı.").
 
 **Deploy:** migration, ortam değişkeni ve Gateway değişikliği yok.
+
+## WhatsApp üzerinden tarih değiştirme — parser v6 (0049, 0050)
+
+Bağlı ve aktif grubun engellenmemiş her katılımcısı (B aşaması kuralları aynen) mevcut bir kaydın
+tarihlerini değiştirebilir. Misafir adı kullanılmaz; kayıt eski tarih aralığıyla bulunur.
+
+- **Örnekler:** "20-25 Temmuz rezervasyonu 20-26 Temmuz olarak değiştirilmiştir", "20-25 Temmuz
+  yerine 20-26 Temmuz olacak", "20-25 Temmuz rezervasyonunu 22-27 Temmuz'a aldık", "… olarak
+  güncellendi / değişti", "20 Temmuz giriş 25 Temmuz çıkış olan rezervasyon 22 Temmuz giriş 27
+  Temmuz çıkış olarak değişti", "20-25 Temmuz değil, 22-27 Temmuz olacak", "Eski … 20-25 Temmuz,
+  yeni … 22-27 Temmuz". Yeni aralığın ayı yazılmamışsa ("… 20-26 olarak") eski aralığın ayı
+  kullanılır. Tarihler yalnız `wa-date-parse.ts`'den gelir.
+- **İşlem (`src/server/whatsapp/auto-change.ts`):** grubun villasında eski aralıkla **birebir**
+  eşleşen **tek** aktif kayıt (rezervasyon veya blok) yeni aralığa taşınır. Aynı kayıt güncellenir
+  (`rescheduleReservation`: yalnız tarihler); misafir, kişi sayısı, tutar, kaynak, durum ve notlar
+  korunur. Eski aralık boşalır, yeni aralık dolar. ✅ yalnız commit'ten sonra.
+- **İşlem yapılmayan durumlar (⚠️):** eski veya yeni aralık belirsiz / geçmiş / ters / takvimde
+  yok, eski aralıkta kayıt yok (`no_target`), birden çok kayıt (`multiple`), tek kayıt ama
+  tarihleri birebir değil (`partial`), Airbnb/Booking kaynaklı rezervasyon (`external`; dış
+  platformda değişmiş gibi gösterilmez), yeni aralık başka kayıt veya harici takvim (iCal) ile
+  dolu (`occupied`). Harici takvim olayları hiç değişmez.
+- **Olumsuz ifadeler** ("değiştirmeyelim", "değiştirilmedi", "ertelenmeyecek"): öneri ve tepki
+  yok. "Kapat/aç" ile birlikte değiştirme çelişkilidir (⚠️). Soru ("değişti mi?") tepki almaz.
+- **Bütünlük:** kilit sırası grup → öneri → kayıtlar; tarih yazımı ve önerinin `applied`
+  (`decision_mode = 'quick'`) olması tek transaction. Çakışma ayrıca veritabanı kısıtıyla
+  (`reservations_no_overlap`, harici takvim tetikleyicisi) garanti edilir. Aynı mesaj ikinci kez
+  işlenmez. Denetim: `whatsapp.proposal_auto_changed` ve `reservation.updated` (`fields: dates`).
+- **Veritabanı:** 0049 `wa_calendar_proposals`'a `old_check_in` / `old_check_out` ve `change`
+  eylemini ekler (`wa_calendar_proposals_old_dates`, `wa_calendar_proposals_change_applied`
+  kısıtları; `quick_only_close` artık `close`, `open`, `change`). 0050 yalnız
+  `app_wa_store_proposals` fonksiyonunu günceller. Mevcut veri değişmez; app_user'a yeni kolon
+  yetkisi verilmez.
+
+**Deploy:** ek ortam değişkeni yok; 0049 ve 0050 açılışta uygulanır. Worker aynı imajdan
+çalışır; Gateway değişmedi. **Geri alma:** fonksiyonu 0047 tanımına döndürün; `change` önerisi
+yoksa kısıtlar 0048 hâline döndürülüp kolonlar kaldırılabilir.

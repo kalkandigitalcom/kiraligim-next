@@ -468,10 +468,10 @@ describe("güven puanı", () => {
 
 describe("sözleşme", () => {
   it("sabitler ve sürüm", () => {
-    expect(WA_CALENDAR_ACTIONS).toEqual(["close", "reserve", "open", "cancel"]);
+    expect(WA_CALENDAR_ACTIONS).toEqual(["close", "reserve", "open", "cancel", "change"]);
     expect(new Set(WA_CALENDAR_FLAGS).size).toBe(WA_CALENDAR_FLAGS.length);
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(5);
-    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 5, items: [] });
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(6);
+    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 6, items: [] });
   });
 
   it("bayraklar her zaman WA_CALENDAR_FLAGS sırasıyla ve tekil", () => {
@@ -553,32 +553,36 @@ describe("v2 kritik: 'dahil' bitiş günü", () => {
 });
 
 describe("v2 kritik: tarih değişikliği iki rezervasyon değildir", () => {
-  it("'15-20 Haziran'dan 16-21 Haziran'a alındı' → tek öneri, eylem yok, date_change", () => {
+  it("v6: '15-20 Haziran'dan 16-21 Haziran'a alındı' → tarih değiştirme (eski + yeni aralık)", () => {
     const items = parse("Villa Mavi rezervasyonu 15-20 Haziran'dan 16-21 Haziran'a alındı");
     expect(items).toHaveLength(1);
     const i = items[0]!;
-    expect([i.action, i.villaName, i.checkIn, i.checkOut, i.actionClear]).toEqual([
-      null,
+    expect([i.action, i.villaName, i.oldCheckIn, i.oldCheckOut, i.checkIn, i.checkOut]).toEqual([
+      "change",
       "Mavi",
+      "2027-06-15",
+      "2027-06-20",
       "2027-06-16",
       "2027-06-21",
-      false,
     ]);
-    expect(i.flags).toEqual(["action_ambiguous", "year_inferred", "date_change"]);
-    expect(i.datesExplicit).toBe(false);
+    expect(i.actionClear).toBe(true);
+    expect(i.flags).toEqual(["year_inferred"]);
+    expect(i.datesExplicit).toBe(true);
     expect(i.excerpt).toContain("15-20 Haziran'dan");
   });
 
   it("değişiklik sözcükleri tek aralıkla da tanınır", () => {
     for (const text of [
       "Villa Mavi rezervasyonu 16-21 Haziran'a kaydırıldı",
-      "Villa Mavi 15-20 Haziran rezervasyonu ertelendi, 1-6 Temmuz",
       "Villa Mavi rezervasyon tarihleri değişti 16-21 Haziran",
     ]) {
       const items = parse(text);
       expect([text, items.length, items[0]!.action]).toEqual([text, 1, null]);
       expect(items[0]!.flags, text).toContain("date_change");
     }
+    // v6: iki aralık varsa tarih değiştirmedir.
+    const c = parse("Villa Mavi 15-20 Haziran rezervasyonu ertelendi, 1-6 Temmuz")[0]!;
+    expect([c.action, c.oldCheckIn, c.checkIn]).toEqual(["change", "2027-06-15", "2027-07-01"]);
   });
 
   it("'den … 'e bağlamı olmayan birden çok aralık yine ayrı önerilerdir", () => {
@@ -667,8 +671,8 @@ describe("v2 villa adı: eylemden ayrı ayrıştırılır", () => {
 describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
   const ok = { villa: "named" as const, senderRole: "owner" as const, conflictFree: true };
 
-  it("yalnız 'close' ve (Aşama 2) 'open' doğrudan uygulanabilir", () => {
-    expect(WA_QUICK_APPROVE_ACTIONS).toEqual(["close", "open"]);
+  it("yalnız 'close', (Aşama 2) 'open' ve (v6) 'change' doğrudan uygulanabilir", () => {
+    expect(WA_QUICK_APPROVE_ACTIONS).toEqual(["close", "open", "change"]);
     const d = reviewRequirement(one("Villa A 15-20 Haziran kapalı."), ok);
     expect(d).toEqual({ quickApprove: true, score: 100, band: "high", reasons: [] });
     const o = reviewRequirement(one("Villa C'nin 10-15 Ağustos tarihlerini tekrar açalım."), ok);
@@ -696,7 +700,8 @@ describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
   it("belirsiz ve riskli öneriler elle incelenir", () => {
     const cases: [string, string][] = [
       ["Villa Mavi 12-18 Temmuz misafir yok", "no_action"],
-      ["Villa Mavi rezervasyonu 15-20 Haziran'dan 16-21 Haziran'a alındı", "no_action"],
+      ["Villa Mavi rezervasyonu 16-21 Haziran'a kaydırıldı", "no_action"],
+      ["Villa Mavi 20-25 Temmuz yerine 22-27 Temmuz kapatalım", "no_action"],
       ["Villa Mavi 15 Haziran kapalı", "dates_incomplete"],
       ["Villa Mavi 8-12 Kasım kapalı", "flagged"],
       ["Villa A 5-8 Kasım kapalı", "dates_incomplete"],
@@ -794,8 +799,8 @@ describe("grup dışı villa (A2b)", () => {
     expect(n.reasons).toEqual(["villa_needs_review", "sender_unverified"]);
   });
 
-  it("ayrıştırıcı sürümü 5", () => {
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(5);
+  it("ayrıştırıcı sürümü 6", () => {
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(6);
   });
 });
 

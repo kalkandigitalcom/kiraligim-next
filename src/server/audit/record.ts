@@ -171,6 +171,14 @@ export const AUDIT_ACTIONS = {
     group: z.uuid(),
     sender_role: z.enum(WA_SENDER_ROLES),
   }),
+  // v6: tarih değiştirme talimatı tek kaydın tarihlerini taşıdı (yalnız kimlikler ve kayıt türü).
+  "whatsapp.proposal_auto_changed": z.strictObject({
+    property: z.uuid(),
+    reservation: z.uuid(),
+    kind: z.enum(["reservation", "block"]),
+    group: z.uuid(),
+    sender_role: z.enum(WA_SENDER_ROLES),
+  }),
   "whatsapp.proposal_auto_failed": z.strictObject({
     reason: z.enum([
       "changed",
@@ -183,6 +191,9 @@ export const AUDIT_ACTIONS = {
       "no_target",
       "too_many",
       "occupied",
+      // v6 (tarih değiştirme): eski aralıkta birden çok kayıt; Airbnb/Booking kaynaklı kayıt.
+      "multiple",
+      "external",
     ]),
   }),
   "reservation.status_changed": z.strictObject({

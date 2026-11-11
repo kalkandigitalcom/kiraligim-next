@@ -22,11 +22,14 @@
 import { isIsoDate, nightsBetween } from "./reservation-meta";
 import {
   type DateMention,
+  type DayMention,
   findDateMentions,
   MONTH_ONLY,
   MONTHS_FULL,
+  type RangeMention,
   type ResolvedRange,
   rangesOf,
+  resolveRange,
   STARTS_WITH_MONTH,
 } from "./wa-date-parse";
 
@@ -42,10 +45,14 @@ import {
  *     düzeltmesi, giriş/çıkış etiketi; ters sıra ve belirsiz ifadelerde soru. Olumsuz eylem
  *     ("kapatmayalım", "açmayın") eylemi iptal eder; fiyat sorusu işlem değildir; tarihi
  *     anlaşılamayan takvim komutu ⚠️ alır.
+ *  5: günlük dil ifadeleri ("kiralandı", "rezervasyon alındı" → kapat; "iptal oldu" → aç).
+ *  6: tarih değiştirme (action = "change"): eski ve yeni aralık ("20-25 Temmuz rezervasyonu
+ *     22-27 Temmuz'a alındı"); yeni aralığın ayı yazılmamışsa eski aralığın ayı.
  */
-export const WA_CALENDAR_PARSER_VERSION = 5;
+export const WA_CALENDAR_PARSER_VERSION = 6;
 
-export const WA_CALENDAR_ACTIONS = ["close", "reserve", "open", "cancel"] as const;
+/** change (v6): mevcut kaydın tarihleri eski aralıktan yeni aralığa taşınır (oldCheckIn/Out). */
+export const WA_CALENDAR_ACTIONS = ["close", "reserve", "open", "cancel", "change"] as const;
 export type WaCalendarAction = (typeof WA_CALENDAR_ACTIONS)[number];
 
 export const WA_CALENDAR_FLAGS = [
@@ -135,6 +142,9 @@ export type WaCalendarItem = {
   actionClear: boolean;
   /** Önerinin dayandığı mesaj parçası (en fazla WA_CALENDAR_EXCERPT_MAX karakter). */
   excerpt: string;
+  /** Yalnız change (v6): taşınacak kaydın ESKİ aralığı (checkIn/checkOut yeni aralıktır). */
+  oldCheckIn?: string | null;
+  oldCheckOut?: string | null;
 };
 
 export type WaCalendarParseResult = {
@@ -318,6 +328,12 @@ const NEGATED_VERBS: { re: RegExp; action: WaCalendarAction }[] = [
     re: /\b(?:rezervasyon\w*|misafir\w*)\s+(?:(?:da|de)\s+)?(?:alinma\w*|alma(?!k)\w*|yapilma\w*|yapma(?!k)\w*|gelme(?!k)\w*|olusma\w*)/g,
     action: "close",
   },
+  // v6: "değiştirmeyelim", "değişmedi", "ertelenmedi", "kaydırmayın": tarih değiştirme YOK.
+  // "değiştirmemiz lazım", "değiştirmeli", "güncellemesi" olumsuz değildir.
+  {
+    re: /\b(?:degis|kaydir|ertele|tasi|guncelle)\w*?(?:(?:me|ma)(?!k|miz|li|si|niz)|mey|may|mem(?!iz)|mam(?!iz))\w*/g,
+    action: "change",
+  },
   // "iptal etmeyelim", "vazgeçmedik": iptal (dolayısıyla açma) YOK.
   {
     re: /\biptal\s+(?:etme(?!k)|etmey|etmem|edilme|olma(?!k)|olmay|olmadi)\w*|\bvazgec(?:me(?!k)|mey|mem|ilme)\w*/g,
@@ -331,7 +347,7 @@ const PRICE_QUESTION = /\bfiyat\w*|\bucret\w*|\bkac\s+para\b|\bne\s+kadar\b|\bne
  * bu bağlamda tarih sayılır ("15-20 kişi", "yarın temizlik var" tarih değildir).
  */
 const OPERATIONAL_CONTEXT_WORDS =
-  /\bkapa(?:li|t|n)\w*|\bdolu\b|\bblok\w*|\bsatma\w*|\bverme(?:yin|yelim|yiniz)?\b|\bdoldur\w*|\bkirala(?:ndi|nmis|dik|dim|di)\w*|\b(?:kiraya|baskasina)\s+ver\w*|\bsat(?:ildi|ilmis|tik|tim)\w*|\btutul\w*|\btuttular\b|\bkaldir\w*|\bbosa\s+cik\w*|\bac(?:alim|in|iniz|ildi|ilsin|abiliriz|abilirsiniz|tik|tim|iyoruz|ik|iyorum|ma|may|mam)\w*|\bmusait\w*|\bbos\b|\bserbest\b|\bbosalt\w*|\biptal\w*|\bvazgec\w*|\bdegil\b|\byanlis\s+yaz\w*|\bpardon\b|\bduzelt\w*|\bolacak\b|\byerine\b|\bayin\b|\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
+  /\bkapa(?:li|t|n)\w*|\bdolu\b|\bblok\w*|\bsatma\w*|\bverme(?:yin|yelim|yiniz)?\b|\bdoldur\w*|\bkirala(?:ndi|nmis|dik|dim|di)\w*|\b(?:kiraya|baskasina)\s+ver\w*|\bsat(?:ildi|ilmis|tik|tim)\w*|\btutul\w*|\btuttular\b|\bkaldir\w*|\bbosa\s+cik\w*|\bdegis\w*|\bguncelle\w*|\bkaydir\w*|\bertele\w*|\btasi\w*|\baldik\b|\bac(?:alim|in|iniz|ildi|ilsin|abiliriz|abilirsiniz|tik|tim|iyoruz|ik|iyorum|ma|may|mam)\w*|\bmusait\w*|\bbos\b|\bserbest\b|\bbosalt\w*|\biptal\w*|\bvazgec\w*|\bdegil\b|\byanlis\s+yaz\w*|\bpardon\b|\bduzelt\w*|\bolacak\b|\byerine\b|\bayin\b|\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
 const OPERATIONAL_CONTEXT = {
   test: (t: string) => OPERATIONAL_CONTEXT_WORDS.test(t) || RESERVATION_DONE.test(t),
 };
@@ -430,6 +446,8 @@ function detectAction(folded: string): ActionResult {
   if ([...negated].some((a) => found.has(a) || (a === "close" && found.has("reserve")))) {
     return { action: null, clear: false, flags: ["action_ambiguous", "action_negated"], pending };
   }
+  // Olumsuz tarih değiştirme ("rezervasyonu değiştirmeyelim"): ad sözcüğü ayrı bir eylem değildir.
+  if (negated.has("change") && [...found].every((a) => a === "reserve")) found.clear();
   if (found.size === 0 && negated.size > 0) {
     return { action: null, clear: false, flags: ["action_negated"], pending, negatedOnly: true };
   }
@@ -616,6 +634,8 @@ type Draft = {
   action: WaCalendarAction | null;
   villaName: string | null;
   range: ResolvedRange;
+  /** Yalnız change: eski aralık. */
+  oldRange?: ResolvedRange;
   reservationStatus: WaCalendarItem["reservationStatus"];
   actionClear: boolean;
   excerpt: string;
@@ -669,7 +689,12 @@ function joinDateAndAction(segs: string[], today: string): string[] {
         datesOf(x);
       const actionOnly = (x: ReturnType<typeof analyseSegment>) =>
         (x.act.action !== null || x.act.negatedOnly === true) && !datesOf(x);
-      if ((dateOnly(sa) && actionOnly(sb)) || (actionOnly(sa) && dateOnly(sb))) {
+      // v6: "Eski: 20-25 Temmuz. Yeni: 22-27 Temmuz." (tarih değiştirme iki cümlede).
+      const oldNew =
+        (/\beski\b/.test(sa.folded) && /\byeni\b/.test(sb.folded)) ||
+        (/\byeni\b/.test(sa.folded) && /\beski\b/.test(sb.folded));
+      const changePair = oldNew && dateOnly(sa) && dateOnly(sb);
+      if ((dateOnly(sa) && actionOnly(sb)) || (actionOnly(sa) && dateOnly(sb)) || changePair) {
         out.push(`${a} ${b}`);
         i++;
         continue;
@@ -678,6 +703,106 @@ function joinDateAndAction(segs: string[], today: string): string[] {
     out.push(a);
   }
   return out;
+}
+
+/**
+ * v6 — tarih değiştirme bağlamı: değişiklik fiili ("değiştirildi", "güncellendi", "kaydırdık",
+ * "'a aldık"), "yerine", "X değil, Y olacak" ya da "eski … yeni". Yalnız başka bir takvim eylemi
+ * (kapat/aç/iptal) YOKSA kullanılır; "rezervasyon" ad sözcüğü engel değildir.
+ */
+const CHANGE_CONTEXT =
+  /\b(?:kaydir\w*|ertele\w*|degis\w*|tasin\w*|tasidi\w*|tasi(?:dik|yoruz|yalim|yin)\w*|guncelle\w*|yerine|aldik|aldim|alindi|cektik|cekildi)\b|\bdegil\b[\s\S]*\bolacak\w*|\beski\b[\s\S]*\byeni\b|\byeni\b[\s\S]*\beski\b/;
+/** Aralığın hemen ardından "yerine": o aralık ESKİ aralıktır ("22-27, 20-25 yerine"). */
+const INSTEAD_AFTER = /^(?:'?[a-z]{0,6})?\s*yerine\b/;
+const YENI_BEFORE = /\byeni\w*(?:\s+\w+){0,3}\s*:?\s*$/;
+const ESKI_BEFORE = /\beski\w*(?:\s+\w+){0,3}\s*:?\s*$/;
+
+type ChangeSpan = { start: number; end: number; range: RangeMention | null; days: DayMention[] };
+
+/**
+ * Tarih değiştirme mesajındaki iki aralığı (eski, yeni) merkezi tarih modülüyle çözer. Tarih
+ * yorumlama burada TEKRAR yazılmaz: yalnız modülün bulduğu ifadeler sıralanır, gün çiftleri
+ * ("20 Temmuz giriş 25 Temmuz çıkış") birleştirilir ve ayı yazılmamış aralık ("20-26") diğer
+ * aralığın ayını alır. Belirsizlikte iki aralık da boş ve date_ambiguous döner (işlem yok).
+ * İki aralık bulunamazsa null (değiştirme mesajı değil; normal akış).
+ */
+function resolveChange(
+  folded: string,
+  dates: DateMention[],
+  today: string,
+): { oldRange: ResolvedRange; newRange: ResolvedRange } | null {
+  const ambiguous = (reason: WaCalendarFlag = "date_ambiguous") => {
+    const r: ResolvedRange = { checkIn: null, checkOut: null, flags: ["date_ambiguous", reason] };
+    return { oldRange: r, newRange: r };
+  };
+  const spans: ChangeSpan[] = [];
+  for (let i = 0; i < dates.length; i++) {
+    const d = dates[i]!;
+    if (d.kind === "range") {
+      spans.push({ start: d.start, end: d.end, range: d, days: [] });
+    } else if (d.kind === "day") {
+      const next = dates[i + 1];
+      // Gün çifti: iki ardışık gün = giriş → çıkış ("çıkış X, giriş Y" etiketiyle ters sıra).
+      if (next?.kind === "day") {
+        const pair = d.role === "out" && next.role === "in" ? [next, d] : [d, next];
+        spans.push({ start: d.start, end: next.end, range: null, days: pair });
+        i++;
+      } else {
+        spans.push({ start: d.start, end: d.end, range: null, days: [d] });
+      }
+    } else {
+      spans.push({ start: d.start, end: d.end, range: null, days: [] });
+    }
+  }
+  if (spans.length < 2) return null;
+  if (spans.length > 2) return ambiguous();
+  if (dates.some((d) => d.kind === "unclear")) {
+    const u = dates.find((d) => d.kind === "unclear");
+    return ambiguous(u?.kind === "unclear" ? u.reason : "date_ambiguous");
+  }
+  if (dates.some((d) => d.orphanBefore)) return ambiguous();
+  if (spans.some((sp) => !sp.range && sp.days.length !== 2)) return ambiguous();
+
+  // Sıra: varsayılan "eski → yeni". "yeni … X, eski … Y" etiketi ya da "Y, X yerine" tersine çevirir.
+  let [a, b] = spans as [ChangeSpan, ChangeSpan];
+  const before = (sp: ChangeSpan, from: number) => folded.slice(from, sp.start);
+  const swap =
+    (YENI_BEFORE.test(before(a, 0)) && ESKI_BEFORE.test(before(b, a.end))) ||
+    INSTEAD_AFTER.test(folded.slice(b.end));
+  if (swap) [a, b] = [b, a];
+
+  // Ayı yazılmamış aralık ("20-26"): diğer aralığın ay/yılı (yalnız aralık biçimleri).
+  const inferred = (sp: ChangeSpan) => !!sp.range?.info.includes("month_inferred");
+  const withMonthOf = (sp: ChangeSpan, src: ChangeSpan): RangeMention | null => {
+    const r = sp.range!;
+    const ref = src.range ? src.range.from : src.days[0]!.date;
+    const toMonth = r.to.day > r.from.day ? ref.month : (ref.month % 12) + 1;
+    const toYear = ref.year !== null && toMonth < ref.month ? ref.year + 1 : ref.year;
+    return {
+      ...r,
+      info: r.info.filter((f) => f !== "month_inferred"),
+      from: { day: r.from.day, month: ref.month, year: ref.year },
+      to: { day: r.to.day, month: toMonth, year: toYear },
+    };
+  };
+  const resolveSpan = (sp: ChangeSpan, other: ChangeSpan): ResolvedRange => {
+    if (sp.range) {
+      const r = inferred(sp) && !inferred(other) ? withMonthOf(sp, other)! : sp.range;
+      return resolveRange(r.from, r.to, today, r.inclusiveAfter, r.info);
+    }
+    const [x, y] = sp.days as [DayMention, DayMention];
+    return resolveRange(x.date, y.date, today, y.inclusiveAfter, [...x.info, ...y.info]);
+  };
+  const oldRange = resolveSpan(a, b);
+  const newRange = resolveSpan(b, a);
+  if (
+    oldRange.checkIn !== null &&
+    oldRange.checkIn === newRange.checkIn &&
+    oldRange.checkOut === newRange.checkOut
+  ) {
+    return ambiguous();
+  }
+  return { oldRange, newRange };
 }
 
 /**
@@ -712,8 +837,35 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
       continue;
     }
 
-    // Tarih değişikliği: tek öneri, eylem yok, yeni aralık (son aralık) ve date_change bayrağı.
-    if (isDateChange(folded, dates)) {
+    // v6: tarih değiştirme (eski → yeni aralık). Yalnız başka bir takvim eylemi yoksa.
+    const changeCandidate =
+      (act.action === "reserve" ||
+        (act.action === null && act.flags.length === 1 && act.flags[0] === "action_missing")) &&
+      (CHANGE_CONTEXT.test(actionText) || isDateChange(folded, dates));
+    if (changeCandidate) {
+      const raw = findDateMentions(folded, { today, operational: true, keepCorrected: true });
+      const change = resolveChange(folded, raw, today);
+      if (change) {
+        const flags = new Set<WaCalendarFlag>([...change.oldRange.flags, ...change.newRange.flags]);
+        if (villas.length > 1) flags.add("villa_ambiguous");
+        else if (villas.length === 0) flags.add("villa_missing");
+        drafts.push({
+          action: "change",
+          villaName: villas.length === 1 ? villas[0]! : null,
+          range: change.newRange,
+          oldRange: change.oldRange,
+          reservationStatus: null,
+          actionClear: true,
+          excerpt: seg.slice(0, WA_CALENDAR_EXCERPT_MAX),
+          flags,
+        });
+        continue;
+      }
+    }
+
+    // Tarih değişikliği başka bir eylemle (kapat/aç + "yerine"): tek öneri, eylem yok, son
+    // aralık ve date_change bayrağı (işlem yok, ⚠️). Soru ("değişti mi?") soru olarak kalır.
+    if (!act.flags.includes("question") && isDateChange(folded, dates)) {
       const all = rangesOf(dates, today);
       const target = all.at(-1)!;
       const flags = new Set<WaCalendarFlag>([...target.flags, "action_ambiguous", "date_change"]);
@@ -778,6 +930,12 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
       datesExplicit: !!checkIn && !!checkOut && !flags.some((f) => DATE_FLAGS.has(f)),
       actionClear: d.actionClear,
       excerpt: d.excerpt,
+      ...(d.action === "change"
+        ? {
+            oldCheckIn: d.oldRange?.checkIn ?? null,
+            oldCheckOut: d.oldRange?.checkOut ?? null,
+          }
+        : {}),
     };
   });
   return { parserVersion: WA_CALENDAR_PARSER_VERSION, items };
@@ -865,10 +1023,11 @@ export function confidenceBand(score: number): ConfidenceBand {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Doğrudan (inceleme nedeni olmadan) uygulanabilecek eylemler: kapatma ve (Aşama 2) açma — açma
- * yalnız takvim BLOKLARINI kaldırır. Rezervasyon ve iptal her zaman elle incelenir.
+ * Doğrudan (inceleme nedeni olmadan) uygulanabilecek eylemler: kapatma, (Aşama 2) açma — açma
+ * yalnız takvim BLOKLARINI kaldırır — ve (v6) tarih değiştirme: eski aralıktaki TEK kaydın
+ * tarihleri taşınır (auto-change.ts). Rezervasyon ve iptal her zaman elle incelenir.
  */
-export const WA_QUICK_APPROVE_ACTIONS: readonly WaCalendarAction[] = ["close", "open"];
+export const WA_QUICK_APPROVE_ACTIONS: readonly WaCalendarAction[] = ["close", "open", "change"];
 
 /** Tek tıkla onayı engellemeyen (yalnız bilgi veren) bayraklar. */
 const INFO_ONLY_FLAGS: ReadonlySet<WaCalendarFlag> = new Set<WaCalendarFlag>([

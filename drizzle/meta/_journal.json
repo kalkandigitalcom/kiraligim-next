@@ -344,6 +344,20 @@
       "when": 1794407875639,
       "tag": "0048_wa_quick_open",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794423846291,
+      "tag": "0049_wa_change_dates",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794423863184,
+      "tag": "0050_wa_change_dates_security",
+      "breakpoints": true
     }
   ]
 }

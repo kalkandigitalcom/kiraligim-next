@@ -16,6 +16,7 @@
 import { createStandaloneDb } from "../../../db/standalone";
 import { APP_ENVS, type AppEnv, checkDatabaseName } from "../../../lib/env";
 import { createLogger } from "../../../lib/logger";
+import { createAutoChanger } from "../auto-change";
 import { createAutoCloser } from "../auto-close";
 import { createAutoOpener } from "../auto-open";
 import { runCalendarWorker, safeError } from "./worker";
@@ -43,6 +44,7 @@ async function main() {
       log,
       autoClose: createAutoCloser(db),
       autoOpen: createAutoOpener(db),
+      autoChange: createAutoChanger(db),
     });
     log.info("wa_calendar_finished", { ...summary, ms: Date.now() - started });
   } finally {

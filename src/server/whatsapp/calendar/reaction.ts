@@ -5,8 +5,9 @@
  * bu fonksiyonla TEK bir tepki seçer; tepki veritabanında yeniden doğrulanır (app_wa_queue_reaction)
  * ve ağ geçidi tarafından mesajın üzerine reaction olarak gönderilir.
  *
- *   done      ✅  istenen takvim işlemi GERÇEKTEN tamamlandı (otomatik blok oluştu ya da — Aşama 2 —
- *                  bloklar kaldırıldı); veritabanı commit'inden sonra.
+ *   done      ✅  istenen takvim işlemi GERÇEKTEN tamamlandı (otomatik blok oluştu, — Aşama 2 —
+ *                  bloklar kaldırıldı ya da — v6 — kaydın tarihleri taşındı); veritabanı
+ *                  commit'inden sonra.
  *   warning   ⚠️  takvim talimatı anlaşıldı ama uygulanamadı: tarih/villa belirsiz, çakışma, kısmi
  *                  blok, kaldırılacak blok yok, aralıkta rezervasyon/harici doluluk var, bu aşamada desteklenmeyen işlem (rezervasyon, iptal)
  *                  ya da otomatik işlem güvenle tamamlanamadı.

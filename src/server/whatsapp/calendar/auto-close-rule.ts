@@ -73,3 +73,29 @@ export function autoOpenCandidate(
   if (it.flags.some((f) => !ALLOWED_FLAGS.has(f))) return null;
   return it;
 }
+
+/**
+ * v6: hangi öğe bir kaydın tarihlerini DEĞİŞTİREBİLİR? (saf fonksiyon)
+ *
+ * YALNIZ: mesajda TEK öğe; açık bir tarih değiştirme (action = change); yetkili grup katılımcısı;
+ * grubun villası; ESKİ ve YENİ aralığın ikisi de açıkça çözülmüş (yalnız bilgi bayrakları);
+ * inceleme nedeni yok. Hangi kaydın taşınacağına ve yeni aralığın boş olup olmadığına yazım anında
+ * auto-change.ts karar verir (eski aralıkla birebir eşleşen TEK kayıt; aksi hâlde işlem yok).
+ */
+export function autoChangeCandidate(
+  items: readonly StoreItem[],
+  ctx: { senderRole: WaSenderRole | null; groupPropertyId: string | null },
+): StoreItem | null {
+  if (items.length !== 1) return null;
+  const it = items[0]!;
+  if (ctx.senderRole === null) return null;
+  if (!ctx.groupPropertyId || it.property_id !== ctx.groupPropertyId) return null;
+  if (it.action !== "change") return null;
+  if (it.review_reasons.length !== 0 || it.band !== "high") return null;
+  if (it.villa_resolution !== "named" && it.villa_resolution !== "single") return null;
+  if (!it.check_in || !it.check_out || it.check_out <= it.check_in) return null;
+  if (!it.old_check_in || !it.old_check_out || it.old_check_out <= it.old_check_in) return null;
+  if (it.old_check_in === it.check_in && it.old_check_out === it.check_out) return null;
+  if (it.flags.some((f) => !ALLOWED_FLAGS.has(f))) return null;
+  return it;
+}

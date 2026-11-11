@@ -175,6 +175,11 @@ export type DateContext = {
    * bağlamda tarih sayılır ("15-20 kişi", "yarın temizlik var" tarih değildir).
    */
   operational: boolean;
+  /**
+   * "X değil Y" düzeltmesi UYGULANMASIN (tarih değiştirme: "20-25 Temmuz değil, 22-27 Temmuz
+   * olacak" — eski ve yeni aralık ikisi de gerekir). Varsayılan: düzeltme uygulanır.
+   */
+  keepCorrected?: boolean;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -603,10 +608,8 @@ export function findDateMentions(rawFolded: string, ctx: DateContext): DateMenti
     d.orphanBefore = pos !== undefined && free(pos, pos + 1);
   }
 
-  return applyCorrections(
-    folded,
-    out.sort((a, b) => a.start - b.start),
-  );
+  const sorted = out.sort((a, b) => a.start - b.start);
+  return ctx.keepCorrected ? sorted : applyCorrections(folded, sorted);
 }
 
 /**
