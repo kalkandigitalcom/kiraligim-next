@@ -21,7 +21,7 @@ import {
 } from "@/server/whatsapp/calendar/worker";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
-import { adminUnlink, createTestAdmin } from "./wa-admin";
+import { adminBlockSender, adminUnlink, createTestAdmin } from "./wa-admin";
 
 /**
  * WhatsApp Asistanı A2c — takvim worker'ı (drizzle/0037). Gerçek PostgreSQL 17, app_user,
@@ -379,12 +379,12 @@ describe("uçtan uca öneri", () => {
     expect((await proposalsOf(question))[0]).toMatchObject({ status: "noop", action: null });
   });
 
-  it("STAFF önerisi her zaman elle incelenir", async () => {
+  it("B aşaması: STAFF önerisi ek inceleme nedeni almaz (yetkili grup katılımcısı)", async () => {
     const m = await ingest(G.jid, msg("Villa Mavi", 80, 82), PN_STAFF);
     await run();
     const [p] = await proposalsOf(m);
     expect(p).toMatchObject({ sender_role: "staff", sender_verified: false });
-    expect(p.review_reasons).toContain("staff_review_required");
+    expect(p.review_reasons).toEqual([]);
   });
 
   it("GRUP VİLLASI KESİN KAYNAK (A2e): başka villanın, pasif veya bilinmeyen villanın adı grubun villasına yazılır", async () => {
@@ -403,21 +403,19 @@ describe("uçtan uca öneri", () => {
     }
   });
 
-  it("villasız grup: ada göre eşleşir; pasif ve bilinmeyen villa bulunamadı", async () => {
+  it("B aşaması: villa eşleştirmesi olmayan grubun mesajı işlenmez (group_without_villa)", async () => {
     const g = await linkedGroup(null);
-    const ok = await ingest(g.jid, msg("Villa Asya", 84, 86));
-    const a = await ingest(g.jid, msg("Villa Pasif", 88, 90));
-    const b = await ingest(g.jid, msg("Villa Lavnta", 91, 93));
+    const ids = [
+      await ingest(g.jid, msg("Villa Asya", 84, 86)),
+      await ingest(g.jid, msg("Villa Lavnta", 91, 93)),
+    ];
     await run();
-    expect((await proposalsOf(ok))[0]).toMatchObject({
-      property_id: asya,
-      villa_resolution: "named",
-    });
-    for (const id of [a, b]) {
-      const [p] = await proposalsOf(id);
-      expect(p).toMatchObject({ property_id: null, villa_resolution: "none" });
-      expect(p.flags).toContain("villa_not_found");
-      expect(p.review_reasons).toContain("villa_unresolved");
+    for (const id of ids) {
+      expect(await proposalsOf(id)).toEqual([]);
+      expect(await msgRow(id)).toMatchObject({
+        status: "ignored",
+        last_error: "group_without_villa",
+      });
     }
   });
 
@@ -533,7 +531,7 @@ describe("tekrar işleme ve eşzamanlılık", () => {
 });
 
 describe("yazım anında yeniden denetim (yarış koşulları)", () => {
-  it("YETKİ KALKTI: numara kaldırılırsa öneri yazılmaz (ignored: sender_not_authorized)", async () => {
+  it("ENGELLENDİ: iş alındıktan sonra Super Admin engellerse öneri yazılmaz (ignored: sender_blocked)", async () => {
     const m = await ingest(G.jid, msg("Villa Mavi", 180, 182), PN_MANAGER);
     const c = await claimOnly(m);
     const out = await processClaimed(
@@ -541,23 +539,20 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
       c,
       deps({
         beforeStore: async () => {
-          await admin.query("delete from wa_verified_phones where user_id = $1", [M.id]);
+          const adminId = await createTestAdmin(admin, "wblock");
+          expect(await adminBlockSender(admin, adminId, PN_MANAGER, G.id)).toBe("blocked");
         },
       }),
     );
     expect(out).toEqual({ outcome: "stored", proposals: 0, reaction: null });
     expect(await proposalsOf(m)).toEqual([]);
-    expect(await msgRow(m)).toMatchObject({
-      status: "ignored",
-      last_error: "sender_not_authorized",
-    });
-    await admin.query(
-      "insert into wa_verified_phones (user_id, phone_hash, phone_masked) values ($1, $2, '+90 532 *** ** 02')",
-      [M.id, phoneHash(PN_MANAGER)],
-    );
+    expect(await msgRow(m)).toMatchObject({ status: "ignored", last_error: "sender_blocked" });
+    await admin.query("delete from wa_blocked_senders where phone_hash = $1", [
+      phoneHash(PN_MANAGER),
+    ]);
   });
 
-  it("YETKİ DEĞİŞTİ: manager → staff olursa öneri staff kuralıyla yazılır", async () => {
+  it("ROL DEĞİŞTİ: manager → staff olursa öneri güncel rolle yazılır (ek neden yok)", async () => {
     const m = await ingest(G.jid, msg("Villa Mavi", 184, 186), PN_MANAGER);
     const c = await claimOnly(m);
     expect(c.senderRole).toBe("manager");
@@ -575,7 +570,7 @@ describe("yazım anında yeniden denetim (yarış koşulları)", () => {
     );
     const [p] = await proposalsOf(m);
     expect(p).toMatchObject({ sender_role: "staff", sender_verified: false });
-    expect(p.review_reasons).toContain("staff_review_required");
+    expect(p.review_reasons).not.toContain("staff_review_required");
     await admin.query(
       "update workspace_members set role = 'manager' where user_id = $1 and workspace_id = $2",
       [M.id, ws],

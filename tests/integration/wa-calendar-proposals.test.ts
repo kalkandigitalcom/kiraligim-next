@@ -16,7 +16,7 @@ import { createProperty } from "@/server/properties/service";
 import { createReservation } from "@/server/reservations/service";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
-import { adminUnlink, createTestAdmin } from "./wa-admin";
+import { adminBlockSender, adminUnlink, createTestAdmin } from "./wa-admin";
 
 /**
  * WhatsApp Asistanı A2a — takvim önerileri veri modeli (drizzle/0035, 0036). Gerçek PostgreSQL,
@@ -407,11 +407,14 @@ describe("worker: iş alma", () => {
     await store(c, []);
   });
 
-  it("GÖNDEREN POLİTİKASI: owner/manager doğrulanmış; staff ayrı rol; kayıtsız numara hiç işlenmez", async () => {
+  it("GÖNDEREN POLİTİKASI (B): bağlı grubun her katılımcısı alınır; rol bilgi amaçlı; doğrulama gerekmez", async () => {
     for (const [pn, role, verified] of [
       [PN_OWNER, "owner", true],
       [PN_MANAGER, "manager", true],
       [PN_STAFF, "staff", false],
+      // Kayıtsız numara ve başka işletmenin doğrulanmış numarası: bu işletmede "participant".
+      [PN_STRANGER, "participant", false],
+      [PN_X, "participant", false],
     ] as const) {
       const m = await ingest(G.jid, "x", pn);
       const c = await claimOne(m);
@@ -423,30 +426,51 @@ describe("worker: iş alma", () => {
       ]);
       await store(c, []);
     }
-    // Kayıtsız numara, başka işletmenin doğrulanmış numarası ve çözülemeyen gönderen (LID):
-    // iş olarak alınmaz, öneri üretmez.
-    for (const pn of [PN_STRANGER, PN_X, null]) {
+    // Numarası çözülemeyen gönderen (yalnız LID; engel listesi denetlenemez) ve Super Admin'in
+    // engellediği numara: iş olarak alınmaz, öneri üretmez.
+    const adminId = await createTestAdmin(admin, `pp${tag}`);
+    const PN_BLOCKED = "905321220008";
+    expect(await adminBlockSender(admin, adminId, PN_BLOCKED, G.id)).toBe("blocked");
+    for (const [pn, reason] of [
+      [null, "sender_unidentified"],
+      [PN_BLOCKED, "sender_blocked"],
+    ] as const) {
       const m = await ingest(G.jid, "Villa Mavi 15-20 Haziran kapalı", pn);
       expect((await claim()).map((r) => r.message_id)).not.toContain(m);
-      expect([pn, await msgRow(m)]).toMatchObject([
-        pn,
-        { status: "ignored", last_error: "sender_not_authorized" },
-      ]);
+      expect([pn, await msgRow(m)]).toMatchObject([pn, { status: "ignored", last_error: reason }]);
       expect(await proposalsOf(m)).toEqual([]);
     }
   });
 
-  it("GÖNDEREN POLİTİKASI: iş alındıktan sonra yetki kalkarsa öneri yazılmaz", async () => {
+  it("GÖNDEREN POLİTİKASI: iş alındıktan sonra Super Admin engellerse öneri yazılmaz", async () => {
+    const m = await ingest(G.jid, "Villa Mavi kapalı", PN_MANAGER);
+    const c = await claimOne(m);
+    const adminId = await createTestAdmin(admin, `pq${tag}`);
+    expect(await adminBlockSender(admin, adminId, PN_MANAGER, null)).toBe("blocked");
+    try {
+      expect((await store(c, [item()])).rows[0]!.n).toBe(0);
+      expect(await msgRow(m)).toMatchObject({ status: "ignored", last_error: "sender_blocked" });
+      expect(await proposalsOf(m)).toEqual([]);
+    } finally {
+      await admin.query("delete from wa_blocked_senders where phone_hash = $1", [
+        phoneHash(PN_MANAGER),
+      ]);
+    }
+  });
+
+  it("GÖNDEREN POLİTİKASI: iş alındıktan sonra numara doğrulaması kalksa da öneri yazılır (participant)", async () => {
     const m = await ingest(G.jid, "Villa Mavi kapalı", PN_MANAGER);
     const c = await claimOne(m);
     await admin.query("delete from wa_verified_phones where user_id = $1", [M.id]);
     try {
-      expect((await store(c, [item()])).rows[0]!.n).toBe(0);
-      expect(await msgRow(m)).toMatchObject({
-        status: "ignored",
-        last_error: "sender_not_authorized",
+      expect((await store(c, [item({ check_in: day(300), check_out: day(302) })])).rows[0]!.n).toBe(
+        1,
+      );
+      expect((await proposalsOf(m))[0]).toMatchObject({
+        sender_role: "participant",
+        sender_verified: false,
+        review_reasons: [],
       });
-      expect(await proposalsOf(m)).toEqual([]);
     } finally {
       await admin.query(
         "insert into wa_verified_phones (user_id, phone_hash, phone_masked) values ($1, $2, '+90 532 *** ** 02')",
@@ -578,15 +602,15 @@ describe("worker: öneri kaydı", () => {
       sender_hash: phoneHash(PN_STAFF),
       sender_role: "staff",
       sender_verified: false,
-      // Staff önerisi: worker göndermese de veritabanı nedeni ekler.
-      review_reasons: ["staff_review_required"],
+      // B aşaması: staff yetkili katılımcıdır; veritabanı ek inceleme nedeni EKLEMEZ.
+      review_reasons: [],
       action: "close",
       property_id: mavi,
       parser_version: WA_CALENDAR_PARSER_VERSION,
     });
     expect(rows[1]).toMatchObject({
       property_id: asya,
-      review_reasons: ["villa_needs_review", "staff_review_required"],
+      review_reasons: ["villa_needs_review"],
     });
     expect(await msgRow(m)).toMatchObject({
       status: "processed",
@@ -862,11 +886,11 @@ describe("öneri: RLS, durum makinesi ve karar", () => {
     ).toBe("23514");
   });
 
-  it("GÖNDEREN POLİTİKASI: staff önerisi WhatsApp'tan doğrudan takvimi değiştiremez ('tek tık' yok)", async () => {
+  it("GÖNDEREN POLİTİKASI (B): katılımcı kapatması 'tek tık' ile uygulanabilir; nedenli karar 'quick' olamaz", async () => {
     const m = await ingest(G.jid, "Villa Mavi kapalı", PN_STAFF);
     await store(await claimOne(m), [item({ check_in: day(175), check_out: day(177) })]);
     const p = (await proposalsOf(m))[0];
-    expect(p).toMatchObject({ sender_role: "staff", review_reasons: ["staff_review_required"] });
+    expect(p).toMatchObject({ sender_role: "staff", review_reasons: [] });
     const decide = (mode: string, reasons: string) =>
       upd(
         O,
@@ -874,15 +898,16 @@ describe("öneri: RLS, durum makinesi ve karar", () => {
         sql`update wa_calendar_proposals set status = 'applied', decided_by = app_current_user_id(), decided_at = now(),
               decision_mode = ${mode}, decision_reasons = ${reasons}::text[] where id = ${p.id}`,
       );
-    // Nedensiz kapatma bile staff'tan geliyorsa "tek tık" kaydedilemez.
-    expect(await decide("quick", "{}")).toBe("23514");
-    // Yönetici incelemesiyle onaylanabilir.
-    expect(await decide("reviewed", "{staff_review_required}")).toBe("ok");
-    // Veritabanı kuralı: staff satırı "staff_review_required" olmadan var olamaz; rol/doğrulama tutarlı.
+    // Nedenli karar "tek tık" olamaz (quick yalnız nedensiz kapatma).
+    expect(await decide("quick", "{flagged}")).toBe("23514");
+    // Nedensiz kapatma: katılımcıdan gelse de "tek tık".
+    expect(await decide("quick", "{}")).toBe("ok");
+    // Veritabanı kuralı: rol listesi sabit, sender_verified yalnız owner/manager için true.
     const def = await admin.query(
       "select pg_get_constraintdef(oid) d from pg_constraint where conname = 'wa_calendar_proposals_sender_role'",
     );
-    expect(def.rows[0].d).toContain("staff_review_required");
+    expect(def.rows[0].d).toContain("participant");
+    expect(def.rows[0].d).not.toContain("staff_review_required");
   });
 
   it("GÜVENLİK: kullanıcısız bağlantı (worker bağlamı) öneriyi onaylayamaz", async () => {

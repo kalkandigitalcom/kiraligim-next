@@ -869,12 +869,15 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       // 0031 (A1): WhatsApp ağ geçidi ve panelden bağlantı kesme; 0034 (A1.1): eşleştirme;
       // 0044 (Aşama 2): Super Admin grup yönetimi (yalnız app_admin)
       "app_wa_admin_archive_group",
+      "app_wa_admin_block_sender", // 0047 (B)
+      "app_wa_admin_blocked_senders", // 0047 (B)
       "app_wa_admin_connections",
       "app_wa_admin_groups",
       "app_wa_admin_link_group",
       "app_wa_admin_properties",
       "app_wa_admin_set_active",
       "app_wa_admin_set_property",
+      "app_wa_admin_unblock_sender", // 0047 (B)
       "app_wa_admin_unlink_group",
       "app_wa_admin_workspaces",
       // 0036 (A2): takvim önerisi worker'ı (busy, claim_messages, expire, fail, context, store)
@@ -889,6 +892,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_wa_heartbeat",
       "app_wa_ingest_message",
       "app_wa_lock_group_for_auto_close", // 0045
+      "app_wa_message_actor", // 0047 (B)
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
@@ -939,6 +943,8 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_admin uuid, p_group uuid, p_workspace uuid, p_property uuid": `gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), gen_random_uuid()`,
         "p_admin uuid, p_group uuid, p_active boolean": `gen_random_uuid(), gen_random_uuid(), true`,
         "p_admin uuid, p_group uuid, p_archive boolean": `gen_random_uuid(), gen_random_uuid(), true`,
+        "p_admin uuid, p_phone text, p_group uuid": `gen_random_uuid(), '905320000000', null`,
+        "p_admin uuid, p_id uuid": `gen_random_uuid(), gen_random_uuid()`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;
@@ -973,12 +979,15 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "app_wa_redeem_link_code",
         "app_wa_unlink_group",
         "app_wa_admin_archive_group",
+        "app_wa_admin_block_sender",
+        "app_wa_admin_blocked_senders",
         "app_wa_admin_connections",
         "app_wa_admin_groups",
         "app_wa_admin_link_group",
         "app_wa_admin_properties",
         "app_wa_admin_set_active",
         "app_wa_admin_set_property",
+        "app_wa_admin_unblock_sender",
         "app_wa_admin_unlink_group",
         "app_wa_admin_workspaces",
       ]) {

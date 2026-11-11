@@ -394,6 +394,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_fail_message",
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e): kilitli mesajın gönderen kullanıcısı (yalnız okuma)
+      "app_wa_message_actor", // 0047 (B): kilitli mesajın işletme sahibi (yalnız okuma)
       "app_wa_queue_reaction", // 0040 (A2f): öneri durumunu okur (tepki kararı doğrulaması)
       "app_wa_proposals_guard",
       "app_wa_sender_role",
@@ -402,12 +403,15 @@ describe("veritabanı güvenliği", () => {
     // 0044 (Aşama 2): Super Admin grup yönetimi; YALNIZ app_admin çağırır.
     const ADMIN = [
       "app_wa_admin_archive_group",
+      "app_wa_admin_block_sender", // 0047 (B): engel listesi
+      "app_wa_admin_blocked_senders", // 0047
       "app_wa_admin_connections",
       "app_wa_admin_groups",
       "app_wa_admin_link_group",
       "app_wa_admin_properties",
       "app_wa_admin_set_active",
       "app_wa_admin_set_property",
+      "app_wa_admin_unblock_sender", // 0047
       "app_wa_admin_unlink_group",
       "app_wa_admin_workspaces",
     ];
@@ -433,6 +437,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_heartbeat", // 0034: 4 parametreli (asistan numarası)
       "app_wa_ingest_message",
       "app_wa_lock_group_for_auto_close", // 0045
+      "app_wa_message_actor", // 0047
       "app_wa_message_context", // 0036
       "app_wa_message_sender", // 0038
       "app_wa_pending_groups", // 0034
@@ -441,6 +446,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_purge_messages",
       "app_wa_queue_reaction", // 0040
       "app_wa_redeem_link_code",
+      "app_wa_sender_block", // 0047 (yalnız fonksiyonlar içinden)
       "app_wa_sender_role", // 0036 (yalnız fonksiyonlar içinden)
       "app_wa_store_proposals", // 0036
       "app_wa_sync_group",
@@ -456,6 +462,7 @@ describe("veritabanı güvenliği", () => {
           "app_wa_phone_hash",
           "app_wa_calendar_cutover",
           "app_wa_proposals_guard",
+          "app_wa_sender_block",
           "app_wa_sender_role",
         ].includes(f.proname),
       );
@@ -491,6 +498,7 @@ describe("veritabanı güvenliği", () => {
        order by c.relname`);
     expect(t.rows).toEqual(
       [
+        "wa_blocked_senders", // 0046/0047 (B)
         "wa_calendar_proposals", // 0035 (A2)
         "wa_calendar_worker_state", // 0037 (A2c)
         "wa_connections",

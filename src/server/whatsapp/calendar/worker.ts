@@ -12,11 +12,15 @@
  *   4. Tek atomik yazım: app_wa_store_proposals. Veritabanı kilidi, grubu, villayı ve gönderen
  *      yetkisini yazım anında yeniden denetler; kilit kaybında hiçbir şey yazılmaz.
  *
- *   5. (A2e) Otomatik kapatma: öğe autoCloseCandidate kuralını geçiyorsa (tek öğe, sahibin açık,
- *      net tarihli, çakışmasız kapatma talimatı, grubun villası) gönderen kullanıcı kilitliyken
- *      bulunur (app_wa_message_sender) ve öneri kaydedildikten SONRA deps.autoClose çağrılır.
- *      Blok yalnız oradan, sahibin oturum bağlamında ve rezervasyon servisiyle oluşur; başarısızlıkta
- *      öneri panelde onay bekler. autoClose verilmezse (testler) yalnız öneri oluşur.
+ *   5. (A2e / B) Otomatik kapatma: öğe autoCloseCandidate kuralını geçiyorsa (tek öğe, yetkili
+ *      grup katılımcısının açık, net tarihli, çakışmasız kapatma talimatı, grubun villası) işletme
+ *      SAHİBİ kilitliyken bulunur (app_wa_message_actor) ve öneri kaydedildikten SONRA
+ *      deps.autoClose çağrılır. Blok yalnız oradan, sahibin oturum bağlamında ve rezervasyon
+ *      servisiyle oluşur; gerçek gönderen önerinin sender_hash / sender_role alanlarında kalır.
+ *      Başarısızlıkta takvim değişmez (⚠️). autoClose verilmezse (testler) yalnız öneri oluşur.
+ *
+ *   B aşaması: bağlı ve aktif grubun Super Admin tarafından engellenmemiş HER katılımcısı yetkilidir
+ *   (iş alma bunu veritabanında uygular; engelli / numarası belirlenemeyen gönderen hiç alınmaz).
  *
  *   6. (A2f) Tepki: mesaj sonuçlandıktan SONRA decideReaction (merkezi karar) ile tek tepki seçilir ve
  *      app_wa_queue_reaction ile kuyruğa yazılır (veritabanı kararı yeniden doğrular; mesaj başına
@@ -185,16 +189,12 @@ async function busyOf(
   }));
 }
 
-/** Kilitli mesajın gönderen kullanıcısı ve rolü (numara döndürülmez). */
-async function senderOf(
-  db: Executor,
-  c: ClaimedMessage,
-): Promise<{ userId: string; role: string } | null> {
-  const res = await db.execute<{ user_id: string; role: string }>(
-    sql`select user_id, role from public.app_wa_message_sender(${c.messageId}::uuid, ${c.lockToken}::uuid)`,
+/** Takvim işlemini yapacak kullanıcı: kilitli mesajın işletmesinin sahibi (numara döndürülmez). */
+async function actorOf(db: Executor, c: ClaimedMessage): Promise<string | null> {
+  const res = await db.execute<{ user_id: string }>(
+    sql`select user_id from public.app_wa_message_actor(${c.messageId}::uuid, ${c.lockToken}::uuid)`,
   );
-  const r = res.rows[0];
-  return r ? { userId: r.user_id, role: r.role } : null;
+  return res.rows[0]?.user_id ?? null;
 }
 
 async function store(db: Executor, c: ClaimedMessage, items: StoreItem[]): Promise<number> {
@@ -273,15 +273,15 @@ export async function processClaimed(
     }
   }
 
-  // A2e: otomatik kapatma adayı ve gönderen kullanıcı (mesaj hâlâ kilitliyken).
+  // A2e / B: otomatik kapatma adayı ve işlemi yapacak işletme sahibi (mesaj hâlâ kilitliyken).
   const candidate = deps.autoClose
     ? autoCloseCandidate(items, { senderRole: c.senderRole, groupPropertyId: c.groupPropertyId })
     : null;
   let owner: string | null = null;
   if (candidate) {
-    const sender = await step("context_error", () => senderOf(db, c));
-    if (!sender.ok) return sender.out;
-    owner = sender.value?.role === "owner" ? sender.value.userId : null;
+    const actor = await step("context_error", () => actorOf(db, c));
+    if (!actor.ok) return actor.out;
+    owner = actor.value;
   }
 
   await deps.beforeStore?.(c);

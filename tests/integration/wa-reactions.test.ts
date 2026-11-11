@@ -16,13 +16,16 @@ import { type AutoCloser, createAutoCloser } from "@/server/whatsapp/auto-close"
 import { runCalendarWorker, type WorkerDeps } from "@/server/whatsapp/calendar/worker";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
+import { adminBlockSender, createTestAdmin } from "./wa-admin";
+
 /**
  * WhatsApp Asistanı A2f — işlem sonucu tepkileri (drizzle/0039, 0040). Gerçek PostgreSQL 17,
  * app_user, FORCE RLS. Zincir: ağ geçidinin kayıt fonksiyonu → worker (gerçek kod, otomatik kapatma
  * dahil) → tepki kuyruğu → ağ geçidinin alma/sonuç fonksiyonları (ağ geçidi koduyla aynı SQL).
  *
- * Doğrulananlar: ✅ yalnız otomatik blok oluşunca; ☑️ rezervasyon önerisinde; ⚠️ anlaşılmayan,
- * belirsiz tarihli ve çakışmalı mesajda; yetkisize ve sohbet mesajına tepki yok; aynı mesaja tek
+ * Doğrulananlar: ✅ yalnız otomatik blok oluşunca; ⚠️ anlaşılmayan, belirsiz tarihli, çakışmalı
+ * ve bu aşamada uygulanmayan (rezervasyon) mesajda; ☑️ hiçbir zaman (B aşaması); engelli
+ * gönderene ve sohbet mesajına tepki yok; sahip olmayan grup katılımcısına da tepki; aynı mesaja tek
  * tepki; tepki gönderilemese de (veya bağlantı kesikken) takvim ve öneriler aynen kalır; veritabanı
  * worker'ın kararını ayrıca doğrular (gerçek blok olmadan ✅ yazılamaz).
  */
@@ -53,6 +56,7 @@ const PN_OWNER = "905321660001";
 const PN_MANAGER = "905321660002";
 const PN_STAFF = "905321660003";
 const PN_STRANGER = "905321660009";
+const PN_BLOCKED = "905321660008";
 const TODAY = istanbulToday();
 const day = (n: number) => addDays(TODAY, n);
 const AYLAR = [
@@ -235,12 +239,13 @@ describe("tepki kararı (worker → kuyruk)", () => {
     expect(await claim()).toEqual([]);
   });
 
-  it("rezervasyon önerisi oluştu → ☑️ (✅ değil; rezervasyon oluşmadı)", async () => {
+  it("rezervasyon talimatı (otomatik oluşturma kapalı) → ⚠️; ☑️ veya ✅ değil, takvim değişmez", async () => {
     const before = await calendarDigest();
     const r = await send(
       `Villa In Love ${tr(day(40))} giriş, ${tr(day(44))} çıkış, 4 kişi rezervasyon.`,
     );
-    expect(r.reaction).toMatchObject({ kind: "submitted", emoji: SUBMIT });
+    expect(r.reaction).toMatchObject({ kind: "warning", emoji: WARN });
+    expect(r.reaction.emoji).not.toBe(SUBMIT);
     expect(await calendarDigest()).toEqual(before);
     await drain();
   });
@@ -284,19 +289,45 @@ describe("tepki kararı (worker → kuyruk)", () => {
     await drain();
   });
 
-  it("yetkisiz kullanıcı → tepki yok (personel ve kayıtsız numara)", async () => {
+  it("B aşaması: personel ve doğrulanmamış grup katılımcısı da ✅ alır", async () => {
     const staff = await send(`Villa In Love ${tr(day(80))}–${tr(day(82))} kapatalım.`, {
       pn: PN_STAFF,
     });
     expect(staff.message!.status).toBe("processed");
-    expect(staff.reaction).toBeUndefined();
+    expect(staff.reaction).toMatchObject({ kind: "done", emoji: OK });
     const stranger = await send(`Villa In Love ${tr(day(84))}–${tr(day(86))} kapatalım.`, {
       pn: PN_STRANGER,
     });
-    expect(stranger.message!.status).toBe("ignored");
-    expect(stranger.reaction).toBeUndefined();
-    // Veritabanı da yetkisiz gönderenin mesajına tepki yazmaz.
-    expect(await queue(staff.message!.id, "warning")).toBe("rejected");
+    expect(stranger.message!.status).toBe("processed");
+    expect(stranger.reaction).toMatchObject({ kind: "done", emoji: OK });
+    await drain();
+  });
+
+  it("Super Admin'in engellediği numara → işlem ve tepki yok; veritabanı tepkiyi reddeder", async () => {
+    const adminId = await createTestAdmin(admin, `rx${tag}`);
+    expect(await adminBlockSender(admin, adminId, PN_BLOCKED, G.id)).toBe("blocked");
+    const before = await calendarDigest();
+    const r = await send(`Villa In Love ${tr(day(87))}–${tr(day(89))} kapatalım.`, {
+      pn: PN_BLOCKED,
+    });
+    expect(r.message!.status).toBe("ignored");
+    expect(r.reaction).toBeUndefined();
+    expect(await calendarDigest()).toEqual(before);
+    // Numarası belirlenemeyen gönderen (yalnız gizli kimlik) de işlenmez.
+    const mid = `RX${tag}nopn`;
+    await appPool.query(
+      "select public.app_wa_ingest_message($1, $2, $3, 'gizli@lid', null, 'gizli@lid', $4, now(), 'live')",
+      [conn, G.jid, mid, `Villa In Love ${tr(day(87))}–${tr(day(89))} kapatalım.`],
+    );
+    await runCalendarWorker(app, deps());
+    const hidden = (
+      await admin.query<{ id: string; status: string; last_error: string }>(
+        "select id, status, last_error from wa_inbound_messages where wa_message_id = $1",
+        [mid],
+      )
+    ).rows[0]!;
+    expect([hidden.status, hidden.last_error]).toEqual(["ignored", "sender_unidentified"]);
+    expect(await calendarDigest()).toEqual(before);
   });
 
   it("takvimle ilgisiz sohbet ve soru → tepki yok", async () => {
@@ -328,14 +359,15 @@ describe("tepki kararı (worker → kuyruk)", () => {
 });
 
 describe("veritabanı kararı doğrular", () => {
-  it("gerçek otomatik blok olmadan ✅ yazılamaz; bekleyen öneri yokken ☑️ yazılamaz", async () => {
+  it("gerçek otomatik blok olmadan ✅ yazılamaz; ☑️ hiçbir zaman yazılamaz (B aşaması)", async () => {
     // Worker'ı tepkisiz çalıştırmak için kuyruğu sonradan temizleyip yeniden deneriz.
     const r = await send(
       `Villa In Love ${tr(day(110))} giriş, ${tr(day(114))} çıkış, 2 kişi rezervasyon.`,
     );
     await admin.query("delete from wa_message_reactions where message_id = $1", [r.message!.id]);
     expect(await queue(r.message!.id, "done")).toBe("rejected"); // rezervasyon önerisi: blok yok
-    expect(await queue(r.message!.id, "submitted")).toBe("queued");
+    expect(await queue(r.message!.id, "submitted")).toBe("rejected"); // eski "onay bekliyor"
+    expect(await queue(r.message!.id, "warning")).toBe("queued");
     await drain();
   });
 

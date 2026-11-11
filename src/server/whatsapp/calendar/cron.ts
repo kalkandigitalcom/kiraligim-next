@@ -3,9 +3,10 @@
  *
  * Coolify → uygulama → Scheduled Tasks'ta uygulama konteynerinde HER DAKİKA çalıştırılır
  * (`* * * * *`). Bağlı WhatsApp gruplarından gelen mesajları ayrıştırır ve İŞLEM ÖNERİSİ
- * (wa_calendar_proposals) oluşturur; öneriler panelde onaylanır. Tek istisna (A2e): işletme
- * sahibinin grubun villası için açık, net tarihli ve çakışmasız kapatma talimatı, sahibin oturum
- * bağlamında rezervasyon servisiyle doğrudan blok olur (../auto-close.ts).
+ * (wa_calendar_proposals) oluşturur. Bağlı ve aktif grubun Super Admin tarafından engellenmemiş
+ * herhangi bir katılımcısının (B aşaması) grubun villası için açık, net tarihli ve çakışmasız kapatma
+ * talimatı, işletme sahibinin oturum bağlamında rezervasyon servisiyle doğrudan blok olur
+ * (../auto-close.ts).
  * Uygulamanın kendi bağlantısını (DATABASE_URL, app_user, RLS) kullanır; HTTP uç noktası veya ek
  * sır yoktur. İlk çalıştırma worker'ı etkinleştirir: o ana kadar kuyruktaki mesajlar işlenmez.
  * Çıkış kodu: 0 başarılı (tek tek mesaj hataları mesaja yazılır), 1 beklenmeyen hata.

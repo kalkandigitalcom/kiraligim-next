@@ -21,7 +21,11 @@ const ctx: ResolveContext = {
 
 function items(
   text: string,
-  o: { busy?: BusyRow[]; role?: "owner" | "manager" | "staff" | null; group?: string | null } = {},
+  o: {
+    busy?: BusyRow[];
+    role?: "owner" | "manager" | "staff" | "participant" | null;
+    group?: string | null;
+  } = {},
 ): StoreItem[] {
   const c = { ...ctx, groupPropertyId: o.group === undefined ? "testo" : o.group };
   return parseCalendarMessage(text, TODAY).items.map((item, i) =>
@@ -36,7 +40,11 @@ function items(
 }
 const cand = (
   text: string,
-  o: { busy?: BusyRow[]; role?: "owner" | "manager" | "staff" | null; group?: string | null } = {},
+  o: {
+    busy?: BusyRow[];
+    role?: "owner" | "manager" | "staff" | "participant" | null;
+    group?: string | null;
+  } = {},
 ) =>
   autoCloseCandidate(items(text, o), {
     senderRole: o.role === undefined ? "owner" : o.role,
@@ -62,12 +70,24 @@ describe("otomatik kapatma kuralı", () => {
     });
   });
 
+  // B aşaması: bağlı grubun engellenmemiş HER katılımcısı yetkilidir (sahip olması gerekmez).
+  it.each(["manager", "staff", "participant"] as const)(
+    "sahip olmayan grup katılımcısı (%s) da uygun",
+    (role) => {
+      expect(cand("Villa Testo 10–15 Haziran kapatalım.", { role })).toMatchObject({
+        action: "close",
+        property_id: "testo",
+        check_in: "2027-06-10",
+        check_out: "2027-06-15",
+        review_reasons: [],
+      });
+    },
+  );
+
   it.each([
-    ["yönetici", { role: "manager" as const }],
-    ["personel", { role: "staff" as const }],
-    ["doğrulanmamış gönderen", { role: null }],
+    ["yetkisiz gönderen (engelli / numarası belirlenemeyen)", { role: null }],
     ["grubun villası yok", { group: null }],
-  ])("%s → panel onayı", (_label, o) => {
+  ])("%s → aday yok", (_label, o) => {
     expect(cand("Villa Testo 10–15 Haziran kapatalım.", o)).toBeNull();
   });
 
@@ -108,7 +128,10 @@ describe("grup eşleştirmesi kesin kaynak (production senaryosu)", () => {
     ],
     groupPropertyId: "inlove",
   };
-  const candFor = (text: string, role: "owner" | "manager" | "staff" | null = "owner") =>
+  const candFor = (
+    text: string,
+    role: "owner" | "manager" | "staff" | "participant" | null = "owner",
+  ) =>
     autoCloseCandidate(
       parseCalendarMessage(text, TODAY).items.map((item, i) =>
         buildStoreItem({
@@ -147,8 +170,18 @@ describe("grup eşleştirmesi kesin kaynak (production senaryosu)", () => {
     expect(autoCloseCandidate(store, { senderRole: "owner", groupPropertyId: null })).toBeNull();
   });
 
-  it.each(["manager", "staff", null] as const)("yetkisiz gönderen (%s) → aday yok", (role) => {
-    expect(candFor("Villa Testo 10–15 Haziran kapatalım.", role)).toBeNull();
+  it.each(["manager", "staff", "participant"] as const)(
+    "grup katılımcısı (%s) → grubun villası bloklanır",
+    (role) => {
+      expect(candFor("Villa Testo 10–15 Haziran kapatalım.", role)).toMatchObject({
+        property_id: "inlove",
+        action: "close",
+      });
+    },
+  );
+
+  it("yetkisiz gönderen (null) → aday yok", () => {
+    expect(candFor("Villa Testo 10–15 Haziran kapatalım.", null)).toBeNull();
   });
 });
 

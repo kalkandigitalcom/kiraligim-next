@@ -82,3 +82,22 @@ export const adminArchive = (admin: Client, adminId: string, groupId: string, ar
     groupId,
     archive,
   ]);
+
+/** B aşaması: numarayı engeller (groupId null: bütün gruplarda). */
+export const adminBlockSender = (
+  admin: Client,
+  adminId: string,
+  phone: string,
+  groupId: string | null,
+) =>
+  asAppAdmin<string>(admin, "select public.app_wa_admin_block_sender($1, $2, $3) as out", [
+    adminId,
+    phone,
+    groupId,
+  ]);
+
+export const adminUnblockSender = (admin: Client, adminId: string, blockId: string) =>
+  asAppAdmin<string>(admin, "select public.app_wa_admin_unblock_sender($1, $2) as out", [
+    adminId,
+    blockId,
+  ]);

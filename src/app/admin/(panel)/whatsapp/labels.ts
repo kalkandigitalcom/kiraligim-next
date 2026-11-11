@@ -39,4 +39,6 @@ export const NOTICES: Record<string, string> = {
   kaldirildi: "Bağlantı kaldırıldı; grubun mesajları silindi. Kayıtlar korunur.",
   arsivlendi: "Grup arşivlendi (yok sayılıyor).",
   "arsivden-cikti": "Grup arşivden çıkarıldı; yeniden eşleştirme bekliyor.",
+  engellendi: "Numara engellendi; bu numaradan gelen komutlar işlenmez.",
+  "engel-kalkti": "Engel kaldırıldı.",
 };

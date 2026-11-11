@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 import type { TenantContext, Tx } from "@/db/tenant";
 import { AppError, conflict, forbidden, notFound, validationError } from "@/lib/errors";
 import { type ReservationStatus, istanbulToday } from "@/lib/reservation-meta";
-import { parseGuestCount, type WaGuestCount } from "@/lib/wa-calendar-parse";
+import { parseGuestCount, type WaGuestCount, type WaSenderRole } from "@/lib/wa-calendar-parse";
 import type { WaProposalStatus } from "@/lib/whatsapp-meta";
 import { recordAudit } from "@/server/audit/record";
 import { type ExternalConflict, findExternalConflicts } from "@/server/ical/service";
@@ -61,7 +61,8 @@ export type WaProposalView = {
   reviewReasons: string[];
   score: number;
   band: "high" | "medium" | "low";
-  senderRole: "owner" | "manager" | "staff";
+  /** B aşaması: üye rolü ya da "participant" (işletme üyesi olmayan grup katılımcısı). */
+  senderRole: WaSenderRole;
   groupId: string;
   groupSubject: string | null;
   sentAt: Date;

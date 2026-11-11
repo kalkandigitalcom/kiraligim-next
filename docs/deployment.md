@@ -830,6 +830,36 @@ açılışta uygulanır. Gateway ve worker yeniden yapılandırılmaz.
 **Geri alma:** komutlar 0044 ve 0045'in başındadır (`DROP FUNCTION app_wa_admin_*`, politikalar; işletme
 yetkileri gerekirse 0031/0034'teki GRANT'lar). Uygulanmış migration değiştirilmez.
 
+## WhatsApp grup katılımcılarının operasyonel komutları — B aşaması (0046–0047)
+
+Super Admin'in bir işletmeye **ve villaya** eşleştirdiği, **aktif** grubun her katılımcısı takvim
+kapatma komutu verebilir. İşletme sahibinin doğrulanmış numarası şartı kalktı; katılımcı başına
+telefon doğrulaması, onay veya allowlist yoktur. Katılımcının grupta olduğu Gateway'den bellidir
+(Gateway yalnız bağlı grupların mesajlarını kaydeder; değişmedi).
+
+- **İstisnalar (mesaj `ignored`, öneri ve tepki yok):** `sender_blocked` (Super Admin engel listesi),
+  `sender_unidentified` (gönderenin numarası çözülemedi, yalnız LID: engel listesi denetlenemez),
+  `group_not_linked` (grup bağlı/aktif değil), `group_without_villa` (villa eşleştirmesi yok).
+- **İşlemi yapan:** blok, işletmenin **sahibi** adına (en eski owner üyeliği;
+  `app_wa_message_actor`) mevcut rezervasyon servisiyle oluşur. Gerçek gönderen önerinin
+  `sender_hash` (numara özeti) ve `sender_role` (üye rolü ya da `participant`) alanlarında, grup
+  `group_id`'de kalır; denetim kaydına grup ve gönderen rolü yazılır. Çakışma, tarih ve kilit
+  denetimleri aynıdır; otomatik rezervasyon oluşturma kapalı kalır.
+- **Tepkiler:** ✅ yalnız blok gerçekten oluştuysa; ⚠️ talimat anlaşıldı ama uygulanmadıysa
+  (çakışma, belirsiz tarih, bu aşamada desteklenmeyen rezervasyon/açma/iptal); ilgisiz sohbet ve
+  soruya tepki yok. ☑️ (`submitted`) artık hiç yazılmaz (veritabanı da reddeder).
+- **Engel listesi (Super Admin → grup sayfası → Engellenen numaralar):** kapsam "yalnız bu grup" veya
+  "bütün gruplar". Numara saklanmaz: `wa_blocked_senders` yalnız özet ve son 4 haneyi tutar; tabloya
+  yalnız fonksiyonlar erişir (`app_wa_admin_block_sender`, `app_wa_admin_unblock_sender`,
+  `app_wa_admin_blocked_senders`; yalnız `app_admin`). Engel, kuyruktaki ve işlenmekte olan
+  mesajlara da (yazım anında) uygulanır.
+
+**Deploy:** ek ortam değişkeni yoktur; 0046–0047 açılışta uygulanır. Gateway yeniden
+yapılandırılmaz; worker (`dist/wa-calendar.js`) yeni sürümle çalışmalıdır.
+
+**Geri alma:** 0047'nin başındaki adımlar (fonksiyonlar 0037/0040 tanımlarına, `DROP FUNCTION`,
+`DROP TABLE wa_blocked_senders`).
+
 ## Veritabanı rolleri ve migration
 
 ### Roller

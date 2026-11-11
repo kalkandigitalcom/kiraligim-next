@@ -1,5 +1,10 @@
 /**
- * WhatsApp Asistanı — A2e: işletme SAHİBİNİN açık kapatma talimatının takvime otomatik işlenmesi.
+ * WhatsApp Asistanı — A2e / B: bağlı gruptaki açık kapatma talimatının takvime otomatik işlenmesi.
+ *
+ * B aşaması: talimatı grubun Super Admin tarafından engellenmemiş HERHANGİ bir katılımcısı verebilir.
+ * İşlem işletme SAHİBİ adına (oturum bağlamı ve rezervasyon servisi yetkileri) yapılır; gerçek
+ * gönderen önerinin sender_hash / sender_role alanlarında, grup group_id'de kalır ve denetim
+ * kaydına grup ile gönderen rolü yazılır.
  *
  * Worker (dist/wa-calendar.js) öneriyi kaydettikten SONRA, yalnız uygunluk kuralını
  * (calendar/auto-close-rule.ts) geçen kapatma önerileri için çağırır. Next.js'e ve "server-only"e
@@ -24,12 +29,13 @@ import { sql } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { withTenant } from "@/db/tenant";
 import { isAppError } from "@/lib/errors";
+import { WA_SENDER_ROLES, type WaSenderRole } from "@/lib/wa-calendar-parse";
 import { recordAudit } from "@/server/audit/record";
 import { findExternalConflicts } from "@/server/ical/service";
 import { createReservation, findConflicts } from "@/server/reservations/service";
 
 export const WA_AUTO_CLOSE_FAILURES = [
-  /** Gönderen artık işletme sahibi değil (veya üyelik/işletme pasif). */
+  /** İşlemi yapacak kullanıcı artık işletme sahibi değil (veya üyelik/işletme pasif). */
   "not_owner",
   /** Öneri artık bekleyen, nedensiz bir sahip kapatması değil ya da değerleri değişti. */
   "changed",
@@ -46,7 +52,7 @@ export type WaAutoCloseFailure = (typeof WA_AUTO_CLOSE_FAILURES)[number];
 
 export type AutoCloseRequest = {
   workspaceId: string;
-  /** Gönderenin kullanıcı kimliği (app_wa_message_sender; kilitli mesajdan). */
+  /** İşlemi yapan kullanıcı: işletme sahibi (app_wa_message_actor; kilitli mesajdan). */
   userId: string;
   messageId: string;
   itemNo: number;
@@ -62,7 +68,7 @@ export type AutoCloseResult =
 export type AutoCloser = (req: AutoCloseRequest) => Promise<AutoCloseResult>;
 
 /** Panelde ve blok notunda gösterilen sabit metin (kişisel bilgi içermez). */
-export const WA_AUTO_CLOSE_NOTE = "WhatsApp grubundaki sahip talimatıyla otomatik kapatıldı.";
+export const WA_AUTO_CLOSE_NOTE = "WhatsApp grubundaki talimatla otomatik kapatıldı.";
 
 class Stop extends Error {
   constructor(
@@ -142,7 +148,7 @@ export function createAutoCloser(db: Database): AutoCloser {
             p.status !== "pending" ||
             p.action !== "close" ||
             (p.review_reasons ?? []).length !== 0 ||
-            p.sender_role !== "owner" ||
+            !(WA_SENDER_ROLES as readonly string[]).includes(p.sender_role) ||
             p.property_id !== req.propertyId ||
             p.check_in !== req.checkIn ||
             p.check_out !== req.checkOut
@@ -184,7 +190,12 @@ export function createAutoCloser(db: Database): AutoCloser {
             action: "whatsapp.proposal_auto_applied",
             targetType: "whatsapp_proposal",
             targetId: p.id,
-            metadata: { property: req.propertyId, reservation: reservationId },
+            metadata: {
+              property: req.propertyId,
+              reservation: reservationId,
+              group: groupId,
+              sender_role: p.sender_role as WaSenderRole,
+            },
           });
           return { outcome: "applied" as const, proposalId: p.id, reservationId };
         },

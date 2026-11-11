@@ -839,4 +839,34 @@ describe("mevcut eşleştirmeler korunur", () => {
       }
     }
   });
+
+  it("B aşaması migration'ları (0046, 0047) mevcut veriyi değiştirmez", () => {
+    // Yeni tablo, kısıtların gevşetilerek yeniden tanımlanması, RLS, fonksiyon ve yetki; veri
+    // ekleyen / değiştiren / silen ifade yok (fonksiyon gövdeleri hariç).
+    const dir = path.join(process.cwd(), "drizzle");
+    for (const f of [
+      "0046_wa_participant_senders.sql",
+      "0047_wa_participant_senders_security.sql",
+    ]) {
+      const text = readFileSync(path.join(dir, f), "utf8")
+        .replace(/\$\$[\s\S]*?\$\$/g, "$$$$")
+        .replace(/--.*$/gm, "");
+      const statements = text
+        .split("--> statement-breakpoint")
+        .flatMap((s) => s.split(/;\s*$/m))
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const s of statements) {
+        expect(s, `${f}: ${s.slice(0, 60)}`).toMatch(
+          /^(CREATE TABLE "wa_blocked_senders"|ALTER TABLE [\w."]+ (ADD|DROP) CONSTRAINT|ALTER TABLE public\.wa_blocked_senders (ENABLE|FORCE) ROW LEVEL SECURITY|CREATE (UNIQUE )?INDEX|CREATE POLICY|CREATE (OR REPLACE )?FUNCTION|REVOKE|GRANT)/i,
+        );
+        expect(s, `${f}: ${s.slice(0, 60)}`).not.toMatch(
+          /^(INSERT|UPDATE|DELETE|TRUNCATE|DROP TABLE)/i,
+        );
+      }
+      // Kaldırılan kısıtlar aynı migration'da yeniden eklenir.
+      const dropped = [...text.matchAll(/DROP CONSTRAINT "([\w]+)"/g)].map((m) => m[1]);
+      for (const c of dropped) expect(text, c).toContain(`ADD CONSTRAINT "${c}"`);
+    }
+  });
 });

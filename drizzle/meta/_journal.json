@@ -323,6 +323,20 @@
       "when": 1794339155964,
       "tag": "0045_wa_auto_close_group_lock",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794397767602,
+      "tag": "0046_wa_participant_senders",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794397788724,
+      "tag": "0047_wa_participant_senders_security",
+      "breakpoints": true
     }
   ]
 }

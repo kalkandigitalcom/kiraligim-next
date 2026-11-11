@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Tx } from "@/db/tenant";
 import { AppError } from "@/lib/errors";
 import { PROPERTY_STATUSES, PROPERTY_TYPES } from "@/lib/property-meta";
+import { WA_SENDER_ROLES } from "@/lib/wa-calendar-parse";
 import {
   RESERVATION_KINDS,
   RESERVATION_SOURCES,
@@ -155,7 +156,14 @@ export const AUDIT_ACTIONS = {
   }),
   "whatsapp.proposal_rejected": z.strictObject({}),
   // A2e: sahibin açık kapatma talimatı takvime otomatik işlendi / işlenemedi (yalnız neden kodu).
-  "whatsapp.proposal_auto_applied": z.strictObject({ property: z.uuid(), reservation: z.uuid() }),
+  // B aşaması: grup ve gerçek gönderenin rolü (üye rolü ya da "participant"); numara yazılmaz.
+  // Eski kayıtlarla uyum için iki alan da isteğe bağlıdır.
+  "whatsapp.proposal_auto_applied": z.strictObject({
+    property: z.uuid(),
+    reservation: z.uuid(),
+    group: z.uuid().optional(),
+    sender_role: z.enum(WA_SENDER_ROLES).optional(),
+  }),
   "whatsapp.proposal_auto_failed": z.strictObject({
     reason: z.enum(["changed", "conflict", "property_inactive", "invalid", "error"]),
   }),

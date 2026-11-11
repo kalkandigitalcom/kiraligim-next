@@ -884,11 +884,11 @@ export const WA_REVIEW_REASONS = [
    * oluşturulur, tek tıkla onay hiçbir zaman yapılamaz.
    */
   "villa_needs_review",
-  /** Gönderen doğrulanmamış (normalde öneri hiç oluşmaz; savunma amaçlı). */
+  /** Gönderen yetkisiz (normalde öneri hiç oluşmaz; savunma amaçlı). */
   "sender_unverified",
   /**
-   * Gönderen işletmenin "staff" üyesi (numarası doğrulanmış olsa da): staff WhatsApp üzerinden
-   * takvimi değiştiremez; öneri her zaman elle incelenir.
+   * Eski (B aşaması öncesi) kayıtlar için korunur: staff önerisi elle incelenirdi. Artık
+   * üretilmez; engellenmemiş her grup katılımcısı yetkili gönderendir.
    */
   "staff_review_required",
   /** Mevcut kayıtla çakışma var. */
@@ -899,11 +899,14 @@ export const WA_REVIEW_REASONS = [
 export type WaReviewReason = (typeof WA_REVIEW_REASONS)[number];
 
 /**
- * Gönderenin işletmedeki rolü (doğrulanmış numarasından). owner/manager doğrulanmış gönderendir;
- * staff yalnız elle incelenecek öneri oluşturabilir. Kayıtsız/doğrulanmamış numara: null (öneri
- * oluşmaz; veritabanı mesajı yok sayar).
+ * Gönderenin rolü (B aşaması). Super Admin'in bir işletmeye ve villaya eşleştirdiği AKTİF grubun
+ * her katılımcısı operasyonel mesaj gönderebilir; ayrıca telefon doğrulaması veya allowlist yoktur.
+ * owner/manager/staff: numarası işletmenin bir üyesinde doğrulanmış (yalnız bilgi amaçlı);
+ * participant: işletme üyesi olmayan (veya numarası doğrulanmamış) grup katılımcısı.
+ * null: gönderen yetkisiz (Super Admin engeli, numarası belirlenemeyen gönderen) — veritabanı bu
+ * mesajları zaten yok sayar; savunma amaçlı.
  */
-export const WA_SENDER_ROLES = ["owner", "manager", "staff"] as const;
+export const WA_SENDER_ROLES = ["owner", "manager", "staff", "participant"] as const;
 export type WaSenderRole = (typeof WA_SENDER_ROLES)[number];
 
 export type WaReviewDecision = {
@@ -929,7 +932,8 @@ export function reviewRequirement(
     villaOutsideGroup?: boolean;
   },
 ): WaReviewDecision {
-  const senderVerified = ctx.senderRole === "owner" || ctx.senderRole === "manager";
+  // B aşaması: engellenmemiş her grup katılımcısı yetkili gönderendir (rolü ne olursa olsun).
+  const senderVerified = ctx.senderRole !== null;
   const score = scoreProposal({
     villa: ctx.villa,
     datesExplicit: item.datesExplicit,
@@ -948,8 +952,7 @@ export function reviewRequirement(
   if (!item.datesExplicit || !item.checkIn || !item.checkOut) reasons.push("dates_incomplete");
   if (ctx.villa !== "named" && ctx.villa !== "single") reasons.push("villa_unresolved");
   if (ctx.villaOutsideGroup === true) reasons.push("villa_needs_review");
-  if (ctx.senderRole === "staff") reasons.push("staff_review_required");
-  else if (!senderVerified) reasons.push("sender_unverified");
+  if (!senderVerified) reasons.push("sender_unverified");
   if (!ctx.conflictFree) reasons.push("conflict");
   if (band !== "high") reasons.push("low_confidence");
   return { quickApprove: reasons.length === 0, score, band, reasons };

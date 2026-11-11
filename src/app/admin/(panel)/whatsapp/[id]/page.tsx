@@ -11,6 +11,7 @@ import {
   ADMIN_WA_ERRORS,
   type AdminWaErrorCode,
   getAdminGroup,
+  listAdminBlockedSenders,
   listAdminGroupHistory,
   listAdminProperties,
   searchAdminWorkspaces,
@@ -18,9 +19,11 @@ import {
 
 import {
   archiveGroupAction,
+  blockSenderAction,
   linkGroupAction,
   setActiveAction,
   setPropertyAction,
+  unblockSenderAction,
   unlinkGroupAction,
 } from "../actions";
 import { ago, fmt } from "../format";
@@ -59,6 +62,12 @@ export default async function AdminWhatsAppGroupPage({ params, searchParams }: P
     throw err;
   }
   const history = await listAdminGroupHistory(db, g.id);
+  // Bu grupta geçerli engeller: yalnız bu gruba ait olanlar ve bütün gruplara uygulananlar.
+  const blocks = g.workspaceId
+    ? (await listAdminBlockedSenders(db, admin.adminId)).filter(
+        (b) => b.groupId === null || b.groupId === g.id,
+      )
+    : [];
   const pending = g.workspaceId === null && g.status === "discovered" && !g.archivedAt;
   const query = one(sp.ara).slice(0, 100);
   const chosenWs = one(sp.isletme);
@@ -222,6 +231,61 @@ export default async function AdminWhatsAppGroupPage({ params, searchParams }: P
                 <Button type="submit">Yeniden aktif et</Button>
               </form>
             ) : null}
+          </section>
+          <section className={CARD} data-testid="admin-wa-blocked">
+            <h2 className="font-semibold text-navy-900">Engellenen numaralar</h2>
+            <p className="text-sm text-muted-foreground">
+              Grubun bütün katılımcıları takvim komutu verebilir; ayrıca doğrulama gerekmez. Burada
+              engellenen numaradan gelen komutlar işlenmez ve tepki verilmez. Numara saklanmaz;
+              listede yalnız son 4 hanesi görünür.
+            </p>
+            {blocks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Engelli numara yok.</p>
+            ) : (
+              <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+                {blocks.map((b) => (
+                  <li key={b.id} className="flex items-center justify-between gap-3 px-4 py-2">
+                    <span className="text-sm">
+                      <span className="font-mono">•••• {b.phoneHint}</span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {b.groupId === null ? "Bütün gruplarda" : "Yalnız bu grupta"} ·{" "}
+                        {fmt(b.createdAt)}
+                      </span>
+                    </span>
+                    <form action={unblockSenderAction.bind(null, g.id, b.id)}>
+                      <Button type="submit" variant="ghost" size="sm">
+                        Engeli kaldır
+                      </Button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form action={blockSenderAction.bind(null, g.id)} className="flex flex-col gap-3">
+              <Field
+                id="blockPhone"
+                name="phone"
+                label="Numara (ülke koduyla)"
+                inputMode="tel"
+                autoComplete="off"
+                maxLength={40}
+                required
+              />
+              <fieldset className="flex flex-col gap-1 text-sm">
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="scope" value="group" defaultChecked /> Yalnız bu grupta
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="scope" value="all" /> Bütün gruplarda
+                </label>
+              </fieldset>
+              <div>
+                <Button type="submit" variant="secondary">
+                  Numarayı engelle
+                </Button>
+              </div>
+            </form>
           </section>
           <section className={CARD}>
             <h2 className="font-semibold text-destructive">Bağlantıyı kaldır</h2>

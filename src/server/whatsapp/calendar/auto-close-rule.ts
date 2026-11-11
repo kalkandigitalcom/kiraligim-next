@@ -1,9 +1,10 @@
 /**
- * WhatsApp Asistanı — A2e: hangi öneri panel onayı beklemeden takvime işlenebilir? (saf fonksiyon)
+ * WhatsApp Asistanı — A2e / B: hangi öneri takvime otomatik işlenebilir? (saf fonksiyon)
  *
  * YALNIZ şu durumda: mesajda TEK öğe var ve bu öğe
  *  - açık bir kapatma talimatı (action = close; soru, belirsiz veya çelişen eylem değil),
- *  - işletme SAHİBİNİN doğrulanmış numarasından (manager ve staff → panel onayı),
+ *  - yetkili gönderenden: bağlı ve aktif grubun Super Admin tarafından engellenmemiş herhangi bir
+ *    katılımcısı (B aşaması; sahip olması gerekmez — işlem işletme sahibi adına yapılır),
  *  - grubun eşleştirildiği villa için (grup villasız ise → panel; mesajda yazan ad önemsizdir:
  *    grup eşleştirmesi kesin kaynaktır, resolve.ts),
  *  - iki tarihi de açıkça yazılmış (yıl tahmini dışında bayrak yok),
@@ -30,7 +31,7 @@ export function autoCloseCandidate(
 ): StoreItem | null {
   if (items.length !== 1) return null;
   const it = items[0]!;
-  if (ctx.senderRole !== "owner") return null;
+  if (ctx.senderRole === null) return null;
   if (!ctx.groupPropertyId || it.property_id !== ctx.groupPropertyId) return null;
   if (it.action !== "close") return null;
   if (it.review_reasons.length !== 0 || it.band !== "high") return null;

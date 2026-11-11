@@ -220,6 +220,10 @@ export const ADMIN_WA_ERRORS = {
   workspace_invalid: "İşletme bulunamadı veya aktif değil.",
   property_invalid: "Villa, seçilen işletmeye ait aktif bir villa olmalı.",
   confirm_required: "Onay kutusunu işaretleyin.",
+  phone_invalid:
+    "Numarayı ülke koduyla yazın (ör. 90 5xx xxx xx xx). Yalnız rakam, boşluk, + ve - kullanılabilir.",
+  block_exists: "Bu numara bu kapsamda zaten engelli.",
+  block_not_found: "Engel kaydı bulunamadı.",
   error: "İşlem tamamlanamadı. Yeniden deneyin.",
 } as const;
 export type AdminWaErrorCode = keyof typeof ADMIN_WA_ERRORS;
@@ -325,4 +329,93 @@ export async function archiveAdminGroup(
     ["changed", "unchanged"],
   );
   return { changed: out === "changed" };
+}
+
+// ---------------------------------------------------------------------------------------------
+// B aşaması: operasyonel komut vermesi engellenen numaralar (drizzle/0046, 0047)
+// ---------------------------------------------------------------------------------------------
+
+export type AdminBlockedSender = {
+  id: string;
+  /** Numaranın son 4 hanesi (numara saklanmaz). */
+  phoneHint: string;
+  /** Boşsa engel bütün gruplarda geçerli. */
+  groupId: string | null;
+  groupSubject: string | null;
+  workspaceName: string | null;
+  createdAt: Date;
+};
+
+/**
+ * Super Admin'in girdiği numarayı WhatsApp biçimine (ülke koduyla, yalnız rakam) çevirir.
+ * Boşluk, tire, parantez ve baştaki + / 00 kabul edilir; baştaki tek 0 (yurt içi biçim) Türkiye
+ * numarası sayılır (05xx → 905xx). Geçersizse null.
+ */
+export function normalizeBlockPhone(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const raw = input.trim();
+  if (raw.length === 0 || raw.length > 40 || !/^[+0-9 ()\-.]+$/.test(raw)) return null;
+  let digits = raw.replace(/[^0-9]/g, "");
+  if (raw.startsWith("+")) {
+    // ülke kodu zaten var
+  } else if (digits.startsWith("00")) {
+    digits = digits.slice(2);
+  } else if (digits.startsWith("0")) {
+    digits = `90${digits.slice(1)}`;
+  }
+  return /^[1-9][0-9]{6,19}$/.test(digits) ? digits : null;
+}
+
+export async function listAdminBlockedSenders(
+  db: Database,
+  adminId: string,
+): Promise<AdminBlockedSender[]> {
+  const res = await db.execute<{
+    id: string;
+    phone_hint: string;
+    group_id: string | null;
+    group_subject: string | null;
+    workspace_name: string | null;
+    created_at: Date | string;
+  }>(sql`select * from public.app_wa_admin_blocked_senders(${adminId}::uuid)`);
+  return res.rows.map((r) => ({
+    id: r.id,
+    phoneHint: r.phone_hint,
+    groupId: r.group_id,
+    groupSubject: r.group_subject,
+    workspaceName: r.workspace_name,
+    createdAt: new Date(r.created_at),
+  }));
+}
+
+/** Numarayı engeller. groupId null: bütün gruplarda. Numara loglanmaz ve saklanmaz (yalnız özet). */
+export async function blockAdminSender(
+  db: Database,
+  adminId: string,
+  input: { phone: unknown; groupId: string | null },
+): Promise<void> {
+  const phone = normalizeBlockPhone(input.phone);
+  if (!phone) throw new AdminWaError("phone_invalid");
+  if (input.groupId !== null && !isUuid(input.groupId)) throw new AdminWaError("not_found");
+  const out = await call(
+    db,
+    sql`select public.app_wa_admin_block_sender(${adminId}::uuid, ${phone},
+          ${input.groupId}::uuid) as out`,
+  );
+  if (out === "exists") throw new AdminWaError("block_exists");
+  outcome(out, ["blocked"]);
+}
+
+export async function unblockAdminSender(
+  db: Database,
+  adminId: string,
+  blockId: unknown,
+): Promise<void> {
+  if (!isUuid(blockId)) throw new AdminWaError("block_not_found");
+  const out = await call(
+    db,
+    sql`select public.app_wa_admin_unblock_sender(${adminId}::uuid, ${blockId}::uuid) as out`,
+  );
+  if (out === "not_found") throw new AdminWaError("block_not_found");
+  outcome(out, ["unblocked"]);
 }

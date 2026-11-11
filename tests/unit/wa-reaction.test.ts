@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { parseCalendarMessage } from "@/lib/wa-calendar-parse";
 import { WA_REACTION_EMOJI } from "@/lib/whatsapp-meta";
 import { type BusyRow, buildStoreItem, type StoreItem } from "@/server/whatsapp/calendar/proposal";
-import { decideReaction, isCleanItem } from "@/server/whatsapp/calendar/reaction";
+import { decideReaction } from "@/server/whatsapp/calendar/reaction";
 import { resolveProposal, type ResolveContext } from "@/server/whatsapp/calendar/resolve";
 
-/** A2f: merkezi tepki kararı (saf). */
+/** A2f / B aşaması: merkezi tepki kararı (saf). ☑️ (submitted) hiçbir zaman seçilmez. */
 const TODAY = "2026-11-10";
 const WS = "ws-1";
 const ctx: ResolveContext = {
@@ -14,7 +14,7 @@ const ctx: ResolveContext = {
   villas: [{ id: "inlove", workspaceId: WS, name: "Villa In Love" }],
   groupPropertyId: "inlove",
 };
-type Role = "owner" | "manager" | "staff" | null;
+type Role = "owner" | "manager" | "staff" | "participant" | null;
 const items = (text: string, o: { busy?: BusyRow[]; role?: Role; group?: string | null } = {}) =>
   parseCalendarMessage(text, TODAY).items.map((item, i) =>
     buildStoreItem({
@@ -57,18 +57,18 @@ describe("merkezi tepki kararı", () => {
 
   it("otomatik blok başarılı → ✅ (yalnız servis 'applied' döndürünce)", () => {
     expect(decide("Villa Testo 10–15 Haziran kapatalım.", { auto: "applied" })).toBe("done");
-    // Servis çağrılmadıysa (ör. kapatma ama otomatik değil) yeşil tik YOK.
-    expect(decide("Villa Testo 10–15 Haziran kapatalım.")).toBe("submitted");
+    // Servis çağrılmadıysa (ör. kapatma ama otomatik değil) yeşil tik YOK; anlaşıldı ama uygulanmadı.
+    expect(decide("Villa Testo 10–15 Haziran kapatalım.")).toBe("warning");
   });
 
   it("otomatik blok denendi ama uygulanamadı → ⚠️", () => {
     expect(decide("Villa Testo 10–15 Haziran kapatalım.", { auto: "failed" })).toBe("warning");
   });
 
-  it("rezervasyon önerisi → ☑️ (asla ✅ değil)", () => {
+  it("rezervasyon talimatı (otomatik oluşturma kapalı) → ⚠️ (asla ✅ veya ☑️ değil)", () => {
     const text = "Villa In Love 10 Haziran giriş, 15 Haziran çıkış, 4 kişi rezervasyon.";
-    expect(decide(text)).toBe("submitted");
-    expect(decide(text, { role: "manager" })).toBe("submitted");
+    expect(decide(text)).toBe("warning");
+    expect(decide(text, { role: "participant" })).toBe("warning");
   });
 
   it("tarih belirsiz / eksik → ⚠️", () => {
@@ -91,9 +91,22 @@ describe("merkezi tepki kararı", () => {
     expect(decide("Villa Begonya 10–15 Haziran kapatalım.", { group: null })).toBe("warning");
   });
 
-  it("yetkisiz gönderen (personel, doğrulanmamış) → tepki yok", () => {
-    expect(decide("Villa In Love 10–15 Haziran kapatalım.", { role: "staff" })).toBeNull();
+  it("B aşaması: sahip olmayan grup katılımcıları da tepki alır", () => {
+    for (const role of ["manager", "staff", "participant"] as const) {
+      expect(decide("Villa In Love 10–15 Haziran kapatalım.", { role, auto: "applied" })).toBe(
+        "done",
+      );
+      expect(decide("Villa In Love 10–15 Haziran kapatalım.", { role, auto: "failed" })).toBe(
+        "warning",
+      );
+    }
+  });
+
+  it("yetkisiz gönderen (engelli / numarası belirlenemeyen) → tepki yok", () => {
     expect(decide("Villa In Love 10–15 Haziran kapatalım.", { role: null })).toBeNull();
+    expect(
+      decide("Villa In Love 10–15 Haziran kapatalım.", { role: null, auto: "applied" }),
+    ).toBeNull();
   });
 
   it("takvimle ilgisiz sohbet ve soru → tepki yok", () => {
@@ -107,18 +120,25 @@ describe("merkezi tepki kararı", () => {
     expect(decideReaction({ senderRole: "owner", items: its, stored: 0 })).toBeNull();
   });
 
-  it("açma / iptal temizse ☑️ (yönetici onayına sunuldu)", () => {
-    expect(decide("Villa In Love 10-15 Haziran açıldı")).toBe("submitted");
-    expect(decide("Villa In Love 10-15 Haziran iptal")).toBe("submitted");
+  it("açma / iptal (bu aşamada desteklenmiyor) → ⚠️, ☑️ değil", () => {
+    expect(decide("Villa In Love 10-15 Haziran açıldı")).toBe("warning");
+    expect(decide("Villa In Love 10-15 Haziran iptal")).toBe("warning");
   });
 
   it("birden çok öğe: biri sorunluysa ⚠️", () => {
     expect(decide("Villa In Love 10-15 Haziran kapalı, 20 Temmuz kapalı")).toBe("warning");
   });
 
-  it("isCleanItem: bilgi bayrakları temizliği bozmaz", () => {
-    const [it0] = items("Villa Testo 10–15 Haziran kapatalım.");
-    expect(it0!.flags).toContain("villa_name_mismatch");
-    expect(isCleanItem(it0!)).toBe(true);
+  it("☑️ (submitted) hiçbir girdide seçilmez", () => {
+    const texts = [
+      "Villa In Love 10–15 Haziran kapatalım.",
+      "Villa In Love 10 Haziran giriş, 15 Haziran çıkış, 4 kişi rezervasyon.",
+      "Villa In Love 10-15 Haziran açıldı",
+      "Villa In Love 10 Haziran kapatalım",
+    ];
+    for (const t of texts)
+      for (const role of ["owner", "manager", "staff", "participant", null] as const)
+        for (const auto of [undefined, "applied", "failed"] as const)
+          expect(decide(t, { role, ...(auto ? { auto } : {}) })).not.toBe("submitted");
   });
 });

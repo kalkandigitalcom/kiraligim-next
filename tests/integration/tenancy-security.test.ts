@@ -55,12 +55,15 @@ describe("fonksiyonlar", () => {
       "app_uuid_v7",
       // 0044 (Aşama 2): Super Admin grup yönetimi (yalnız app_admin)
       "app_wa_admin_archive_group",
+      "app_wa_admin_block_sender", // 0047 (B): engel listesi
+      "app_wa_admin_blocked_senders", // 0047
       "app_wa_admin_connections",
       "app_wa_admin_groups",
       "app_wa_admin_link_group",
       "app_wa_admin_properties",
       "app_wa_admin_set_active",
       "app_wa_admin_set_property",
+      "app_wa_admin_unblock_sender", // 0047
       "app_wa_admin_unlink_group",
       "app_wa_admin_workspaces",
       // 0036 (A2): takvim önerisi worker'ı, güvenli başlangıç ve durum makinesi tetikleyicisi
@@ -79,6 +82,7 @@ describe("fonksiyonlar", () => {
       "app_wa_heartbeat",
       "app_wa_ingest_message",
       "app_wa_lock_group_for_auto_close", // 0045: otomatik kapatmada grup satırı kilidi
+      "app_wa_message_actor", // 0047 (B): kilitli mesajın işletme sahibi
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
@@ -87,6 +91,7 @@ describe("fonksiyonlar", () => {
       "app_wa_purge_messages",
       "app_wa_queue_reaction", // 0040 (A2f)
       "app_wa_redeem_link_code",
+      "app_wa_sender_block", // 0047 (B): gönderen engel denetimi (invoker, yalnız fonksiyonlardan)
       "app_wa_sender_role",
       "app_wa_store_proposals",
       "app_wa_sync_group",
@@ -125,12 +130,15 @@ describe("fonksiyonlar", () => {
       // 0034 (A1.1): eşleştirme (bekleyen gruplar, eşleştir) ve numara doğrulama
       // 0044 (Aşama 2): Super Admin grup yönetimi; çağıran yönetici veritabanında doğrulanır
       "app_wa_admin_archive_group",
+      "app_wa_admin_block_sender", // 0047 (B): engel listesi
+      "app_wa_admin_blocked_senders", // 0047
       "app_wa_admin_connections",
       "app_wa_admin_groups",
       "app_wa_admin_link_group",
       "app_wa_admin_properties",
       "app_wa_admin_set_active",
       "app_wa_admin_set_property",
+      "app_wa_admin_unblock_sender", // 0047
       "app_wa_admin_unlink_group",
       "app_wa_admin_workspaces",
       // 0036 (A2): takvim önerisi worker'ı (iş alma, bağlam, çakışma özeti, kayıt, hata, süre)
@@ -145,6 +153,7 @@ describe("fonksiyonlar", () => {
       "app_wa_heartbeat",
       "app_wa_ingest_message",
       "app_wa_lock_group_for_auto_close", // 0045: otomatik kapatmada grup satırı kilidi
+      "app_wa_message_actor", // 0047 (B): kilitli mesajın işletme sahibi
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e)
       "app_wa_pending_groups",
@@ -188,6 +197,9 @@ describe("fonksiyonlar", () => {
         proname: "app_wa_admin_archive_group",
         args: "p_admin uuid, p_group uuid, p_archive boolean",
       },
+      // 0047 (B): Super Admin engel listesi
+      { proname: "app_wa_admin_block_sender", args: "p_admin uuid, p_phone text, p_group uuid" },
+      { proname: "app_wa_admin_blocked_senders", args: "p_admin uuid" },
       { proname: "app_wa_admin_connections", args: "p_admin uuid" },
       { proname: "app_wa_admin_groups", args: "p_admin uuid" },
       {
@@ -197,6 +209,7 @@ describe("fonksiyonlar", () => {
       { proname: "app_wa_admin_properties", args: "p_admin uuid, p_workspace uuid" },
       { proname: "app_wa_admin_set_active", args: "p_admin uuid, p_group uuid, p_active boolean" },
       { proname: "app_wa_admin_set_property", args: "p_admin uuid, p_group uuid, p_property uuid" },
+      { proname: "app_wa_admin_unblock_sender", args: "p_admin uuid, p_id uuid" },
       { proname: "app_wa_admin_unlink_group", args: "p_admin uuid, p_group uuid" },
       { proname: "app_wa_admin_workspaces", args: "p_admin uuid, p_query text" },
       // 0036 (A2): worker; işletme kilitli mesajdan bulunur (mesaj + kilit belirteci), parametre değil
@@ -225,6 +238,8 @@ describe("fonksiyonlar", () => {
       },
       // 0045: işletme oturum bağlamından; yalnız kendi grubunu kilitler
       { proname: "app_wa_lock_group_for_auto_close", args: "p_group uuid" },
+      // 0047 (B): işletme kilitli mesajdan bulunur
+      { proname: "app_wa_message_actor", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_message_context", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_message_sender", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_pending_groups", args: "" },
@@ -309,12 +324,15 @@ describe("fonksiyonlar", () => {
       // gönderen doğrulama yardımcısı kimsede (ağ geçidi rolüne de verilmez).
       // 0044 (Aşama 2): Super Admin grup yönetimi yalnız app_admin'de.
       app_wa_admin_archive_group: ["app_admin"],
+      app_wa_admin_block_sender: ["app_admin"], // 0047 (B)
+      app_wa_admin_blocked_senders: ["app_admin"], // 0047 (B)
       app_wa_admin_connections: ["app_admin"],
       app_wa_admin_groups: ["app_admin"],
       app_wa_admin_link_group: ["app_admin"],
       app_wa_admin_properties: ["app_admin"],
       app_wa_admin_set_active: ["app_admin"],
       app_wa_admin_set_property: ["app_admin"],
+      app_wa_admin_unblock_sender: ["app_admin"], // 0047 (B)
       app_wa_admin_unlink_group: ["app_admin"],
       app_wa_admin_workspaces: ["app_admin"],
       app_wa_busy: ["app_user"],
@@ -330,6 +348,7 @@ describe("fonksiyonlar", () => {
       app_wa_heartbeat: ["app_user", "app_user"],
       app_wa_ingest_message: ["app_user"],
       app_wa_lock_group_for_auto_close: ["app_user"],
+      app_wa_message_actor: ["app_user"], // 0047 (B)
       app_wa_message_context: ["app_user"],
       app_wa_message_sender: ["app_user"],
       app_wa_pending_groups: [], // 0044: işletme rolünden kaldırıldı
@@ -338,6 +357,7 @@ describe("fonksiyonlar", () => {
       app_wa_purge_messages: ["app_user"],
       app_wa_queue_reaction: ["app_user"],
       app_wa_redeem_link_code: [], // 0044: işletme rolünden kaldırıldı
+      app_wa_sender_block: [], // 0047 (B): yalnız fonksiyonların içinden
       app_wa_sender_role: [],
       app_wa_store_proposals: ["app_user"],
       app_wa_sync_group: ["app_user", "app_user"],

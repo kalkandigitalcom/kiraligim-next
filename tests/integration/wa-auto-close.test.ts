@@ -17,16 +17,22 @@ import { runCalendarWorker, type WorkerDeps } from "@/server/whatsapp/calendar/w
 import { getProposal, listProposals } from "@/server/whatsapp/proposals";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
+import { adminBlockSender, adminSetActive, adminUnblockSender, createTestAdmin } from "./wa-admin";
+
 /**
  * WhatsApp Asistanı A2e — işletme sahibinin açık kapatma talimatı takvime OTOMATİK blok olarak
  * işlenir (drizzle/0038 + src/server/whatsapp/auto-close.ts). Gerçek PostgreSQL 17, app_user,
  * FORCE RLS; mesaj ağ geçidinin çağırdığı fonksiyonla kaydedilir, worker gerçek kodla ve üretimdeki
  * gibi createAutoCloser ile çalışır.
  *
- * Güvenlik: yalnız sahip + grubun villası + iki net tarih + açık kapatma + çakışma yok → blok.
- * Diğer her durumda (eşleştirilmemiş grup, villasız grup, yönetici/personel/yabancı gönderen,
- * belirsiz tarih, soru, çakışma, rezervasyon, açma) blok OLUŞMAZ; öneri panelde bekler veya mesaj
- * yok sayılır. Aynı mesaj ikinci blok üretmez. Başarısızlıkta takvim değişmez.
+ * B aşaması: bağlı ve aktif grubun Super Admin tarafından engellenmemiş HER katılımcısı (sahip,
+ * yönetici, personel, numarası hiç doğrulanmamış kişi) kapatma talimatı verebilir; blok işletme
+ * SAHİBİ adına oluşur, gerçek gönderen önerinin sender_hash / sender_role alanlarında kalır.
+ *
+ * Güvenlik: yetkili katılımcı + grubun villası + iki net tarih + açık kapatma + çakışma yok → blok.
+ * Diğer her durumda (eşleştirilmemiş / pasif / villasız grup, engelli veya numarası belirlenemeyen
+ * gönderen, belirsiz tarih, soru, çakışma, rezervasyon, açma) blok OLUŞMAZ. Aynı mesaj ikinci blok
+ * üretmez. Başarısızlıkta takvim değişmez.
  */
 const db = inject("testDb");
 const appPool = new Pool({ connectionString: db.appUrl, max: 6 });
@@ -55,6 +61,8 @@ const PN_OWNER = "905321550001";
 const PN_MANAGER = "905321550002";
 const PN_STAFF = "905321550003";
 const PN_STRANGER = "905321550009";
+const PN_STRANGER2 = "905321550010";
+const PN_BLOCKED = "905321550008";
 
 const TODAY = istanbulToday();
 const day = (n: number) => addDays(TODAY, n);
@@ -258,7 +266,12 @@ describe("otomatik kapatma: yetkili sahibin açık talimatı", () => {
     );
     expect(audit.rows.map((a) => a.action)).toEqual(["whatsapp.proposal_auto_applied"]);
     expect(audit.rows[0].actor_user_id).toBe(O.id);
-    expect(audit.rows[0].metadata).toEqual({ property: mavi, reservation: firstBlock });
+    expect(audit.rows[0].metadata).toEqual({
+      property: mavi,
+      reservation: firstBlock,
+      group: G.id,
+      sender_role: "owner",
+    });
   });
 
   it("2. blok takvimde görünür; panelde 'otomatik uygulandı' olarak listelenir", async () => {
@@ -349,13 +362,16 @@ describe("grup eşleştirmesi kesin kaynak: mesajdaki villa adı önemsiz", () =
     expect((await asyaEntries()).rows[0].n).toBe(asyaBefore);
   });
 
-  it("farklı adlı mesajı yetkisiz gönderen (yönetici) yazarsa blok yok", async () => {
-    const before = await calendarDigest();
+  it("farklı adlı mesajı sahip olmayan katılımcı (yönetici) yazsa da grubun villası bloklanır", async () => {
     const r = await send(`Villa Testo ${tr(day(175))}–${tr(day(177))} kapatalım.`, {
       pn: PN_MANAGER,
     });
-    expect(r.proposals[0]).toMatchObject({ status: "pending", property_id: mavi });
-    expect(await calendarDigest()).toEqual(before);
+    expect(r.proposals[0]).toMatchObject({
+      status: "applied",
+      property_id: mavi,
+      sender_role: "manager",
+      decided_by: O.id,
+    });
   });
 
   it("rezervasyon mesajı farklı adla da yönetici onayına düşer (villa = grubun villası)", async () => {
@@ -385,38 +401,27 @@ describe("otomatik kapatma yapılmayan durumlar (takvim değişmez)", () => {
     expect(await calendarDigest()).toEqual(before);
   });
 
-  it("4b. bağlı ama villası seçilmemiş grup: öneri panelde bekler, blok yok", async () => {
+  it("4b. bağlı ama villası seçilmemiş grup: mesaj işlenmez (group_without_villa), blok yok", async () => {
     const before = await calendarDigest();
     const noVilla = await group("linked", null);
     const r = await send(`Villa Mavi ${tr(day(60))}–${tr(day(62))} kapatalım.`, {
       jid: noVilla.jid,
     });
-    expect(r.proposals).toHaveLength(1);
-    expect(r.proposals[0].status).toBe("pending");
+    expect(r.message).toMatchObject({ status: "ignored", last_error: "group_without_villa" });
+    expect(r.proposals).toHaveLength(0);
     expect(r.summary.autoClosed).toBe(0);
     expect(await calendarDigest()).toEqual(before);
   });
 
-  it("5. yetkisiz gönderen: yönetici ve personel → panel onayı; kayıtsız numara → yok sayılır", async () => {
+  it("5. engelli gönderen ve numarası belirlenemeyen gönderen → yok sayılır, blok yok", async () => {
     const before = await calendarDigest();
-    const mgr = await send(`Villa Mavi ${tr(day(64))}–${tr(day(66))} kapatalım.`, {
-      pn: PN_MANAGER,
+    const adminId = await createTestAdmin(admin, `ac5${tag}`);
+    expect(await adminBlockSender(admin, adminId, PN_BLOCKED, null)).toBe("blocked");
+    const blocked = await send(`Villa Mavi ${tr(day(64))}–${tr(day(66))} kapatalım.`, {
+      pn: PN_BLOCKED,
     });
-    expect(mgr.proposals).toHaveLength(1);
-    expect(mgr.proposals[0]).toMatchObject({ status: "pending", sender_role: "manager" });
-    const staff = await send(`Villa Mavi ${tr(day(67))}–${tr(day(69))} kapatalım.`, {
-      pn: PN_STAFF,
-    });
-    expect(staff.proposals[0]).toMatchObject({ status: "pending", sender_role: "staff" });
-    expect(staff.proposals[0].review_reasons).toContain("staff_review_required");
-    const stranger = await send(`Villa Mavi ${tr(day(70))}–${tr(day(72))} kapatalım.`, {
-      pn: PN_STRANGER,
-    });
-    expect(stranger.message).toMatchObject({
-      status: "ignored",
-      last_error: "sender_not_authorized",
-    });
-    expect(stranger.proposals).toHaveLength(0);
+    expect(blocked.message).toMatchObject({ status: "ignored", last_error: "sender_blocked" });
+    expect(blocked.proposals).toHaveLength(0);
     expect(await calendarDigest()).toEqual(before);
   });
 
@@ -566,5 +571,264 @@ describe("otomatik kapatma yapılmayan durumlar (takvim değişmez)", () => {
     for (const f of [PN_OWNER, PN_MANAGER, "Villa Mavi", "Mavi", "kapatalım", "Mevcut Misafir"])
       expect([f, all.includes(f)]).toEqual([f, false]);
     expect(all).toContain("wa_calendar_auto_close");
+  });
+});
+
+describe("B aşaması: bağlı grubun katılımcıları operasyonel komut verebilir", () => {
+  const blocksOf = async (proposalId: string) =>
+    (await blocks()).filter((x) => x.origin_proposal_id === proposalId);
+  let adminId: string;
+  beforeAll(async () => {
+    adminId = await createTestAdmin(admin, `b${tag}`);
+  });
+
+  it("S1. işletme sahibinin kapatma komutu çalışır", async () => {
+    const r = await send(`Villa Mavi ${tr(day(200))}–${tr(day(202))} kapatalım.`);
+    expect(r.proposals[0]).toMatchObject({ status: "applied", sender_role: "owner" });
+    expect(await blocksOf(r.proposals[0].id)).toHaveLength(1);
+  });
+
+  it.each([
+    ["yönetici", PN_MANAGER, "manager", 204],
+    ["personel", PN_STAFF, "staff", 208],
+  ] as const)(
+    "S2. aynı gruptaki başka bir katılımcının (%s) kapatma komutu çalışır",
+    async (_l, pn, role, d0) => {
+      const r = await send(`Villa Mavi ${tr(day(d0))}–${tr(day(d0 + 2))} kapatalım.`, {
+        pn,
+      });
+      expect(r.summary.autoClosed).toBe(1);
+      expect(r.proposals[0]).toMatchObject({
+        status: "applied",
+        decision_mode: "quick",
+        sender_role: role,
+        decided_by: O.id,
+      });
+      expect(r.proposals[0].review_reasons).toEqual([]);
+      const b = await blocksOf(r.proposals[0].id);
+      expect(b).toHaveLength(1);
+      expect(b[0]).toMatchObject({ kind: "block", property_id: mavi, created_by: O.id });
+    },
+  );
+
+  it("S3. daha önce doğrulanmamış katılımcının komutu çalışır; gerçek gönderen ve grup kaydedilir", async () => {
+    const r = await send(`Villa Mavi ${tr(day(212))}–${tr(day(215))} kapatalım.`, {
+      pn: PN_STRANGER,
+    });
+    expect(r.message!.status).toBe("processed");
+    expect(r.summary.autoClosed).toBe(1);
+    const p = r.proposals[0];
+    expect(p).toMatchObject({
+      status: "applied",
+      sender_role: "participant",
+      sender_verified: false,
+      // Gerçek gönderenin WhatsApp kimliği (numara özeti) ve grup; işlem sahibin adına.
+      sender_hash: phoneHash(PN_STRANGER),
+      group_id: G.id,
+      decided_by: O.id,
+    });
+    const b = await blocksOf(p.id);
+    expect(b).toHaveLength(1);
+    expect(b[0]).toMatchObject({ kind: "block", property_id: mavi, created_by: O.id });
+    const dates = await admin.query(
+      "select check_in::text ci, check_out::text co from reservations where id = $1",
+      [b[0].id],
+    );
+    expect(dates.rows[0]).toEqual({ ci: day(212), co: day(215) });
+    const audit = await admin.query(
+      "select actor_user_id, metadata from audit_log where target_id = $1 and action = 'whatsapp.proposal_auto_applied'",
+      [p.id],
+    );
+    expect(audit.rows).toEqual([
+      {
+        actor_user_id: O.id,
+        metadata: {
+          property: mavi,
+          reservation: b[0].id,
+          group: G.id,
+          sender_role: "participant",
+        },
+      },
+    ]);
+    // Katılımcı için ayrı doğrulama/allowlist kaydı oluşmaz.
+    const vp = await admin.query("select 1 from wa_verified_phones where phone_hash = $1", [
+      phoneHash(PN_STRANGER),
+    ]);
+    expect(vp.rowCount).toBe(0);
+  });
+
+  it("S4. Super Admin'in engellediği katılımcının komutu çalışmaz (grup kapsamı); engel kalkınca çalışır", async () => {
+    const before = await calendarDigest();
+    expect(await adminBlockSender(admin, adminId, PN_STRANGER2, G.id)).toBe("blocked");
+    expect(await adminBlockSender(admin, adminId, PN_STRANGER2, G.id)).toBe("exists");
+    const r = await send(`Villa Mavi ${tr(day(220))}–${tr(day(222))} kapatalım.`, {
+      pn: PN_STRANGER2,
+    });
+    expect(r.message).toMatchObject({ status: "ignored", last_error: "sender_blocked" });
+    expect(r.proposals).toHaveLength(0);
+    expect(r.summary.autoClosed).toBe(0);
+    expect(await calendarDigest()).toEqual(before);
+    // Engel yalnız bu grupta: başka bağlı gruptaki komutu çalışır.
+    const other = await group("linked", asya);
+    const o = await send(`Villa Asya ${tr(day(220))}–${tr(day(222))} kapatalım.`, {
+      pn: PN_STRANGER2,
+      jid: other.jid,
+    });
+    expect(o.proposals[0]).toMatchObject({ status: "applied", property_id: asya });
+    // Engel kalkınca aynı grupta çalışır.
+    const id = (
+      await admin.query(
+        "select id from wa_blocked_senders where phone_hash = $1 and group_id = $2",
+        [phoneHash(PN_STRANGER2), G.id],
+      )
+    ).rows[0].id;
+    expect(await adminUnblockSender(admin, adminId, id)).toBe("unblocked");
+    const again = await send(`Villa Mavi ${tr(day(224))}–${tr(day(226))} kapatalım.`, {
+      pn: PN_STRANGER2,
+    });
+    expect(again.proposals[0]).toMatchObject({ status: "applied", sender_role: "participant" });
+  });
+
+  it("S4b. engel, iş alındıktan sonra eklenirse yazım anında da uygulanır", async () => {
+    const before = await calendarDigest();
+    const pn = "905321550011";
+    const r = await send(`Villa Mavi ${tr(day(228))}–${tr(day(230))} kapatalım.`, {
+      pn,
+      over: {
+        beforeStore: async () => {
+          expect(await adminBlockSender(admin, adminId, pn, null)).toBe("blocked");
+        },
+      },
+    });
+    expect(r.message).toMatchObject({ status: "ignored", last_error: "sender_blocked" });
+    expect(r.proposals).toHaveLength(0);
+    expect(await calendarDigest()).toEqual(before);
+  });
+
+  it("S5. eşleştirilmemiş grubun komutu çalışmaz", async () => {
+    const before = await calendarDigest();
+    const unlinked = await group("discovered", null);
+    const r = await send(`Villa Mavi ${tr(day(232))}–${tr(day(234))} kapatalım.`, {
+      jid: unlinked.jid,
+      pn: PN_STRANGER,
+    });
+    expect(r.ingest).toBe("ignored");
+    expect(r.message).toBeUndefined();
+    expect(await calendarDigest()).toEqual(before);
+  });
+
+  it("S6. pasif gruptan gelen komut çalışmaz (kayıt edilmez; kuyruktakiler de işlenmez)", async () => {
+    const before = await calendarDigest();
+    const pg = await group("linked", mavi);
+    // Kuyruğa girmiş ama henüz işlenmemiş mesaj, grup pasife alınınca işlenmez.
+    const mid = `X${tag}susp`;
+    expect(
+      await ingestRaw(
+        pg.jid,
+        mid,
+        `Villa Mavi ${tr(day(236))}–${tr(day(238))} kapatalım.`,
+        PN_STRANGER,
+      ),
+    ).toBe("stored");
+    expect(await adminSetActive(admin, adminId, pg.id, false)).toBe("changed");
+    await runCalendarWorker(app, deps());
+    const m = (
+      await admin.query(
+        "select status, last_error from wa_inbound_messages where wa_message_id = $1",
+        [mid],
+      )
+    ).rows[0];
+    expect(m).toEqual({ status: "ignored", last_error: "group_not_linked" });
+    // Pasif grubun yeni mesajı hiç kaydedilmez.
+    const r = await send(`Villa Mavi ${tr(day(236))}–${tr(day(238))} kapatalım.`, {
+      jid: pg.jid,
+      pn: PN_OWNER,
+    });
+    expect(r.ingest).toBe("ignored");
+    expect(await calendarDigest()).toEqual(before);
+  });
+
+  it("S7. aynı mesaj tekrar gelirse (katılımcı) ikinci kez işlem yapılmaz", async () => {
+    const r = await send(`Villa Mavi ${tr(day(240))}–${tr(day(242))} kapatalım.`, {
+      pn: PN_STRANGER,
+    });
+    expect(r.proposals[0].status).toBe("applied");
+    const before = await calendarDigest();
+    expect(await ingestRaw(G.jid, r.mid, "tekrar", PN_STRANGER)).toBe("duplicate");
+    await runCalendarWorker(app, deps());
+    expect(await calendarDigest()).toEqual(before);
+    const n = await admin.query(
+      "select count(*)::int n from wa_calendar_proposals where message_id = $1",
+      [r.message!.id],
+    );
+    expect(n.rows[0].n).toBe(1);
+  });
+
+  it("S8/S9. başarılı işlemde ✅; ilgisiz mesajda tepki yok", async () => {
+    const ok = await send(`Villa Mavi ${tr(day(244))}–${tr(day(246))} kapatalım.`, {
+      pn: PN_STRANGER,
+    });
+    const rx = (
+      await admin.query("select kind, emoji from wa_message_reactions where message_id = $1", [
+        ok.message!.id,
+      ])
+    ).rows;
+    expect(rx).toEqual([{ kind: "done", emoji: "✅" }]);
+    const chat = await send("Günaydın, havuzcu yarın 10'da gelecek", { pn: PN_STRANGER });
+    expect(chat.proposals).toHaveLength(0);
+    const none = await admin.query("select 1 from wa_message_reactions where message_id = $1", [
+      chat.message!.id,
+    ]);
+    expect(none.rowCount).toBe(0);
+  });
+
+  it("anlaşılan ama uygulanamayan (çakışma) talimatta ⚠️; ☑️ hiç kullanılmaz", async () => {
+    const r = await send(`Villa Mavi ${tr(day(244))}–${tr(day(246))} kapatalım.`, {
+      pn: PN_STRANGER,
+    });
+    expect(r.proposals[0].status).toBe("pending");
+    const rx = (
+      await admin.query("select kind, emoji from wa_message_reactions where message_id = $1", [
+        r.message!.id,
+      ])
+    ).rows;
+    expect(rx).toEqual([{ kind: "warning", emoji: "⚠️" }]);
+    const submitted = await admin.query(
+      "select 1 from wa_message_reactions where workspace_id = $1 and kind = 'submitted'",
+      [ws],
+    );
+    expect(submitted.rowCount).toBe(0);
+  });
+
+  it("Super Admin engel listesi: numara saklanmaz; yalnız özet ve son 4 hane; geçersiz numara reddedilir", async () => {
+    const rows = (
+      await admin.query(
+        "select phone_hash, phone_hint from wa_blocked_senders where phone_hash = $1",
+        [phoneHash(PN_BLOCKED)],
+      )
+    ).rows;
+    expect(rows).toEqual([{ phone_hash: phoneHash(PN_BLOCKED), phone_hint: "0008" }]);
+    const all = JSON.stringify((await admin.query("select * from wa_blocked_senders")).rows);
+    expect(all).not.toContain(PN_BLOCKED);
+    await expect(adminBlockSender(admin, adminId, "05321550008", null)).rejects.toThrow();
+    // Pasif yönetici engel ekleyemez; işletme rolü (app_user) fonksiyonu hiç çağıramaz.
+    const off = await createTestAdmin(admin, `off${tag}`);
+    await admin.query("update admin_users set status = 'disabled' where id = $1", [off]);
+    await expect(adminBlockSender(admin, off, "905321550077", null)).rejects.toMatchObject({
+      code: "42501",
+    });
+    const viaApp = await appPool
+      .query("select public.app_wa_admin_block_sender($1, '905321550077', null)", [adminId])
+      .then(
+        () => "ok",
+        (e: { code?: string }) => e.code,
+      );
+    expect(viaApp).toBe("42501");
+    // app_user tabloyu okuyamaz.
+    const res = await appPool.query("select * from wa_blocked_senders").then(
+      () => "ok",
+      (e: { code?: string }) => e.code,
+    );
+    expect(res).toBe("42501");
   });
 });

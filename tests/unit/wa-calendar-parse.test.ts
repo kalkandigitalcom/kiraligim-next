@@ -733,14 +733,17 @@ describe("gönderen rolü (A2 politikası)", () => {
     }
   });
 
-  it("staff: numarası doğrulanmış olsa da 'doğrulanmamış' değil, ayrı nedenle elle incelenir", () => {
-    const d = reviewRequirement(close(), { ...base, senderRole: "staff" });
-    expect(d.quickApprove).toBe(false);
-    expect(d.reasons).toEqual(["staff_review_required"]);
-    expect(d.reasons).not.toContain("sender_unverified");
-    // Puan yüksek olsa da (85) staff kuralı kalkmaz.
-    expect([d.score, d.band]).toEqual([85, "high"]);
-  });
+  // B aşaması: bağlı grubun engellenmemiş her katılımcısı yetkilidir; rol yalnız bilgi amaçlıdır.
+  it.each(["staff", "participant"] as const)(
+    "%s: yetkili gönderen; ek inceleme nedeni yok (B aşaması)",
+    (role) => {
+      const d = reviewRequirement(close(), { ...base, senderRole: role });
+      expect(d.quickApprove).toBe(true);
+      expect(d.reasons).toEqual([]);
+      expect(d.reasons).not.toContain("staff_review_required");
+      expect([d.score, d.band]).toEqual([100, "high"]);
+    },
+  );
 
   it("rolsüz gönderen (savunma): sender_unverified", () => {
     expect(reviewRequirement(close(), { ...base, senderRole: null }).reasons).toContain(
@@ -770,9 +773,15 @@ describe("grup dışı villa (A2b)", () => {
     );
   });
 
-  it("diğer nedenlerle birlikte de kalır (staff + grup dışı)", () => {
-    const d = reviewRequirement(close(), { ...base, senderRole: "staff", villaOutsideGroup: true });
-    expect(d.reasons).toEqual(["villa_needs_review", "staff_review_required"]);
+  it("diğer nedenlerle birlikte de kalır (katılımcı + grup dışı)", () => {
+    const d = reviewRequirement(close(), {
+      ...base,
+      senderRole: "participant",
+      villaOutsideGroup: true,
+    });
+    expect(d.reasons).toEqual(["villa_needs_review"]);
+    const n = reviewRequirement(close(), { ...base, senderRole: null, villaOutsideGroup: true });
+    expect(n.reasons).toEqual(["villa_needs_review", "sender_unverified"]);
   });
 
   it("ayrıştırıcı sürümü 3", () => {

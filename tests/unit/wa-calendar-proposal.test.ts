@@ -36,7 +36,7 @@ const build = (
   text: string,
   over: {
     busy?: BusyRow[] | null;
-    role?: "owner" | "manager" | "staff" | null;
+    role?: "owner" | "manager" | "staff" | "participant" | null;
     ctx?: ResolveContext;
   } = {},
 ) => {
@@ -91,10 +91,11 @@ describe("öğe (app_wa_store_proposals girdisi)", () => {
     expect([s.property_id, s.villa_resolution, s.review_reasons]).toEqual(["asya", "named", []]);
   });
 
-  it("staff ve rolsüz gönderen tek tıkla onaylanamaz", () => {
-    expect(build("Villa Mavi 15-20 Haziran kapalı", { role: "staff" }).review_reasons).toEqual([
-      "staff_review_required",
-    ]);
+  it("B aşaması: staff ve katılımcı yetkili; rolsüz (yetkisiz) gönderen inceleme nedeni alır", () => {
+    expect(build("Villa Mavi 15-20 Haziran kapalı", { role: "staff" }).review_reasons).toEqual([]);
+    expect(
+      build("Villa Mavi 15-20 Haziran kapalı", { role: "participant" }).review_reasons,
+    ).toEqual([]);
     expect(build("Villa Mavi 15-20 Haziran kapalı", { role: null }).review_reasons).toContain(
       "sender_unverified",
     );

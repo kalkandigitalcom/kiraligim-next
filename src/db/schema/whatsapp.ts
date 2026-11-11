@@ -13,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -524,13 +525,13 @@ export const waCalendarProposals = pgTable(
       "wa_calendar_proposals_sender_hash_format",
       sql`${t.senderHash} ~ ${sql.raw(`'${PHONE_HASH}'`)}`,
     ),
-    // GÜVENLİK (gönderen politikası): yalnız owner/manager doğrulanmış gönderendir; staff önerisi
-    // "staff_review_required" nedeni taşımadan kaydedilemez.
+    // Gönderen politikası (B aşaması, drizzle/0046): engellenmemiş her grup katılımcısı yetkilidir.
+    // sender_role bilgi amaçlıdır (üye rolü ya da "participant"); sender_verified yalnız
+    // numarası doğrulanmış owner/manager için true kalır.
     check(
       "wa_calendar_proposals_sender_role",
       sql`${t.senderRole} in (${inList(WA_SENDER_ROLES)})
-        and ${t.senderVerified} = (${t.senderRole} in ('owner', 'manager'))
-        and (${t.senderRole} <> 'staff' or 'staff_review_required' = any(${t.reviewReasons}))`,
+        and ${t.senderVerified} = (${t.senderRole} in ('owner', 'manager'))`,
     ),
     check("wa_calendar_proposals_flags", codeArray(t.flags)),
     check("wa_calendar_proposals_review_reasons", codeArray(t.reviewReasons)),
@@ -555,12 +556,12 @@ export const waCalendarProposals = pgTable(
     ),
     // GÜVENLİK: "tek tık" yalnız nedensiz kapatma; rezervasyon, iptal ve açma her zaman incelenir.
     // Güven puanı bu kuralı aşamaz (uygulama kodu atlansa bile veritabanı reddeder).
-    // Staff önerisi de "tek tık" olamaz (staff WhatsApp'tan takvimi doğrudan değiştiremez).
+    // Gönderen rolü kısıtlamaz (B aşaması): engellenmemiş grup katılımcısının kapatması da "quick".
     check(
       "wa_calendar_proposals_quick_only_close",
       sql`${t.decisionMode} is distinct from 'quick'
         or (${t.action} = 'close' and cardinality(${t.decisionReasons}) = 0
-            and ${t.senderRole} in ('owner', 'manager'))`,
+            and ${t.senderRole} in (${inList(WA_SENDER_ROLES)}))`,
     ),
     check(
       "wa_calendar_proposals_superseded",
@@ -637,6 +638,42 @@ export const waMessageReactions = pgTable(
     check(
       "wa_message_reactions_last_error_format",
       sql`${t.lastError} is null or ${t.lastError} ~ '^[a-z0-9_]{1,60}$'`,
+    ),
+  ],
+);
+
+/**
+ * B aşaması: Super Admin'in operasyonel komut vermesini engellediği WhatsApp numaraları
+ * (drizzle/0046, 0047).
+ *
+ * Bağlı ve aktif grubun her katılımcısı komut verebilir; bu tablo TEK istisnadır. Numara saklanmaz:
+ * yalnız özet (app_wa_phone_hash) ve Super Admin'in listede tanıması için son birkaç hane.
+ * group_id boşsa engel bütün gruplarda, doluysa yalnız o grupta geçerlidir. Tablo yetkisi kimsede
+ * yoktur; yalnız SECURITY DEFINER fonksiyonları (Super Admin ve worker) okur/yazar.
+ */
+export const waBlockedSenders = pgTable(
+  "wa_blocked_senders",
+  {
+    id: uuid().primaryKey(),
+    phoneHash: text().notNull(),
+    /** Numaranın son 2–4 hanesi (yalnız Super Admin listesinde tanıma için). */
+    phoneHint: text().notNull(),
+    groupId: uuid().references(() => waGroups.id, { onDelete: "cascade" }),
+    createdByAdmin: uuid().references(() => adminUsers.id, { onDelete: "set null" }),
+    createdAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("wa_blocked_senders_global_key")
+      .on(t.phoneHash)
+      .where(sql`${t.groupId} is null`),
+    uniqueIndex("wa_blocked_senders_group_key")
+      .on(t.phoneHash, t.groupId)
+      .where(sql`${t.groupId} is not null`),
+    index("wa_blocked_senders_group_idx").on(t.groupId),
+    index("wa_blocked_senders_created_by_admin_idx").on(t.createdByAdmin),
+    check(
+      "wa_blocked_senders_format",
+      sql`${t.phoneHash} ~ ${sql.raw(`'${PHONE_HASH}'`)} and ${t.phoneHint} ~ '^[0-9]{2,4}$'`,
     ),
   ],
 );
