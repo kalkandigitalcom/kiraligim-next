@@ -684,12 +684,12 @@ export const CASES: C[] = [
   [`20-25 Aralık kapalı mı`, "question", "2026-12-20", "2026-12-25", "soru", "H", "tepki yok", "F"],
   [
     `20-25 Aralık rezervasyon iptal`,
-    "cancel",
+    "open",
     "2026-12-20",
     "2026-12-25",
-    "iptal (desteklenmiyor)",
-    "H",
-    "⚠️",
+    "iptal → açma (v5; yalnız bloklar)",
+    "E",
+    "✅",
     "F",
   ],
   [

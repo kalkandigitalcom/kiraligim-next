@@ -43,7 +43,7 @@ import {
  *     ("kapatmayalım", "açmayın") eylemi iptal eder; fiyat sorusu işlem değildir; tarihi
  *     anlaşılamayan takvim komutu ⚠️ alır.
  */
-export const WA_CALENDAR_PARSER_VERSION = 4;
+export const WA_CALENDAR_PARSER_VERSION = 5;
 
 export const WA_CALENDAR_ACTIONS = ["close", "reserve", "open", "cancel"] as const;
 export type WaCalendarAction = (typeof WA_CALENDAR_ACTIONS)[number];
@@ -212,16 +212,73 @@ const NEGATED: { re: RegExp; action: WaCalendarAction }[] = [
  * yalnız bilgi de. Rezervasyon sözcüğü içerdiği için ASLA rezervasyon sayılmaz; eylem belirsizdir.
  */
 const NEGATED_PRESENCE =
-  /\b(?:misafir\w*|rezervasyon\w*|kimse|musteri\w*|kiraci\w*)\s+(?:yok\w*|gelmeyecek\w*|gelmiyor\w*|olmayacak\w*)/g;
+  /\b(?:misafir\w*|rezervasyon\w*|kimse|musteri\w*|kiraci\w*)\s+(?:yok\w*|olmayacak\w*)|\b(?:misafir\w*|kimse|musteri\w*|kiraci\w*)\s+gelmedi\w*/g;
+
+/**
+ * Rezervasyonun düştüğünü bildiren AÇMA kalıpları (v5). Yalnız takvim BLOKLARI kaldırılır; gerçek
+ * rezervasyon kaydı hiç değişmez (auto-open.ts: aralıkta rezervasyon varsa işlem yok, ⚠️). Bu
+ * kalıplar ve iptal sözcükleri yalnız AÇIK tarih aralığıyla işlem yapar (göreli tarih ⚠️).
+ * Önce aranır ve metinden çıkarılır ("kapatmayı kaldır" olumsuz kapatma değildir).
+ */
+const OPEN_PHRASES: RegExp[] = [
+  /\b(?:rezervasyon\w*|blok\w*|blog\w*|kapatma\w*|kapama\w*|kapali\w*)\s+kaldir\w*/g,
+  /\b(?:misafir\w*|kimse|musteri\w*|kiraci\w*)\s+(?:gelmeyecek\w*|gelmiyor\w*)/g,
+  /\bbosa\s+(?:cikar\w*|cikti\w*|cikmis\w*)/g,
+];
+
+/**
+ * Rezervasyonun ALINDIĞINI bildiren KAPATMA kalıpları (v5): "rezervasyon alındı/yapıldı/geldi",
+ * "misafir aldı/gelecek/var". Yeni rezervasyon kaydı OLUŞTURULMAZ; yalnız takvim kapatılır.
+ * Ad sözcüğü (rezervasyon, misafir) tek başına ACTION_WORDS'te "reserve" kalır (⚠️); bu yüzden
+ * kalıplar önce aranır ve metinden çıkarılır. Sayı + "misafir" kişi sayısı olabileceğinden bu
+ * kalıplar ay yazılmamış sayıları tarih yapmaz (OPERATIONAL_CONTEXT'te yalnız RESERVATION_DONE).
+ */
+const RESERVATION_DONE =
+  /\brezervasyon\w*\s+(?:(?:da|de)\s+)?(?:alindi|aldik|aldim|aldi|alinmis|yapildi|yaptik|yaptim|yapti|yapilmis|geldi|gelmis|olustu|kesinlesti|onaylandi|var)\b|\brezerve\s+(?:edildi|ettik|oldu|edilmis)\b/;
+const RESERVED_PHRASES =
+  /\brezervasyon\w*\s+(?:(?:da|de)\s+)?(?:alindi|aldik|aldim|aldi|alinmis|yapildi|yaptik|yaptim|yapti|yapilmis|geldi|gelmis|olustu|kesinlesti|onaylandi|var)\b|\brezerve\s+(?:edildi|ettik|oldu|edilmis)\b|\bmisafir\w*\s+(?:aldi\w*|aldik|aldim|alindi|var|geliyor\w*|gelecek\w*|girecek\w*|girdi\w*|kalacak\w*|kaliyor\w*)/g;
+
+/**
+ * Kapatma sözcükleri. v5: "doldur", "kiralandı / kiraladık", "kiraya verdik", "başkasına
+ * verdik", "satıldı / sattık", "tutuldu" (önceden "kiralandı/satıldı" rezervasyon sayılıyordu;
+ * artık yalnız takvim kapatılır, rezervasyon kaydı oluşturulmaz).
+ */
+const CLOSE_WORDS =
+  /\bkapa(?:li\w*|t\w*|n\w*)|\bdolu\b|\bblok\w*|\bsatma(?:yalim|yin|yiniz|yacag\w*)?\b|\bverme(?:yin|yelim|yiniz)?\b|\bdoldur\w*|\bkirala(?:ndi\w*|nmis\w*|dik|dim|di|diniz|dilar)\b|\b(?:kiraya|baskasina)\s+(?:verildi\w*|verdik|verdim|verdi|verilmis\w*|verecegiz|veriyoruz|verelim|kiraladik)\b|\bsat(?:ildi\w*|ilmis\w*|tik|tim)\b|\btutul(?:du\w*|mus\w*)|\btuttular\b/;
+
+/**
+ * Açık kapatma talimatı veya durum ("kapat", "dolu", "blokla", "satmayalım", "doldur").
+ * Yalnız bildirim sözcükleri ("kiralandı", "satıldı", "tutuldu", "kiraya verdik") tarih YOKSA ⚠️
+ * almaz: sohbet olabilir ("ayakkabı satıldı 20 TL").
+ */
+const STRONG_CLOSE =
+  /\bkapa(?:li\w*|t\w*|n\w*)|\bdolu\b|\bblok\w*|\bsatma(?:yalim|yin|yiniz|yacag\w*)?\b|\bverme(?:yin|yelim|yiniz)?\b|\bdoldur\w*/;
+/**
+ * "doldur" yalnız takvim için kapatmadır. Metinde takvim dışı bir NESNE varsa ("formu doldur",
+ * "havuzu 20-25 Aralık doldurun") eylem sayılmaz: belirtme hâli (-ı/-i/-u/-ü) taşıyan, tarih /
+ * takvim / villa / ay / gün dışı bir sözcük aranır. Yanlış ret güvenlidir (⚠️ değil, işlem yok).
+ */
+const FILL_WORD = /\bdoldur\w*/g;
+const CALENDAR_OBJECT =
+  /^(?:tarih\w*|takvim\w*|villa\w*|gun\w*|aralig\w*|hafta\w*|ay\w*|gece\w*|bu|su|o|simdi|hemen|hepsi|kisi|lutfen)$/;
+function fillsNonCalendarObject(text: string): boolean {
+  for (const m of text.matchAll(/[a-z]+(?:'[a-z]+)?/g)) {
+    const w = m[0];
+    if (w.includes("'") || w.startsWith("doldur") || w.length < 3) continue;
+    if (CALENDAR_OBJECT.test(w) || MONTH_ONLY.test(w) || STARTS_WITH_MONTH.test(w)) continue;
+    if (/(?:yi|yu|[^aeiou][iu])$/.test(w)) return true;
+  }
+  return false;
+}
 
 const ACTION_WORDS: { re: RegExp; action: WaCalendarAction }[] = [
   { re: /\biptal\w*|\bvazgec\w*/, action: "cancel" },
   {
-    re: /\bkapa(?:li\w*|t\w*|n\w*)|\bdolu\b|\bblok\w*|\bsatma\w*|\bverme(?:yin|yelim|yiniz)?\b/,
+    re: CLOSE_WORDS,
     action: "close",
   },
   {
-    re: /\brezervasyon\w*|\brezerve\b|\bmisafir\w*|\bopsiyon\w*|\bkiralan\w*|\bkiraladi\w*|\bsatildi\b/,
+    re: /\brezervasyon\w*|\brezerve\b|\bmisafir\w*|\bopsiyon\w*/,
     action: "reserve",
   },
   {
@@ -245,8 +302,27 @@ const QUESTION = /\?|\bm[iu](?:\s|$|[.,!])/;
  * "vermeyelim" anlamı gereği kapatmadır (ACTION_WORDS).
  */
 const NEGATED_VERBS: { re: RegExp; action: WaCalendarAction }[] = [
+  // "dolu yapmayalım", "müsait yapmayın": önce (yoksa "dolu"/"müsait" tek başına eylem sayılır).
+  { re: /\b(?:dolu|kapali)\s+yap(?:ma(?!k)|may|mam)\w*/g, action: "close" },
+  { re: /\b(?:musait|bos|acik)\s+yap(?:ma(?!k)|may|mam)\w*/g, action: "open" },
   { re: /\bkapat(?:ma(?!k)|may|mam)\w*/g, action: "close" },
   { re: /\bac(?:ma(?!k)|may|mam)\w*/g, action: "open" },
+  // v5 olumsuz bildirimler: "kiralanmadı", "rezervasyon alınmadı", "satılmadı", "kiraya
+  // vermedik", "misafir almadık", "doldurmayalım", "tutulmadı" → kapatma YOK, tepki yok.
+  // "kiralama/kiralamaya/kiralamadan" ad olarak kullanılır; yalnız çekimli olumsuz biçimler.
+  {
+    re: /\bkiralan(?:ma|mi)\w*|\bkirala(?:madi\w*|mayalim|mayin|mayacag\w*|mamis\w*|miyor\w*)|\bsat(?:ilma\w*|ilmi\w*|madi\w*|mamis\w*|miyor\w*)|\b(?:kiraya|baskasina)\s+ver(?:me|mi|ilme|ilmi)\w*|\bdoldur(?:ma(?!k)|may|mam)\w*|\btutulma\w*/g,
+    action: "close",
+  },
+  {
+    re: /\b(?:rezervasyon\w*|misafir\w*)\s+(?:(?:da|de)\s+)?(?:alinma\w*|alma(?!k)\w*|yapilma\w*|yapma(?!k)\w*|gelme(?!k)\w*|olusma\w*)/g,
+    action: "close",
+  },
+  // "iptal etmeyelim", "vazgeçmedik": iptal (dolayısıyla açma) YOK.
+  {
+    re: /\biptal\s+(?:etme(?!k)|etmey|etmem|edilme|olma(?!k)|olmay|olmadi)\w*|\bvazgec(?:me(?!k)|mey|mem|ilme)\w*/g,
+    action: "cancel",
+  },
 ];
 /** Fiyat / ücret sorusu: eylem yoksa işlem değil, soru. */
 const PRICE_QUESTION = /\bfiyat\w*|\bucret\w*|\bkac\s+para\b|\bne\s+kadar\b|\bnedir\b/;
@@ -254,8 +330,11 @@ const PRICE_QUESTION = /\bfiyat\w*|\bucret\w*|\bkac\s+para\b|\bne\s+kadar\b|\bne
  * Takvim komutu bağlamı (merkezi tarih modülüne): ay yazılmamış sayılar ve göreli ifadeler yalnız
  * bu bağlamda tarih sayılır ("15-20 kişi", "yarın temizlik var" tarih değildir).
  */
-const OPERATIONAL_CONTEXT =
-  /\bkapa(?:li|t|n)\w*|\bdolu\b|\bblok\w*|\bsatma\w*|\bverme(?:yin|yelim|yiniz)?\b|\bac(?:alim|in|iniz|ildi|ilsin|abiliriz|abilirsiniz|tik|tim|iyoruz|ik|iyorum|ma|may|mam)\w*|\bmusait\w*|\bbos\b|\bserbest\b|\bbosalt\w*|\biptal\w*|\bvazgec\w*|\bdegil\b|\byanlis\s+yaz\w*|\bpardon\b|\bduzelt\w*|\bolacak\b|\byerine\b|\bayin\b|\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
+const OPERATIONAL_CONTEXT_WORDS =
+  /\bkapa(?:li|t|n)\w*|\bdolu\b|\bblok\w*|\bsatma\w*|\bverme(?:yin|yelim|yiniz)?\b|\bdoldur\w*|\bkirala(?:ndi|nmis|dik|dim|di)\w*|\b(?:kiraya|baskasina)\s+ver\w*|\bsat(?:ildi|ilmis|tik|tim)\w*|\btutul\w*|\btuttular\b|\bkaldir\w*|\bbosa\s+cik\w*|\bac(?:alim|in|iniz|ildi|ilsin|abiliriz|abilirsiniz|tik|tim|iyoruz|ik|iyorum|ma|may|mam)\w*|\bmusait\w*|\bbos\b|\bserbest\b|\bbosalt\w*|\biptal\w*|\bvazgec\w*|\bdegil\b|\byanlis\s+yaz\w*|\bpardon\b|\bduzelt\w*|\bolacak\b|\byerine\b|\bayin\b|\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
+const OPERATIONAL_CONTEXT = {
+  test: (t: string) => OPERATIONAL_CONTEXT_WORDS.test(t) || RESERVATION_DONE.test(t),
+};
 /** Tarihi anlaşılamayan takvim komutu ⚠️ alır; tarih izi yoksa ("kapıyı kapat") sohbettir. */
 const DATE_TRACE =
   /\d|\btarih\w*|\bhafta\w*|\bgece\w*|\byarin\w*|\bbugun\w*|\bbayram\w*|\byil\s*basi\w*|\b(?:pazartesi|sali|carsamba|persembe|cuma|cumartesi|pazar)\w*/;
@@ -271,6 +350,16 @@ type ActionResult = {
   pending: boolean;
   /** Yalnız olumsuz eylem var ("20-25 Aralık kapatmayalım"): işlem yok, tepki yok. */
   negatedOnly?: boolean;
+  /**
+   * İptal / rezervasyon düştü kaynaklı açma (v5): yalnız AÇIK tarih aralığıyla işlem yapılır
+   * (göreli tarih, "N gece" → ⚠️).
+   */
+  strictDates?: boolean;
+  /**
+   * Yalnız rezervasyon/misafir kalıbıyla kapatma (v5): tarih yoksa ⚠️ verilmez (kişi sayısı
+   * olabilir: "15-20 misafir gelecek").
+   */
+  weak?: boolean;
 };
 
 function detectAction(folded: string): ActionResult {
@@ -278,13 +367,26 @@ function detectAction(folded: string): ActionResult {
     return { action: null, clear: false, flags: ["question"], pending: false };
   }
   const found = new Set<WaCalendarAction>();
+  const blank = (m: string) => " ".repeat(m.length);
+  let openPhrase = false;
+  let rest = folded;
+  for (const re of OPEN_PHRASES) {
+    rest = rest.replace(re, (m) => {
+      openPhrase = true;
+      return blank(m);
+    });
+  }
+  if (FILL_WORD.test(rest) && fillsNonCalendarObject(rest)) rest = rest.replace(FILL_WORD, blank);
+  FILL_WORD.lastIndex = 0;
   let negatedPresence = false;
-  let rest = folded.replace(NEGATED_PRESENCE, (m) => {
+  rest = rest.replace(NEGATED_PRESENCE, (m) => {
     negatedPresence = true;
-    return " ".repeat(m.length);
+    return blank(m);
   });
+  let negatedState = false;
   for (const n of NEGATED) {
     rest = rest.replace(n.re, (m) => {
+      negatedState = true;
       found.add(n.action);
       return " ".repeat(m.length);
     });
@@ -296,6 +398,13 @@ function detectAction(folded: string): ActionResult {
       return " ".repeat(m.length);
     });
   }
+  let reservedPhrase = false;
+  rest = rest.replace(RESERVED_PHRASES, (m) => {
+    reservedPhrase = true;
+    return blank(m);
+  });
+  if (openPhrase) found.add("open");
+  if (reservedPhrase) found.add("close");
   const openWord = ACTION_WORDS.find((w) => w.action === "open")!.re;
   const withoutReference = rest.replace(CLOSE_REFERENCE, (m) => " ".repeat(m.length));
   if (withoutReference !== rest && openWord.test(withoutReference)) rest = withoutReference;
@@ -307,6 +416,20 @@ function detectAction(folded: string): ActionResult {
     if (!closeCommand) found.add("reserve");
   }
   const pending = OPTION.test(rest);
+  // Opsiyonlu (kesinleşmemiş) rezervasyon bildirimi: kapatma değil, elle değerlendirme (⚠️).
+  if (pending && found.has("close") && !CLOSE_WORDS.test(rest)) {
+    found.delete("close");
+    found.add("reserve");
+  }
+  // Yalnız rezervasyon/misafir kalıbıyla gelen kapatma: aynı mesajdaki ad sözcüğü ("rezervasyon
+  // alındı, misafir Ahmet Bey") ayrı bir eylem değildir.
+  if (reservedPhrase && found.has("close") && found.has("reserve") && !pending) {
+    found.delete("reserve");
+  }
+  // Aynı eylem hem olumlu hem olumsuz ("kiralandı ama kapatmayalım"): çelişkili, işlem yok.
+  if ([...negated].some((a) => found.has(a) || (a === "close" && found.has("reserve")))) {
+    return { action: null, clear: false, flags: ["action_ambiguous", "action_negated"], pending };
+  }
   if (found.size === 0 && negated.size > 0) {
     return { action: null, clear: false, flags: ["action_negated"], pending, negatedOnly: true };
   }
@@ -317,15 +440,19 @@ function detectAction(folded: string): ActionResult {
 
   // İptal; rezervasyon sözcükleri ve "tekrar açalım" ile birlikte tek anlamlıdır (iptal tarihi
   // açar). "Kapat" ile birlikte çelişkilidir.
+  // v5: iptal / vazgeçme takvimi AÇAR (yalnız bloklar; gerçek rezervasyon değişmez) ve yalnız
+  // açık tarih aralığıyla. "Kapat" veya olumsuz açma ile birlikte çelişkilidir.
   if (found.has("cancel")) {
-    return found.has("close")
-      ? { action: null, clear: false, flags: ["action_ambiguous"], pending }
-      : { action: "cancel", clear: true, flags: [], pending };
+    if (found.has("close") || negated.has("open")) {
+      return { action: null, clear: false, flags: ["action_ambiguous"], pending };
+    }
+    return { action: "open", clear: true, flags: [], pending: false, strictDates: true };
   }
   if (found.size === 0) return { action: null, clear: false, flags: ["action_missing"], pending };
   if (found.size > 1) return { action: null, clear: false, flags: ["action_ambiguous"], pending };
   const [action] = [...found] as [WaCalendarAction];
-  return { action, clear: true, flags: [], pending };
+  const weak = action === "close" && !negatedState && !STRONG_CLOSE.test(rest);
+  return { action, clear: true, flags: [], pending, strictDates: openPhrase, weak };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -393,7 +520,7 @@ const NAME_STOP = new Set<string>([
 
 /** Eylem gövdeleri ad olamaz (eylem sözlüğünden bağımsız, yalnız ad süzgeci). */
 const NON_NAME_WORD =
-  /^(?:kapa(?:li|t|n)\w*|dolu|blok\w*|satma\w*|satil\w*|verme\w*|rezerv\w*|misafir\w*|opsiyon\w*|kiral(?:an|adi)\w*|iptal\w*|vazgec\w*|musait\w*|bos|bosal\w*|serbest|uygun|ac(?:alim|in|iniz|ildi|ilsin|ik)?)$/;
+  /^(?:kapa(?:li|t|n)\w*|dolu|blok\w*|satma\w*|satil\w*|verme\w*|rezerv\w*|misafir\w*|opsiyon\w*|kiral(?:an|adi)\w*|kiraya|doldur\w*|tutul\w*|iptal\w*|vazgec\w*|musait\w*|bos|bosal\w*|serbest|uygun|ac(?:alim|in|iniz|ildi|ilsin|ik)?)$/;
 /** Özgün metinde büyük harfle (veya rakamla) başlıyor mu? İkinci ad sözcüğü için şart. */
 const STARTS_UPPER = /^[A-ZÇĞİÖŞÜÂÎÛ0-9]/;
 
@@ -506,6 +633,53 @@ function isDateChange(folded: string, dates: DateMention[]): boolean {
   return ranges.length >= 2 && FROM_SUFFIX.test(ranges[0]!.text);
 }
 
+/** Segmentin katlanmış metni, villa adları ve (adlar çıkarılmış metinden) eylemi. */
+function analyseSegment(seg: string) {
+  const folded = foldTr(seg);
+  const spans = findVillaNames(folded, seg);
+  // Eylem, villa adları metinden çıkarılarak tanınır (ad ile eylem ayrı ayrıştırılır).
+  let actionText = folded;
+  for (const v of spans) {
+    actionText =
+      actionText.slice(0, v.start) + " ".repeat(v.end - v.start) + actionText.slice(v.end);
+  }
+  return { folded, spans, actionText, act: detectAction(actionText) };
+}
+
+/**
+ * Noktalama ile ayrılmış "tarih" + "eylem" cümlelerini birleştirir ("20-25 Aralık. Kiralandı.",
+ * "20-25 Aralık; kapat"). Yalnız biri YALNIZ tarih (eylemsiz), diğeri YALNIZ eylem (tarihsiz)
+ * ise; aksi halde segmentler ayrı kalır (çok öğeli mesajlar değişmez).
+ */
+function joinDateAndAction(segs: string[], today: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < segs.length; i++) {
+    const a = segs[i]!;
+    const b = segs[i + 1];
+    if (b !== undefined) {
+      const sa = analyseSegment(a);
+      const sb = analyseSegment(b);
+      const datesOf = (x: ReturnType<typeof analyseSegment>) =>
+        findDateMentions(x.folded, { today, operational: true }).length > 0;
+      const dateOnly = (x: ReturnType<typeof analyseSegment>) =>
+        x.act.action === null &&
+        !x.act.negatedOnly &&
+        x.act.flags.length === 1 &&
+        x.act.flags[0] === "action_missing" &&
+        datesOf(x);
+      const actionOnly = (x: ReturnType<typeof analyseSegment>) =>
+        (x.act.action !== null || x.act.negatedOnly === true) && !datesOf(x);
+      if ((dateOnly(sa) && actionOnly(sb)) || (actionOnly(sa) && dateOnly(sb))) {
+        out.push(`${a} ${b}`);
+        i++;
+        continue;
+      }
+    }
+    out.push(a);
+  }
+  return out;
+}
+
 /**
  * Mesajı takvim önerilerine ayrıştırır. `today`: "YYYY-MM-DD" (Europe/Istanbul). Takvimle
  * ilgisiz mesajda `items` boştur. Hiçbir sonuç kendiliğinden uygulanmaz.
@@ -514,17 +688,9 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
   if (!isIsoDate(today)) throw new Error("today: YYYY-MM-DD bekleniyor");
   const drafts: Draft[] = [];
 
-  for (const seg of splitSegments(text.slice(0, MAX_INPUT))) {
-    const folded = foldTr(seg);
-    const spans = findVillaNames(folded, seg);
+  for (const seg of joinDateAndAction(splitSegments(text.slice(0, MAX_INPUT)), today)) {
+    const { folded, spans, actionText, act } = analyseSegment(seg);
     const villas = spans.map((v) => v.name);
-    // Eylem, villa adları metinden çıkarılarak tanınır (ad ile eylem ayrı ayrıştırılır).
-    let actionText = folded;
-    for (const v of spans) {
-      actionText =
-        actionText.slice(0, v.start) + " ".repeat(v.end - v.start) + actionText.slice(v.end);
-    }
-    const act = detectAction(actionText);
     // Yalnız olumsuz eylem ("kapatmayalım", "açmayın"): işlem de tepki de yok.
     if (act.negatedOnly) continue;
     // Tarihler YALNIZ merkezi modülden; ay yazılmamış sayılar ve göreli ifadeler yalnız takvim
@@ -539,6 +705,7 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
       dates.length === 0 &&
       act.action !== null &&
       act.action !== "reserve" &&
+      !act.weak &&
       DATE_TRACE.test(actionText);
     // Ne tarih ne de (villa + eylem) varsa sohbet mesajıdır.
     if (dates.length === 0 && !(villas.length > 0 && act.action !== null) && !commandWithoutDate) {
@@ -575,6 +742,10 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
 
     for (const p of pairs) {
       const flags = new Set<WaCalendarFlag>([...act.flags, ...p.range.flags]);
+      // İptal kaynaklı açma yalnız açık tarih aralığıyla (göreli tarih / gece sayısı → ⚠️).
+      if (act.strictDates && (flags.has("date_relative") || flags.has("nights_count"))) {
+        flags.add("date_ambiguous");
+      }
       if (p.ambiguous) flags.add("villa_ambiguous");
       else if (!p.villa) flags.add("villa_missing");
       if (act.action === "reserve") flags.add("guest_name_missing");

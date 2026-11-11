@@ -248,7 +248,8 @@ describe("Aşama 2: otomatik açma kuralı", () => {
     "10-15 Aralık kapatalım", // kapatma
     "Villa 15-20 Aralık müsait değil", // olumsuz: kapatma
     "10-15 Aralık açalım, 20-22 Aralık açalım", // birden çok öğe
-    "10-15 Aralık rezervasyon iptal", // iptal (bu aşamada yok)
+    "10-15 Aralık rezervasyon iptal, kapatalım", // çelişkili (iptal + kapat)
+    "Yarın rezervasyon iptal oldu", // iptal: yalnız açık tarih aralığıyla
   ])("uygun değil: %s", (text) => {
     expect(open(text)).toBeNull();
   });

@@ -326,7 +326,16 @@ const UNCLEAR_RELATIVE = new RegExp(
 // Tarih ifadelerini bulma
 // ---------------------------------------------------------------------------------------------
 
-export function findDateMentions(folded: string, ctx: DateContext): DateMention[] {
+/**
+ * Ünsüz yumuşaması: "Ocağı/Ocağa" (katlanmış "ocag…") gün sayısından sonra Ocak'tır; uzunluk
+ * değişmez ("ocag" → "ocak"), konumlar korunur. "Aralığı" hem Aralık hem "aralık (range)"
+ * olabileceğinden çevrilmez; gün çiftinden hemen sonra gelirse tarih belirsiz sayılır (⚠️).
+ */
+const OCAK_MUTATED = /(?<=\d(?:'?[a-z]{0,8})?\s{1,3})ocag(?=[a-z])/g;
+const ARALIG_AFTER = /^(?:'?[a-z]{0,4})?\s+aralig[a-z]*/;
+
+export function findDateMentions(rawFolded: string, ctx: DateContext): DateMention[] {
+  const folded = rawFolded.replace(OCAK_MUTATED, "ocak");
   const out: DateMention[] = [];
   const taken: [number, number][] = [];
   const free = (s: number, e: number) => taken.every(([a, b]) => e <= a || s >= b);
@@ -568,7 +577,8 @@ export function findDateMentions(folded: string, ctx: DateContext): DateMention[
       const arasi = /^\s*(?:'?[a-z]{0,4})?\s*arasi/.test(after);
       const b = base(s, e);
       if (!b) continue;
-      if (/,/.test(sep) || (/\bve\b/.test(sep) && !arasi)) unclear(b, "date_list");
+      if (ARALIG_AFTER.test(after)) unclear(b, "date_unclear");
+      else if (/,/.test(sep) || (/\bve\b/.test(sep) && !arasi)) unclear(b, "date_list");
       else bareRange(b, a, z, !!m[1]);
     }
   }

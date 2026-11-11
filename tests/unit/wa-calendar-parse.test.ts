@@ -55,17 +55,17 @@ describe("rapordaki dört örnek mesaj", () => {
     });
   });
 
-  it("Villa B giriş/çıkış rezervasyon → reserve, onaylı, misafir adı istenir", () => {
+  it("Villa B giriş/çıkış 'rezervasyon aldı' → v5: yalnız takvim kapatma", () => {
     const i = one("Villa B 5 Temmuz giriş, 12 Temmuz çıkış rezervasyon aldı.");
     expect(brief(i)).toEqual({
-      action: "reserve",
+      action: "close",
       villa: "B",
       checkIn: "2027-07-05",
       checkOut: "2027-07-12",
-      flags: ["year_inferred", "guest_name_missing"],
+      flags: ["year_inferred"],
     });
     expect(i.nights).toBe(7);
-    expect(i.reservationStatus).toBe("confirmed");
+    expect(i.reservationStatus).toBeNull();
   });
 
   it("Villa C'nin … tekrar açalım → aç; iyelik eki addan atılır", () => {
@@ -219,10 +219,11 @@ describe("eylem", () => {
     ["Villa A 15-20 Haziran tekrar açın", "open", []],
     ["Villa A 15-20 Haziran kapalı değil", "open", []],
     ["Villa A 15-20 Haziran rezervasyon", "reserve", ["guest_name_missing"]],
-    ["Villa A 15-20 Haziran kiralandı", "reserve", ["guest_name_missing"]],
+    // v5: "kiralandı" yalnız takvimi kapatır; iptal takvimi açar (yalnız bloklar).
+    ["Villa A 15-20 Haziran kiralandı", "close", []],
     ["Villa A 15-20 Haziran opsiyon", "reserve", ["guest_name_missing"]],
-    ["Villa A 15-20 Haziran rezervasyon iptal oldu", "cancel", []],
-    ["Villa A 15-20 Haziran iptal, tekrar açalım", "cancel", []],
+    ["Villa A 15-20 Haziran rezervasyon iptal oldu", "open", []],
+    ["Villa A 15-20 Haziran iptal, tekrar açalım", "open", []],
   ];
 
   it("vektörler (olumsuz kalıplar önce)", () => {
@@ -469,8 +470,8 @@ describe("sözleşme", () => {
   it("sabitler ve sürüm", () => {
     expect(WA_CALENDAR_ACTIONS).toEqual(["close", "reserve", "open", "cancel"]);
     expect(new Set(WA_CALENDAR_FLAGS).size).toBe(WA_CALENDAR_FLAGS.length);
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(4);
-    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 4, items: [] });
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(5);
+    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 5, items: [] });
   });
 
   it("bayraklar her zaman WA_CALENDAR_FLAGS sırasıyla ve tekil", () => {
@@ -495,8 +496,7 @@ describe("v2 kritik: varlık olumsuzlaması asla rezervasyon değildir", () => {
     for (const text of [
       "Villa Mavi 12-18 Temmuz misafir yok",
       "Villa Mavi 12-18 Temmuz rezervasyon yok, açın",
-      "Villa Mavi 12-18 Temmuz kimse gelmeyecek",
-      "Villa Mavi 12-18 Temmuz misafir gelmiyor",
+      "Villa Mavi 12-18 Temmuz misafir gelmedi",
       "Villa Mavi 12-18 Temmuz misafirimiz yok kapalı",
     ]) {
       const i = one(text);
@@ -511,8 +511,14 @@ describe("v2 kritik: varlık olumsuzlaması asla rezervasyon değildir", () => {
     }
   });
 
-  it("olumsuzlama olmadan 'misafir' yine rezervasyondur", () => {
-    expect(one("Villa Mavi 12-18 Temmuz misafir var").action).toBe("reserve");
+  it("v5: 'kimse gelmeyecek', 'misafir gelmiyor' takvimi açar (yalnız bloklar)", () => {
+    expect(one("Villa Mavi 12-18 Temmuz kimse gelmeyecek").action).toBe("open");
+    expect(one("Villa Mavi 12-18 Temmuz misafir gelmiyor").action).toBe("open");
+  });
+
+  it("v5: 'misafir var' takvimi kapatır; çıplak 'misafir' yine rezervasyondur (⚠️)", () => {
+    expect(one("Villa Mavi 12-18 Temmuz misafir var").action).toBe("close");
+    expect(one("Villa Mavi 12-18 Temmuz misafir").action).toBe("reserve");
   });
 });
 
@@ -669,18 +675,22 @@ describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
     expect(o).toEqual({ quickApprove: true, score: 100, band: "high", reasons: [] });
   });
 
-  it("rezervasyon ve iptal, puan 100 olsa bile elle incelenir", () => {
+  it("rezervasyon (giriş/çıkış, opsiyon), puan 100 olsa bile elle incelenir", () => {
     for (const text of [
-      "Villa B 5 Temmuz giriş, 12 Temmuz çıkış rezervasyon aldı.",
-      "Villa Lavanta 14-21 Temmuz rezervasyonu iptal oldu",
+      "Villa B 5 Temmuz giriş, 12 Temmuz çıkış",
+      "Villa B 5-12 Temmuz opsiyonlu rezervasyon alındı",
     ]) {
       const i = one(text);
       const d = reviewRequirement(i, ok);
       expect([text, d.quickApprove]).toEqual([text, false]);
       expect(d.reasons, text).toContain("action_requires_review");
     }
-    const cancel = reviewRequirement(one("Villa Lavanta 14-21 Temmuz rezervasyonu iptal oldu"), ok);
-    expect(cancel.score).toBe(100);
+  });
+
+  it("v5: 'rezervasyonu iptal oldu' açmadır ve hızlı uygulanabilir (yalnız bloklar)", () => {
+    const i = one("Villa Lavanta 14-21 Temmuz rezervasyonu iptal oldu");
+    expect(i.action).toBe("open");
+    expect(reviewRequirement(i, ok)).toMatchObject({ quickApprove: true, score: 100 });
   });
 
   it("belirsiz ve riskli öneriler elle incelenir", () => {
@@ -784,8 +794,8 @@ describe("grup dışı villa (A2b)", () => {
     expect(n.reasons).toEqual(["villa_needs_review", "sender_unverified"]);
   });
 
-  it("ayrıştırıcı sürümü 4", () => {
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(4);
+  it("ayrıştırıcı sürümü 5", () => {
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(5);
   });
 });
 

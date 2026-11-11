@@ -599,6 +599,47 @@ describe("Aşama 2: WhatsApp üzerinden takvim açma", () => {
     expect(await reactionOf(r.message!.id)).toEqual([{ kind: "done", emoji: "✅" }]);
   });
 
+  it("v5 ifadeleri: 'kiralandı' yalnız blok oluşturur; 'rezervasyon iptal oldu' yalnız bloğu açar", async () => {
+    const reservations = async () =>
+      (
+        await admin.query(
+          "select count(*)::int as n from reservations where workspace_id = $1 and kind = 'reservation'",
+          [ws],
+        )
+      ).rows[0].n as number;
+    const resBefore = await reservations();
+    const closed = await send(`${range(150, 153)} kiralandı.`, { pn: PN_STRANGER });
+    expect(closed.proposals[0]).toMatchObject({ status: "applied", action: "close" });
+    expect(await reactionOf(closed.message!.id)).toEqual([{ kind: "done", emoji: "✅" }]);
+    const blockId = closed.proposals[0].applied_reservation_ids[0] as string;
+    expect(await statusOf(blockId)).toBe("confirmed");
+    // Yeni rezervasyon kaydı oluşturulmaz.
+    expect(await reservations()).toBe(resBefore);
+
+    const opened = await send(`${range(150, 153)} rezervasyon iptal oldu.`, { pn: PN_STRANGER });
+    expect(opened.proposals[0]).toMatchObject({ status: "applied", action: "open" });
+    expect(await statusOf(blockId)).toBe("cancelled");
+    expect(await reactionOf(opened.message!.id)).toEqual([{ kind: "done", emoji: "✅" }]);
+  });
+
+  it("v5: gerçek rezervasyon 'rezervasyon iptal oldu' ile iptal edilmez (⚠️)", async () => {
+    const res = await guestReservation(mavi, 156, 159, "phone");
+    const before = await calendarDigest();
+    const r = await send(`${range(156, 159)} rezervasyon iptal oldu.`, { pn: PN_STRANGER });
+    expect(r.proposals[0]).toMatchObject({ status: "pending", action: "open" });
+    expect(await statusOf(res)).toBe("confirmed");
+    expect(await calendarDigest()).toEqual(before);
+    expect(await reactionOf(r.message!.id)).toEqual([{ kind: "warning", emoji: "⚠️" }]);
+  });
+
+  it("v5: olumsuz bildirim ('kiralanmadı') öneri ve tepki üretmez", async () => {
+    const before = await calendarDigest();
+    const r = await send(`${range(162, 165)} kiralanmadı.`, { pn: PN_STRANGER });
+    expect(r.proposals).toHaveLength(0);
+    expect(await reactionOf(r.message!.id)).toEqual([]);
+    expect(await calendarDigest()).toEqual(before);
+  });
+
   it("log'da mesaj metni, villa adı ve numara yok", () => {
     const all = logLines.join("\n");
     expect(all).toContain("wa_calendar_auto_open");

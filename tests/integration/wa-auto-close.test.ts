@@ -524,9 +524,9 @@ describe("otomatik kapatma yapılmayan durumlar (takvim değişmez)", () => {
     const before = await calendarDigest();
     const r = await send(`Villa Mavi ${tr(day(30))}–${tr(day(35))} açıldı`);
     expect(r.proposals[0]).toMatchObject({ status: "pending", action: "open" });
-    // İptal de otomatik değildir.
-    const c = await send(`Villa Mavi ${tr(day(30))}–${tr(day(35))} iptal`);
-    expect(c.proposals[0]).toMatchObject({ status: "pending", action: "cancel" });
+    // v5: iptal bir açma önerisidir; kaldırılacak blok yoksa takvim değişmez.
+    const c = await send(`Villa Mavi ${tr(day(36))}–${tr(day(38))} iptal`);
+    expect(c.proposals[0]).toMatchObject({ status: "pending", action: "open" });
     expect(await calendarDigest()).toEqual(before);
   });
 

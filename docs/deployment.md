@@ -698,7 +698,7 @@ değişmez ve yeni yetki almaz.
   veya sır yoktur. Bir çalıştırma en fazla ~45 sn sürer; çalıştırmalar üst üste binse de aynı mesaj iki kez
   işlenmez (`FOR UPDATE SKIP LOCKED`, kilit belirteci, `UNIQUE(message_id, item_no)`).
 - **Akış:** süresi geçen bekleyen öneriler `expired` → mesaj alma (`app_wa_claim_messages`, 120 sn kilit)
-  → ayrıştırma (parser v4, merkezi tarih modülü `src/lib/wa-date-parse.ts`; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
+  → ayrıştırma (parser v5, merkezi tarih modülü `src/lib/wa-date-parse.ts`; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
   sonuç) → villa eşleştirme (grup bir villaya bağlıysa HER ZAMAN o villa; mesajdaki ad farklıysa yalnız bilgi
   bayrağı `villa_name_mismatch`; ada göre eşleştirme yalnız villasız grupta) → çakışma
   özeti (yalnız okuma) → tek atomik yazım (`app_wa_store_proposals`). Hata: mesaj yeniden denenir, 5.
@@ -1066,3 +1066,29 @@ gece); "25 dahil" çıkışı 26'ya alır.
 - **Testler:** `tests/unit/wa-date-matrix.test.ts` (225 senaryoluk matris + uç durumlar).
 
 **Deploy:** migration ve ortam değişkeni yok; Gateway değişmedi. Worker yeni imajla v4'ü kullanır.
+
+## WhatsApp günlük dil ifadeleri (parser v5)
+
+Komut için yalnız "kapat / aç" yazmak gerekmez. Tarihler yine yalnız `wa-date-parse.ts`'den gelir;
+tarih, grup, villa ve katılımcı kuralları aynen geçerlidir.
+
+- **Kapatma:** kapat, kapatıyoruz, doldur(alım), dolu yap, tarihleri kapat, kiralandı / kiraladık,
+  kiraya verildi / verdik, başkasına verdik, satıldı / sattık, rezervasyon alındı / yapıldı / geldi /
+  var, rezerve edildi, misafir aldı / gelecek / var, villa tutuldu, (o tarihler) dolu, müsait değil.
+  **Yeni rezervasyon kaydı oluşturulmaz**; yalnız takvim bloğu eklenir.
+- **Açma:** aç, açıyoruz, serbest bırak, müsait yap, boşalt, tekrar müsait, tekrar satışa / yeniden
+  kiralamaya aç, rezervasyonu / bloğu kaldır, iptal oldu, vazgeçildi, misafir / kimse gelmeyecek,
+  tarihleri boşa çıkar. Yalnız **bloklar** kaldırılır; aralıkta gerçek rezervasyon varsa hiçbir şey
+  değişmez (⚠️). İptal ifadeleri yalnız **açık tarih aralığıyla** işlem yapar ("yarın iptal oldu",
+  "bu gece misafir gelmeyecek" → ⚠️).
+- **Olumsuzlar (işlem ve tepki yok):** kiralanmadı, kiralamadık, satılmadı, kiraya vermedik,
+  rezervasyon alınmadı / gelmedi, misafir almadık, doldurmayalım, dolu yapmayalım, tutulmadı,
+  kapatmayalım, açmayalım, iptal etmeyelim. "Satmayalım", "vermeyelim" kapatmadır (değişmedi).
+- **Çelişki / belirsizlik (⚠️):** "kiralandı ama kapatmayalım", "iptal oldu, kapatalım", opsiyonlu
+  rezervasyon, fiilsiz "rezervasyon" / "misafir", "misafir yok / gelmedi", "20-25 Aralığı" (Aralık mı,
+  aralık mı?). "Ocağı / Ocağa" Ocak sayılır.
+- **Sohbet (tepki yok):** tarihsiz bildirimler ("Kiralandı", "Ayakkabı satıldı 20 TL"), kişi sayısı
+  ("15-20 misafir gelecek"), takvim dışı "doldur" ("formu doldur").
+- **Noktalama:** ayrı cümlelerdeki tarih ve eylem birleştirilir ("20-25 Aralık. Kiralandı.").
+
+**Deploy:** migration, ortam değişkeni ve Gateway değişikliği yok.
