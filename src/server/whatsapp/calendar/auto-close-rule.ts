@@ -23,6 +23,13 @@ const ALLOWED_FLAGS: ReadonlySet<string> = new Set([
   "villa_missing",
   // Mesajda başka bir ad yazılmış; grup eşleştirmesi esas alındı (resolve.ts).
   "villa_name_mismatch",
+  // Ayrıştırıcı v4 (merkezi tarih modülü): tarih tek anlamlı çözüldü; yalnız nasıl çözüldüğü.
+  "end_inclusive",
+  "month_inferred",
+  "date_relative",
+  "date_corrected",
+  "nights_count",
+  "day_list",
 ]);
 
 export function autoCloseCandidate(

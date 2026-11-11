@@ -469,8 +469,8 @@ describe("sözleşme", () => {
   it("sabitler ve sürüm", () => {
     expect(WA_CALENDAR_ACTIONS).toEqual(["close", "reserve", "open", "cancel"]);
     expect(new Set(WA_CALENDAR_FLAGS).size).toBe(WA_CALENDAR_FLAGS.length);
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(3);
-    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 3, items: [] });
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(4);
+    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 4, items: [] });
   });
 
   it("bayraklar her zaman WA_CALENDAR_FLAGS sırasıyla ve tekil", () => {
@@ -687,7 +687,6 @@ describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
     const cases: [string, string][] = [
       ["Villa Mavi 12-18 Temmuz misafir yok", "no_action"],
       ["Villa Mavi rezervasyonu 15-20 Haziran'dan 16-21 Haziran'a alındı", "no_action"],
-      ["Villa Mavi 2 Temmuz - 9 Temmuz dahil kapalı", "flagged"],
       ["Villa Mavi 15 Haziran kapalı", "dates_incomplete"],
       ["Villa Mavi 8-12 Kasım kapalı", "flagged"],
       ["Villa A 5-8 Kasım kapalı", "dates_incomplete"],
@@ -785,8 +784,8 @@ describe("grup dışı villa (A2b)", () => {
     expect(n.reasons).toEqual(["villa_needs_review", "sender_unverified"]);
   });
 
-  it("ayrıştırıcı sürümü 3", () => {
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(3);
+  it("ayrıştırıcı sürümü 4", () => {
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(4);
   });
 });
 

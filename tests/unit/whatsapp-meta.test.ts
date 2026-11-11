@@ -124,7 +124,10 @@ describe("takvim önerileri: veritabanı sınırlarıyla uyum (drizzle/0035)", (
     for (const c of [...WA_CALENDAR_FLAGS, ...WA_REVIEW_REASONS]) {
       expect(c, c).toMatch(/^[a-z_]{1,40}$/);
     }
-    expect(WA_CALENDAR_FLAGS.length + 1).toBeLessThanOrEqual(WA_PROPOSAL_LIMITS.arrayMax);
+    // Sürüm 4 ile bayrak sözlüğü 20'yi aştı; tek bir öneride en fazla 20 bayrak saklanır ve sınır
+    // aşılırsa işlemi engelleyen bayraklar korunur (wa-calendar-proposal.test.ts). Sözlük yine
+    // sınırlı kalmalı.
+    expect(WA_CALENDAR_FLAGS.length + 1).toBeLessThanOrEqual(2 * WA_PROPOSAL_LIMITS.arrayMax);
     expect(WA_REVIEW_REASONS.length).toBeLessThanOrEqual(WA_PROPOSAL_LIMITS.arrayMax);
   });
 

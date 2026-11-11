@@ -61,7 +61,7 @@ describe("öğe (app_wa_store_proposals girdisi)", () => {
   it("owner, adlı villa, çakışmasız kapatma: nedensiz; alanlar veritabanı adlarıyla", () => {
     expect(build("Villa Mavi 15-20 Haziran kapalı")).toEqual({
       item_no: 0,
-      parser_version: 3,
+      parser_version: 4,
       message_excerpt: "Villa Mavi 15-20 Haziran kapalı",
       action: "close",
       villa_name_raw: "Mavi",
@@ -264,5 +264,32 @@ describe("worker sabitleri", () => {
     expect(WA_WORKER_LIMITS.batchSize).toBeLessThanOrEqual(WA_PROPOSAL_LIMITS.claimBatchMax);
     expect(WA_WORKER_LIMITS.busyMaxNights).toBeLessThanOrEqual(400);
     for (const c of WA_WORKER_ERRORS) expect(c).toMatch(/^[a-z0-9_]{1,60}$/);
+  });
+});
+
+describe("bayrak sınırı (veritabanı ≤ 20)", () => {
+  it("sınır aşılırsa engelleyen bayraklar korunur, bilgi bayrakları atılır", () => {
+    const item = one("Villa Mavi 15-20 Haziran kapalı");
+    const all = [...WA_CALENDAR_FLAGS];
+    const out = buildStoreItem({
+      item: { ...item, flags: all },
+      itemNo: 0,
+      villa: resolveProposal(item, ctx),
+      busy: [],
+      senderRole: "owner",
+    });
+    expect(out.flags.length).toBeLessThanOrEqual(WA_PROPOSAL_LIMITS.arrayMax);
+    for (const f of [
+      "date_ambiguous",
+      "date_past",
+      "date_order_reversed",
+      "date_list",
+      "date_unclear",
+      "action_negated",
+      "range_too_long",
+    ]) {
+      expect(out.flags, f).toContain(f);
+    }
+    expect(out.review_reasons.length).toBeGreaterThan(0);
   });
 });

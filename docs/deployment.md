@@ -698,7 +698,7 @@ değişmez ve yeni yetki almaz.
   veya sır yoktur. Bir çalıştırma en fazla ~45 sn sürer; çalıştırmalar üst üste binse de aynı mesaj iki kez
   işlenmez (`FOR UPDATE SKIP LOCKED`, kilit belirteci, `UNIQUE(message_id, item_no)`).
 - **Akış:** süresi geçen bekleyen öneriler `expired` → mesaj alma (`app_wa_claim_messages`, 120 sn kilit)
-  → ayrıştırma (parser v3; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
+  → ayrıştırma (parser v4, merkezi tarih modülü `src/lib/wa-date-parse.ts`; bugün = mesajın **gönderildiği gün**, Europe/Istanbul; yeniden denemede aynı
   sonuç) → villa eşleştirme (grup bir villaya bağlıysa HER ZAMAN o villa; mesajdaki ad farklıysa yalnız bilgi
   bayrağı `villa_name_mismatch`; ada göre eşleştirme yalnız villasız grupta) → çakışma
   özeti (yalnız okuma) → tek atomik yazım (`app_wa_store_proposals`). Hata: mesaj yeniden denenir, 5.
@@ -1041,3 +1041,28 @@ müsait". Mesaj kesin komuttur; onay beklenmez.
 **Deploy:** ek ortam değişkeni yok; 0048 açılışta uygulanır. Worker aynı imajdan çalışır; Gateway
 değişmedi. **Geri alma:** kısıt 0046'daki tanımına döndürülür (önce `action = 'open'` ve
 `decision_mode = 'quick'` olan öneri yoksa).
+
+## WhatsApp tarih ayrıştırma — merkezi modül (parser v4)
+
+Bütün takvim işlemleri (kapatma, açma, öneri) tarihleri tek bir modülden alır:
+`src/lib/wa-date-parse.ts`. Temel kural: tarih yanlış anlaşılabilecekse **işlem yapılmaz** (⚠️);
+açık tarihler gereksiz yere reddedilmez. Aralık `[giriş, çıkış)`: "20-25" = 20 giriş, 25 çıkış (5
+gece); "25 dahil" çıkışı 26'ya alır.
+
+- **Tanınan yazımlar:** "20-25 Aralık", "20.12-25.12", "20/12 - 25/12", "20 ile 25 Aralık arası",
+  "Aralık 20-25", "20'den 25'e", "ayın 20'si ile 25'i arası", sayısal tam tarihler, "bu gece",
+  "önümüzdeki 3 gece", "yarın" (tek tarih: çıkış sorulur, ⚠️), "ay sonuna kadar". Komut bağlamında "20.25", "20 25", "20/25"
+  (ikinci sayı > 12, saat eki yok) bu ayın 20-25'i sayılır.
+- **Ay yoksa:** başlangıç bugün veya ileride ise bu ay; geçmişteyse işlem yok (⚠️).
+- **İşlem yapılmayan (⚠️) tarih durumları:** geçmiş/başlamış aralık, ters aralık, takvimde olmayan
+  gün, 60 geceden uzun, yıl belirsiz (~1 yıl sonrası), "10,15" / "10 ve 15" gibi liste, "hafta sonu",
+  "bayram", "2 hafta sonra" gibi belirsiz ifadeler, eylem olup tarih olmaması.
+- **Olumsuz ifadeler:** "kapatmayalım", "kapatma", "açmayın" işlem üretmez ve tepki almaz.
+- **Düzeltmeler:** "10-15 Aralık değil, Ocak" → 10-15 Ocak; "20-25 değil 21-26 Aralık" → 21-26.
+- **Soru metni:** `dateClarification()` her ⚠️ nedeni için Türkçe açıklama sorusunu üretir. Bu
+  sürümde metin **gruba gönderilmez** (Gateway'de giden metin kuyruğu yok); yalnız ⚠️ tepkisi gider.
+- **Bayrak sınırı:** öneri başına en çok 20 bayrak saklanır; aşılırsa işlemi engelleyen bayraklar
+  korunur, bilgi bayrakları atılır.
+- **Testler:** `tests/unit/wa-date-matrix.test.ts` (225 senaryoluk matris + uç durumlar).
+
+**Deploy:** migration ve ortam değişkeni yok; Gateway değişmedi. Worker yeni imajla v4'ü kullanır.

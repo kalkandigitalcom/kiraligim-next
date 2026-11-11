@@ -19,7 +19,16 @@
  * Villa adının gerçek bir villaya eşlenmesi (matchVillaName) ve güven puanı (scoreProposal)
  * da saftır; villa listesi, gönderen doğrulaması ve çakışma bilgisi çağıran taraftan gelir.
  */
-import { addDays, isIsoDate, nightsBetween } from "./reservation-meta";
+import { isIsoDate, nightsBetween } from "./reservation-meta";
+import {
+  type DateMention,
+  findDateMentions,
+  MONTH_ONLY,
+  MONTHS_FULL,
+  type ResolvedRange,
+  rangesOf,
+  STARTS_WITH_MONTH,
+} from "./wa-date-parse";
 
 /**
  * Ayrıştırıcı sürümü: öneri kaydına yazılır (kurallar değişince artırılır).
@@ -28,8 +37,13 @@ import { addDays, isIsoDate, nightsBetween } from "./reservation-meta";
  *     "12-18.07"; "1.5 hafta" ve "saat 10.06" tarih değil; villa adı ile eylem ayrımı;
  *     reviewRequirement (güven puanı güvenlik kurallarını aşamaz).
  *  3: "giriş … çıkış" + açık "kapat" talimatı kapatmadır (önceden belirsiz).
+ *  4: tarihler merkezi modülden (wa-date-parse.ts): ay yazılmamış aralıklar (bu ay), ayı önde
+ *     yazım, sayısal çeşitler, gece sayısı, göreli ifadeler, "dahil" çeşitleri, "X değil Y"
+ *     düzeltmesi, giriş/çıkış etiketi; ters sıra ve belirsiz ifadelerde soru. Olumsuz eylem
+ *     ("kapatmayalım", "açmayın") eylemi iptal eder; fiyat sorusu işlem değildir; tarihi
+ *     anlaşılamayan takvim komutu ⚠️ alır.
  */
-export const WA_CALENDAR_PARSER_VERSION = 3;
+export const WA_CALENDAR_PARSER_VERSION = 4;
 
 export const WA_CALENDAR_ACTIONS = ["close", "reserve", "open", "cancel"] as const;
 export type WaCalendarAction = (typeof WA_CALENDAR_ACTIONS)[number];
@@ -74,13 +88,30 @@ export const WA_CALENDAR_FLAGS = [
    * tarih alanları YENİ aralığı gösterir, eski aralık alıntıdadır. Elle inceleme zorunlu.
    */
   "date_change",
+  // --- Sürüm 4 (merkezi tarih modülü) --------------------------------------------------------
+  /** Ay yazılmadı; günler bu ayın (ya da "gelecek ay") günleri sayıldı (bilgi). */
+  "month_inferred",
+  /** Tarih göreli ifadeden hesaplandı ("yarın", "bu gece", "gelecek hafta"…; bilgi). */
+  "date_relative",
+  /** "X değil Y" düzeltmesi uygulandı (bilgi). */
+  "date_corrected",
+  /** Çıkış, giriş + gece sayısından hesaplandı ("3 gece", "gecesi"; bilgi). */
+  "nights_count",
+  /** Ardışık gün listesi ("10, 11, 12 Aralık") gecelere çevrildi (bilgi). */
+  "day_list",
+  /** Bitiş başlangıçtan önce ("25-20", "28-3 Ocak"): tahmin yok, soru. */
+  "date_order_reversed",
+  /** Ardışık olmayan gün listesi ya da "10,15": aralık mı ayrı günler mi belirsiz. */
+  "date_list",
+  /** Göreli ya da kısmi ifade tek bir tarihe bağlanamıyor (hafta sonu, bayram, "N gün sonra"…). */
+  "date_unclear",
+  /** Eylem olumsuz ("kapatmayalım", "açmayın"): işlem yok. */
+  "action_negated",
 ] as const;
 export type WaCalendarFlag = (typeof WA_CALENDAR_FLAGS)[number];
 
-/** Bu geceden uzun aralıklar bayrakla işaretlenir. */
-export const WA_CALENDAR_MAX_NIGHTS = 60;
-/** Yıl tahmin edildiyse ve giriş bu kadar gün sonrasındaysa year_ambiguous (~11 ay). */
-export const WA_CALENDAR_YEAR_AMBIGUOUS_DAYS = 335;
+/** Aralık sınırı ve yıl belirsizliği eşikleri merkezi tarih modülündedir. */
+export { WA_CALENDAR_MAX_NIGHTS, WA_CALENDAR_YEAR_AMBIGUOUS_DAYS } from "./wa-date-parse";
 /** Bir mesajdan çıkarılacak en fazla öneri. */
 export const WA_CALENDAR_MAX_ITEMS = 10;
 /** Öneri kaydında saklanan mesaj parçasının en fazla uzunluğu. */
@@ -158,254 +189,12 @@ export function foldTr(text: string): string {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Ay adları ve tarih kalıpları (katlanmış metin üzerinde)
+// Tarih değişikliği sözcükleri (tarihler merkezi modülden: wa-date-parse.ts)
 // ---------------------------------------------------------------------------------------------
 
-const MONTHS_FULL = [
-  "ocak",
-  "subat",
-  "mart",
-  "nisan",
-  "mayis",
-  "haziran",
-  "temmuz",
-  "agustos",
-  "eylul",
-  "ekim",
-  "kasim",
-  "aralik",
-] as const;
-const MONTHS_SHORT: Record<string, number> = {
-  oca: 1,
-  sub: 2,
-  mar: 3,
-  nis: 4,
-  may: 5,
-  haz: 6,
-  tem: 7,
-  agus: 8,
-  agu: 8,
-  eyl: 9,
-  eki: 10,
-  kas: 11,
-  ara: 12,
-};
-
-/** Tam ay adı (+ isteğe bağlı ek: "haziran'da", "temmuza") veya kısa ad ("haz.", "agu"). */
-const MONTH = `(?:(${MONTHS_FULL.join("|")})(?:'?[a-z]*)|(${Object.keys(MONTHS_SHORT).join("|")})\\.?(?![a-z]))`;
-/** Ay adından sonra yıl; para birimi veya "bin" ile devam ediyorsa yıl değil tutardır. */
-const YEAR = `(?:\\s+(20\\d{2})(?!\\d)(?!\\s*(?:tl|try|eur|euro|usd|dolar|lira|gbp|sterlin|bin)\\b)(?!\\s*[$€₺£]))?`;
-/** Gün: önünde rakam/ayraç ya da "saat" olamaz ("saat 10.06" tarih değildir). */
-const DAY = `(?<![\\d.,/:])(?<!saat\\s{0,3})(\\d{1,2})`;
-const DASH = `\\s*(?:-|–|—|ila|ile)\\s*`;
-
-/** "15-20 haziran (2027)" */
-const RANGE_SAME_MONTH = new RegExp(`${DAY}${DASH}(\\d{1,2})\\s*${MONTH}${YEAR}`, "g");
-/** "15 haziran (2027)" */
-const DAY_MONTH = new RegExp(`${DAY}\\s*${MONTH}${YEAR}`, "g");
-/** Sayıdan sonra gelirse sayıyı tarih olmaktan çıkaran birimler ("1.5 hafta", "2.5 kişi"). */
-const UNIT = `\\s*(?:hafta|gun|gece|kisi|saat|dk|dakika|yas|yetiskin|cocuk|kat|oda|km|metre|m2)\\b`;
-/**
- * "15.06", "15/06/2027", "15.06.27" — ardından rakam, binlik/ondalık devamı veya birim gelemez.
- * Noktalı ve yılsız yazımda ay iki hanelidir ("15.06" tarih, "1.5" değil; denetim kodda).
- */
-const NUMERIC_DATE = new RegExp(
-  `${DAY}([./])(\\d{1,2})(?:\\2(\\d{4}|\\d{2}))?(?!\\d)(?![.,]\\d)(?!${UNIT})`,
-  "g",
-);
-/** Ayı ortak sayısal aralık: "12-18.07", "12-18/07/2027". */
-const NUMERIC_RANGE_SAME_MONTH = new RegExp(
-  `${DAY}${DASH}(\\d{1,2})([./])(\\d{2})(?:\\3(\\d{4}|\\d{2}))?(?!\\d)(?![.,]\\d)(?!${UNIT})`,
-  "g",
-);
-/** Aralığın hemen ardından "dahil" (bitiş günü konaklamaya dahil). */
-const INCLUSIVE_AFTER = /^\s*(?:'?(?:de|da|te|ta))?\s*(?:da\s+|de\s+)?dahil\w*/;
-/** Bir tarihin hemen önünde kalan "12-" gibi eşleşmemiş aralık başı: tarih belirsizdir. */
-const ORPHAN_DASH_BEFORE = /(?:^|[^\d./])(\d{1,2})\s*(?:-|–|—)\s*$/d;
 /** "…'dan/'den …'a/'e" ve değişiklik sözcükleri: tarih değişikliği. */
 const FROM_SUFFIX = /(?:dan|den|tan|ten)$/;
 const CHANGE_WORDS = /\b(?:kaydir\w*|ertele\w*|degis\w*|tasin\w*|tasidi\w*|guncellen\w*|yerine)\b/;
-const MONTH_ONLY = new RegExp(`^${MONTH}$`);
-const STARTS_WITH_MONTH = new RegExp(`^\\s*${MONTH}`);
-
-type DatePart = { day: number; month: number; year: number | null };
-type MentionBase = {
-  start: number;
-  end: number;
-  /** Eşleşen metin (katlanmış), ekleriyle birlikte. */
-  text: string;
-  /** Hemen ardından "dahil" geliyor. */
-  inclusiveAfter: boolean;
-  /** Hemen önünde eşleşmemiş "12-" kalmış. */
-  orphanBefore: boolean;
-};
-type RangeMention = MentionBase & { kind: "range"; from: DatePart; to: DatePart };
-type DayMention = MentionBase & { kind: "day"; date: DatePart };
-type DateMention = RangeMention | DayMention;
-
-const monthOf = (full: string | undefined, short: string | undefined): number =>
-  full
-    ? MONTHS_FULL.indexOf(full as (typeof MONTHS_FULL)[number]) + 1
-    : (MONTHS_SHORT[short ?? ""] ?? 0);
-
-const yearOf = (raw: string | undefined): number | null => {
-  if (!raw) return null;
-  const n = Number(raw);
-  return raw.length === 2 ? 2000 + n : n;
-};
-
-function findDateMentions(folded: string): DateMention[] {
-  const out: DateMention[] = [];
-  const taken: [number, number][] = [];
-  const free = (s: number, e: number) => taken.every(([a, b]) => e <= a || s >= b);
-  const take = (m: RegExpMatchArray): MentionBase | null => {
-    const start = m.index ?? 0;
-    const end = start + m[0].length;
-    if (!free(start, end)) return null;
-    taken.push([start, end]);
-    return {
-      start,
-      end,
-      text: m[0],
-      inclusiveAfter: INCLUSIVE_AFTER.test(folded.slice(end)),
-      orphanBefore: false,
-    };
-  };
-
-  for (const m of folded.matchAll(RANGE_SAME_MONTH)) {
-    const base = take(m);
-    if (!base) continue;
-    const month = monthOf(m[3], m[4]);
-    const year = yearOf(m[5]);
-    out.push({
-      ...base,
-      kind: "range",
-      from: { day: Number(m[1]), month, year },
-      to: { day: Number(m[2]), month, year },
-    });
-  }
-  for (const m of folded.matchAll(NUMERIC_RANGE_SAME_MONTH)) {
-    const month = Number(m[4]);
-    if (month < 1 || month > 12) continue;
-    const base = take(m);
-    if (!base) continue;
-    const year = yearOf(m[5]);
-    out.push({
-      ...base,
-      kind: "range",
-      from: { day: Number(m[1]), month, year },
-      to: { day: Number(m[2]), month, year },
-    });
-  }
-  for (const m of folded.matchAll(DAY_MONTH)) {
-    const base = take(m);
-    if (!base) continue;
-    out.push({
-      ...base,
-      kind: "day",
-      date: { day: Number(m[1]), month: monthOf(m[2], m[3]), year: yearOf(m[4]) },
-    });
-  }
-  for (const m of folded.matchAll(NUMERIC_DATE)) {
-    const sep = m[2];
-    const rawMonth = m[3] ?? "";
-    const month = Number(rawMonth);
-    if (month < 1 || month > 12) continue;
-    // Noktalı, yılsız ve tek haneli ay ("1.5", "2.5") ondalık sayıdır.
-    if (sep === "." && !m[4] && rawMonth.length < 2) continue;
-    const base = take(m);
-    if (!base) continue;
-    out.push({ ...base, kind: "day", date: { day: Number(m[1]), month, year: yearOf(m[4]) } });
-  }
-  // Önündeki sayı başka bir tarih ifadesinin parçası değilse "12-" eşleşmemiş aralık başıdır.
-  for (const d of out) {
-    const m = ORPHAN_DASH_BEFORE.exec(folded.slice(0, d.start));
-    const at = m?.indices?.[1]?.[0];
-    d.orphanBefore = at !== undefined && free(at, at + 1);
-  }
-  return out.sort((a, b) => a.start - b.start);
-}
-
-// ---------------------------------------------------------------------------------------------
-// Yıl ve aralık çözümü
-// ---------------------------------------------------------------------------------------------
-
-const iso = (y: number, p: DatePart) =>
-  `${String(y).padStart(4, "0")}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
-
-type ResolvedRange = { checkIn: string | null; checkOut: string | null; flags: WaCalendarFlag[] };
-
-/**
- * [from, to) aralığının yıllarını belirler ve tarih bayraklarını üretir. `inclusiveEnd`: bitiş
- * günü konaklamaya dahil yazıldı ("dahil") → çıkış = bitiş + 1 gün.
- */
-function resolveRange(
-  from: DatePart,
-  to: DatePart,
-  today: string,
-  inclusiveEnd = false,
-): ResolvedRange {
-  const thisYear = Number(today.slice(0, 4));
-  let yIn: number;
-  let yOut: number;
-  let inferred = false;
-
-  if (from.year !== null && to.year !== null) {
-    yIn = from.year;
-    yOut = to.year;
-  } else if (from.year !== null) {
-    yIn = from.year;
-    yOut = iso(yIn, to) <= iso(yIn, from) ? yIn + 1 : yIn;
-  } else if (to.year !== null) {
-    yOut = to.year;
-    yIn = iso(yOut, from) >= iso(yOut, to) ? yOut - 1 : yOut;
-  } else {
-    inferred = true;
-    yIn = thisYear;
-    // Çıkış girişten önceyse yıl dönümü ("28 Aralık - 3 Ocak").
-    yOut = iso(thisYear, to) <= iso(thisYear, from) ? thisYear + 1 : thisYear;
-    // Aralık bu yıl içinde bitmişse gelecek yıl kastedilmiştir.
-    if (iso(yOut, to) <= today) {
-      yIn += 1;
-      yOut += 1;
-    }
-  }
-
-  const checkIn = iso(yIn, from);
-  const lastDay = iso(yOut, to);
-  if (!isIsoDate(checkIn) || !isIsoDate(lastDay)) {
-    return { checkIn: null, checkOut: null, flags: ["date_invalid"] };
-  }
-  const checkOut = inclusiveEnd ? addDays(lastDay, 1) : lastDay;
-  if (checkOut <= checkIn) return { checkIn: null, checkOut: null, flags: ["date_invalid"] };
-  const flags: WaCalendarFlag[] = [];
-  if (inclusiveEnd) flags.push("end_inclusive");
-  if (inferred) flags.push("year_inferred");
-  if (checkOut <= today) flags.push("date_past");
-  else if (checkIn < today) flags.push("in_progress");
-  if (inferred && checkIn >= addDays(today, WA_CALENDAR_YEAR_AMBIGUOUS_DAYS)) {
-    flags.push("year_ambiguous");
-  }
-  if (nightsBetween(checkIn, checkOut) > WA_CALENDAR_MAX_NIGHTS) flags.push("range_too_long");
-  return { checkIn, checkOut, flags };
-}
-
-/** Tek gün (çıkış belirsiz): yılı aynı kuralla belirler; checkOut boş kalır, tahmin edilmez. */
-function resolveSingle(p: DatePart, today: string): ResolvedRange {
-  const flags: WaCalendarFlag[] = ["date_incomplete"];
-  let y = p.year ?? Number(today.slice(0, 4));
-  if (p.year === null) {
-    flags.push("year_inferred");
-    if (iso(y, p) < today) y += 1;
-  }
-  const checkIn = iso(y, p);
-  if (!isIsoDate(checkIn)) return { checkIn: null, checkOut: null, flags: ["date_invalid"] };
-  if (checkIn < today) flags.push("date_past");
-  if (p.year === null && checkIn >= addDays(today, WA_CALENDAR_YEAR_AMBIGUOUS_DAYS)) {
-    flags.push("year_ambiguous");
-  }
-  return { checkIn, checkOut: null, flags };
-}
 
 // ---------------------------------------------------------------------------------------------
 // Eylem
@@ -436,7 +225,7 @@ const ACTION_WORDS: { re: RegExp; action: WaCalendarAction }[] = [
     action: "reserve",
   },
   {
-    re: /\bac(?:alim|in|iniz|ildi|ilsin|abiliriz|abilirsiniz|tik|tim|iyoruz|ik|iyorum)?\b|\bmusait\b|\bbos\b|\bserbest\b|\bbosalt\w*/,
+    re: /\bac(?:alim|in|iniz|ildi|ilsin|abiliriz|abilirsiniz|tik|tim|iyoruz|ik|iyorum|mak|mamiz|maliyiz)?\b|\bmusait\b|\bbos\b|\bserbest\b|\bbosalt\w*/,
     action: "open",
   },
 ];
@@ -450,6 +239,26 @@ const ACTION_WORDS: { re: RegExp; action: WaCalendarAction }[] = [
 const CLOSE_REFERENCE = /\bkapat(?:tig|tik|il|ilmis)\w*|\bkapadig\w*|\bkapali\s+olan\w*/g;
 
 const QUESTION = /\?|\bm[iu](?:\s|$|[.,!])/;
+/**
+ * Olumsuz eylem ("kapatmayalım", "kapatma", "kapatmayın", "açmayalım", "açmayın"): o eylem
+ * İPTAL olur, karşıt eylem doğmaz. "kapatmak"/"açmak" (mastar) olumsuz değildir; "satmayalım" ve
+ * "vermeyelim" anlamı gereği kapatmadır (ACTION_WORDS).
+ */
+const NEGATED_VERBS: { re: RegExp; action: WaCalendarAction }[] = [
+  { re: /\bkapat(?:ma(?!k)|may|mam)\w*/g, action: "close" },
+  { re: /\bac(?:ma(?!k)|may|mam)\w*/g, action: "open" },
+];
+/** Fiyat / ücret sorusu: eylem yoksa işlem değil, soru. */
+const PRICE_QUESTION = /\bfiyat\w*|\bucret\w*|\bkac\s+para\b|\bne\s+kadar\b|\bnedir\b/;
+/**
+ * Takvim komutu bağlamı (merkezi tarih modülüne): ay yazılmamış sayılar ve göreli ifadeler yalnız
+ * bu bağlamda tarih sayılır ("15-20 kişi", "yarın temizlik var" tarih değildir).
+ */
+const OPERATIONAL_CONTEXT =
+  /\bkapa(?:li|t|n)\w*|\bdolu\b|\bblok\w*|\bsatma\w*|\bverme(?:yin|yelim|yiniz)?\b|\bac(?:alim|in|iniz|ildi|ilsin|abiliriz|abilirsiniz|tik|tim|iyoruz|ik|iyorum|ma|may|mam)\w*|\bmusait\w*|\bbos\b|\bserbest\b|\bbosalt\w*|\biptal\w*|\bvazgec\w*|\bdegil\b|\byanlis\s+yaz\w*|\bpardon\b|\bduzelt\w*|\bolacak\b|\byerine\b|\bayin\b|\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
+/** Tarihi anlaşılamayan takvim komutu ⚠️ alır; tarih izi yoksa ("kapıyı kapat") sohbettir. */
+const DATE_TRACE =
+  /\d|\btarih\w*|\bhafta\w*|\bgece\w*|\byarin\w*|\bbugun\w*|\bbayram\w*|\byil\s*basi\w*|\b(?:pazartesi|sali|carsamba|persembe|cuma|cumartesi|pazar)\w*/;
 const OPTION = /\bopsiyon\w*/;
 const CHECK_IN_OUT = /\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
 /** Açık kapatma TALİMATI ("kapat", "kapatalım", "kapatın"); "kapalı"/"dolu" durum bildirir. */
@@ -460,6 +269,8 @@ type ActionResult = {
   clear: boolean;
   flags: WaCalendarFlag[];
   pending: boolean;
+  /** Yalnız olumsuz eylem var ("20-25 Aralık kapatmayalım"): işlem yok, tepki yok. */
+  negatedOnly?: boolean;
 };
 
 function detectAction(folded: string): ActionResult {
@@ -478,6 +289,13 @@ function detectAction(folded: string): ActionResult {
       return " ".repeat(m.length);
     });
   }
+  const negated = new Set<WaCalendarAction>();
+  for (const n of NEGATED_VERBS) {
+    rest = rest.replace(n.re, (m) => {
+      negated.add(n.action);
+      return " ".repeat(m.length);
+    });
+  }
   const openWord = ACTION_WORDS.find((w) => w.action === "open")!.re;
   const withoutReference = rest.replace(CLOSE_REFERENCE, (m) => " ".repeat(m.length));
   if (withoutReference !== rest && openWord.test(withoutReference)) rest = withoutReference;
@@ -489,6 +307,12 @@ function detectAction(folded: string): ActionResult {
     if (!closeCommand) found.add("reserve");
   }
   const pending = OPTION.test(rest);
+  if (found.size === 0 && negated.size > 0) {
+    return { action: null, clear: false, flags: ["action_negated"], pending, negatedOnly: true };
+  }
+  if (found.size === 0 && PRICE_QUESTION.test(rest)) {
+    return { action: null, clear: false, flags: ["question"], pending };
+  }
   if (negatedPresence) return { action: null, clear: false, flags: ["action_ambiguous"], pending };
 
   // İptal; rezervasyon sözcükleri ve "tekrar açalım" ile birlikte tek anlamlıdır (iptal tarihi
@@ -656,6 +480,9 @@ const DATE_FLAGS: ReadonlySet<WaCalendarFlag> = new Set<WaCalendarFlag>([
   "date_invalid",
   "year_ambiguous",
   "date_change",
+  "date_order_reversed",
+  "date_list",
+  "date_unclear",
 ]);
 
 type Draft = {
@@ -667,25 +494,6 @@ type Draft = {
   excerpt: string;
   flags: Set<WaCalendarFlag>;
 };
-
-const AMBIGUOUS_DATES: ResolvedRange = { checkIn: null, checkOut: null, flags: ["date_ambiguous"] };
-
-/** Bir bölümdeki tarih ifadelerini aralıklara çevirir (belirsizse tek, boş, bayraklı aralık). */
-function rangesOf(dates: DateMention[], today: string): ResolvedRange[] {
-  const ranges = dates.filter((d): d is RangeMention => d.kind === "range");
-  const days = dates.filter((d): d is DayMention => d.kind === "day");
-  if (dates.length === 0) return [{ checkIn: null, checkOut: null, flags: ["date_missing"] }];
-  // "12-…" gibi eşleşmeyen bir aralık başı varsa tarih tahmin edilmez.
-  if (dates.some((d) => d.orphanBefore)) return [AMBIGUOUS_DATES];
-  if (days.length === 0) {
-    return ranges.map((r) => resolveRange(r.from, r.to, today, r.inclusiveAfter));
-  }
-  if (ranges.length === 0 && days.length === 2) {
-    return [resolveRange(days[0]!.date, days[1]!.date, today, days[1]!.inclusiveAfter)];
-  }
-  if (ranges.length === 0 && days.length === 1) return [resolveSingle(days[0]!.date, today)];
-  return [AMBIGUOUS_DATES];
-}
 
 /**
  * Tarih değişikliği mi? İki aralık "…'dan … 'a" ile bağlanmış ya da bölümde değişiklik sözcüğü
@@ -708,7 +516,6 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
 
   for (const seg of splitSegments(text.slice(0, MAX_INPUT))) {
     const folded = foldTr(seg);
-    const dates = findDateMentions(folded);
     const spans = findVillaNames(folded, seg);
     const villas = spans.map((v) => v.name);
     // Eylem, villa adları metinden çıkarılarak tanınır (ad ile eylem ayrı ayrıştırılır).
@@ -718,9 +525,25 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
         actionText.slice(0, v.start) + " ".repeat(v.end - v.start) + actionText.slice(v.end);
     }
     const act = detectAction(actionText);
+    // Yalnız olumsuz eylem ("kapatmayalım", "açmayın"): işlem de tepki de yok.
+    if (act.negatedOnly) continue;
+    // Tarihler YALNIZ merkezi modülden; ay yazılmamış sayılar ve göreli ifadeler yalnız takvim
+    // komutu bağlamında tarih sayılır.
+    const dates = findDateMentions(folded, {
+      today,
+      operational: OPERATIONAL_CONTEXT.test(actionText),
+    });
 
+    // Tarihi hiç anlaşılamayan takvim komutu (kapat/aç/iptal + sayı, "tarih", "hafta"…) ⚠️ alır.
+    const commandWithoutDate =
+      dates.length === 0 &&
+      act.action !== null &&
+      act.action !== "reserve" &&
+      DATE_TRACE.test(actionText);
     // Ne tarih ne de (villa + eylem) varsa sohbet mesajıdır.
-    if (dates.length === 0 && !(villas.length > 0 && act.action !== null)) continue;
+    if (dates.length === 0 && !(villas.length > 0 && act.action !== null) && !commandWithoutDate) {
+      continue;
+    }
 
     // Tarih değişikliği: tek öneri, eylem yok, yeni aralık (son aralık) ve date_change bayrağı.
     if (isDateChange(folded, dates)) {
@@ -880,6 +703,13 @@ export const WA_QUICK_APPROVE_ACTIONS: readonly WaCalendarAction[] = ["close", "
 const INFO_ONLY_FLAGS: ReadonlySet<WaCalendarFlag> = new Set<WaCalendarFlag>([
   "year_inferred",
   "multiple_items",
+  // Sürüm 4: tarih tek anlamlı çözüldü; yalnız nasıl çözüldüğünü anlatır.
+  "end_inclusive",
+  "month_inferred",
+  "date_relative",
+  "date_corrected",
+  "nights_count",
+  "day_list",
 ]);
 
 export const WA_REVIEW_REASONS = [

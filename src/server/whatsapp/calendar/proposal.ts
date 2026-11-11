@@ -18,6 +18,21 @@ import { WA_PROPOSAL_LIMITS as PL } from "@/lib/whatsapp-meta";
 
 import { type VillaResolutionResult, villaReviewContext } from "./resolve";
 
+/** Yalnız bilgi veren bayraklar (sınır aşılırsa ilk atılanlar). */
+const INFO_ONLY_STORE_FLAGS: ReadonlySet<string> = new Set([
+  "year_inferred",
+  "villa_missing",
+  "villa_name_mismatch",
+  "multiple_items",
+  "end_inclusive",
+  "month_inferred",
+  "date_relative",
+  "date_corrected",
+  "nights_count",
+  "day_list",
+  "guest_name_missing",
+]);
+
 /** app_wa_busy satırı (misafir bilgisi yok). */
 export type BusyRow = {
   kind: string;
@@ -100,7 +115,16 @@ export function buildStoreItem(input: {
   const checkOut = checkIn && item.checkOut && item.checkOut > checkIn ? item.checkOut : null;
   const villaName = item.villaName?.trim() ? clip(item.villaName.trim(), PL.villaNameMax) : null;
   const excerpt = clip(item.excerpt.trim(), PL.excerptMax) || "-";
-  const flags = [...new Set<string>([...item.flags, ...villa.serverFlags])].slice(0, PL.arrayMax);
+  const all = [...new Set<string>([...item.flags, ...villa.serverFlags])];
+  // Veritabanı sınırı (≤ 20). Pratikte aşılmaz; aşılırsa işlemi ENGELLEYEN bayraklar korunur,
+  // yalnız bilgi bayrakları atılır (bayrak düşürülerek otomatik işleme yol açılmaz).
+  const flags =
+    all.length <= PL.arrayMax
+      ? all
+      : [
+          ...all.filter((f) => !INFO_ONLY_STORE_FLAGS.has(f)),
+          ...all.filter((f) => INFO_ONLY_STORE_FLAGS.has(f)),
+        ].slice(0, PL.arrayMax);
 
   return {
     item_no: input.itemNo,
