@@ -452,6 +452,64 @@ describe("5) müsaitlik: harici doluluk yeni kaydı engeller", () => {
   });
 });
 
+/** Katlanmış (75 bayt) iCal satırlarını birleştirir. */
+const unfold = (text: string) =>
+  text
+    .replace(/\r\n[ \t]/g, "")
+    .split("\r\n")
+    .filter(Boolean);
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+/**
+ * Dışa aktarma akışında YALNIZ bu satırlar olabilir (izin listesi). Misafir adı, telefon,
+ * e-posta, tutar, not veya kişi sayısı taşıyabilecek hiçbir alan yoktur; her değerin biçimi sabit.
+ */
+const ALLOWED_EXPORT_LINES: RegExp[] = [
+  /^BEGIN:(?:VCALENDAR|VEVENT)$/,
+  /^END:(?:VCALENDAR|VEVENT)$/,
+  /^VERSION:2\.0$/,
+  /^PRODID:-\/\/Kiraligim\/\/Takvim 1\.0\/\/TR$/,
+  /^CALSCALE:GREGORIAN$/,
+  /^METHOD:PUBLISH$/,
+  /^X-WR-CALNAME:Villa Defne – Kiralığım$/,
+  new RegExp(`^UID:${UUID}@kiraligim\\.com$`),
+  /^(?:DTSTAMP|CREATED|LAST-MODIFIED):\d{8}T\d{6}Z$/,
+  /^(?:DTSTART|DTEND);VALUE=DATE:\d{8}$/,
+  /^SUMMARY:Dolu \(Kiralığım\)$/,
+  /^STATUS:CONFIRMED$/,
+  /^TRANSP:OPAQUE$/,
+];
+const uidsOf = (text: string) =>
+  unfold(text)
+    .filter((l) => l.startsWith("UID:"))
+    .map((l) => l.slice(4, 40))
+    .sort();
+
+/**
+ * Misafir verisi sızıntısı denetimi: (1) her satır izin listesinde; (2) test verisindeki misafir
+ * adları, e-posta, not ve telefonların BÜTÜN yazımları (en az 7 rakam: rastgele UID veya zaman
+ * damgasında tesadüfen oluşamaz) akışta yok. Kısa rakam dizileri ("532") aranmaz: UID ve zaman
+ * damgaları rakam içerir.
+ */
+function expectNoGuestData(text: string) {
+  for (const line of unfold(text)) {
+    expect(
+      ALLOWED_EXPORT_LINES.some((re) => re.test(line)),
+      `izin verilmeyen iCal satırı: ${line}`,
+    ).toBe(true);
+  }
+  const folded = text.toLowerCase().replace(/\r\n[ \t]/g, "");
+  for (const secret of ["mehmet", "kaya", "mehmet@ornek.com", "can demir", "bakım", "gizli"]) {
+    expect(folded).not.toContain(secret);
+  }
+  for (const phone of ["+90 532 123 45 67", "0532 111 22 33", "0532 000 11 22"]) {
+    const n = phone.replace(/\D/g, ""); // 905321234567 / 05321112233 / 05320001122
+    for (const form of [n, n.replace(/^90/, ""), n.replace(/^0/, ""), n.slice(-7)]) {
+      expect(folded, `telefon: ${form}`).not.toContain(form);
+    }
+    expect(folded).not.toContain(phone.toLowerCase());
+  }
+}
+
 describe("dışa aktarma (export)", () => {
   let token = "";
 
@@ -474,9 +532,26 @@ describe("dışa aktarma (export)", () => {
     expect(text).toContain(`DTSTART;VALUE=DATE:${ics(d(70))}`); // onaylanan talep
     expect(text).toContain(`DTSTART;VALUE=DATE:${ics(d(90))}`); // blok
     expect(text).toContain(`DTEND;VALUE=DATE:${ics(d(92))}`);
-    for (const secret of ["Mehmet", "mehmet@ornek.com", "532", "Bakım", "gizli"]) {
-      expect(text).not.toContain(secret);
-    }
+    expectNoGuestData(text);
+    // Akıştaki olaylar yalnız bu mülkün aktif kayıtlarıdır (UID = kayıt kimliği).
+    const ids = (
+      await admin.query<{ id: string }>(
+        "select id from reservations where property_id = $1 and status <> 'cancelled' order by id",
+        [prop],
+      )
+    ).rows.map((r) => r.id);
+    expect(uidsOf(text)).toEqual(ids);
+  });
+
+  it("CI regresyonu: zaman damgası '…T192532Z' gibi rakamlar içerebilir; misafir verisi değildir", async () => {
+    // GitHub Actions 2efd079: test 19:25:32 UTC'de çalıştı ve DTSTAMP/CREATED/LAST-MODIFIED
+    // değerleri "…T192532Z" oldu; eski test akışın TAMAMINDA "532" arıyordu (telefonun alan kodu)
+    // ve yanlış alarm verdi. Akışta telefon yoktur; denetim alan bazında yapılır.
+    const feed = await buildExportFeed(app, token, new Date("2026-11-11T19:25:32Z"));
+    const text = feed.ok ? feed.ics : "";
+    expect(text).toContain("DTSTAMP:20261111T192532Z");
+    expect(text).toContain("532"); // yalnız zaman damgasında
+    expectNoGuestData(text);
   });
 
   it("9) harici doluluklar dışa aktarmaya geri dönmez; iptal edilen kayıt çıkar", async () => {
