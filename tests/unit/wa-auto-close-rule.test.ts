@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseCalendarMessage } from "@/lib/wa-calendar-parse";
-import { autoCloseCandidate } from "@/server/whatsapp/calendar/auto-close-rule";
+import { autoCloseCandidate, autoOpenCandidate } from "@/server/whatsapp/calendar/auto-close-rule";
 import { type BusyRow, buildStoreItem, type StoreItem } from "@/server/whatsapp/calendar/proposal";
 import { resolveProposal, type ResolveContext } from "@/server/whatsapp/calendar/resolve";
 
@@ -203,5 +203,68 @@ describe("ayrıştırıcı v3: giriş/çıkış + kapat", () => {
     expect(parseCalendarMessage("10 Haziran giriş 15 Haziran çıkış", TODAY).items[0]!.action).toBe(
       "reserve",
     );
+  });
+});
+
+describe("Aşama 2: otomatik açma kuralı", () => {
+  const open = (
+    text: string,
+    o: { busy?: BusyRow[]; role?: "owner" | "participant" | null; group?: string | null } = {},
+  ) =>
+    autoOpenCandidate(items(text, o), {
+      senderRole: o.role === undefined ? "participant" : o.role,
+      groupPropertyId: o.group === undefined ? "testo" : o.group,
+    });
+  const BLOCK: BusyRow[] = [
+    {
+      kind: "block",
+      recordId: "b1",
+      checkIn: "2026-12-10",
+      checkOut: "2026-12-15",
+      status: "confirmed",
+    },
+  ];
+
+  it.each([
+    ["10-15 Aralık tarihlerini açalım.", "2026-12-10", "2026-12-15"],
+    ["20-25 Aralık arasını müsait yapalım.", "2026-12-20", "2026-12-25"],
+    ["Daha önce kapattığımız 5-10 Ocak tarihlerini serbest bırakalım.", "2027-01-05", "2027-01-10"],
+    ["Villa artık 15-20 Aralık arasında müsait.", "2026-12-15", "2026-12-20"],
+    ["Villa Testo 10-15 Aralık kapalı olan tarihleri açalım", "2026-12-10", "2026-12-15"],
+  ])("açık açma talimatı uygun: %s", (text, checkIn, checkOut) => {
+    expect(open(text, { busy: BLOCK })).toMatchObject({
+      action: "open",
+      property_id: "testo",
+      check_in: checkIn,
+      check_out: checkOut,
+      review_reasons: [],
+    });
+  });
+
+  it.each([
+    "15 Aralık açalım", // tek tarih: belirsiz, tahmin yok
+    "Villa Testo açalım", // tarih yok
+    "10-15 Aralık müsait mi?", // soru
+    "10-15 Aralık kapatalım", // kapatma
+    "Villa 15-20 Aralık müsait değil", // olumsuz: kapatma
+    "10-15 Aralık açalım, 20-22 Aralık açalım", // birden çok öğe
+    "10-15 Aralık rezervasyon iptal", // iptal (bu aşamada yok)
+  ])("uygun değil: %s", (text) => {
+    expect(open(text)).toBeNull();
+  });
+
+  it("yetkisiz gönderen veya villasız grup → aday yok", () => {
+    expect(open("10-15 Aralık açalım", { role: null })).toBeNull();
+    expect(open("10-15 Aralık açalım", { group: null })).toBeNull();
+  });
+
+  it("kapatma kuralı açma öğesini, açma kuralı kapatma öğesini seçmez", () => {
+    expect(cand("Villa Testo 10–15 Aralık açalım.")).toBeNull();
+    expect(open("Villa Testo 10–15 Aralık kapatalım.")).toBeNull();
+  });
+
+  it("'kapattık' tek başına kapatma bildirimi olarak kalır", () => {
+    const [it0] = parseCalendarMessage("Villa Testo 10-15 Aralık kapattık", TODAY).items;
+    expect(it0!.action).toBe("close");
   });
 });

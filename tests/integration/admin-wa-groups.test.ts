@@ -840,13 +840,14 @@ describe("mevcut eşleştirmeler korunur", () => {
     }
   });
 
-  it("B aşaması migration'ları (0046, 0047) mevcut veriyi değiştirmez", () => {
+  it("B aşaması ve Aşama 2 migration'ları (0046–0048) mevcut veriyi değiştirmez", () => {
     // Yeni tablo, kısıtların gevşetilerek yeniden tanımlanması, RLS, fonksiyon ve yetki; veri
     // ekleyen / değiştiren / silen ifade yok (fonksiyon gövdeleri hariç).
     const dir = path.join(process.cwd(), "drizzle");
     for (const f of [
       "0046_wa_participant_senders.sql",
       "0047_wa_participant_senders_security.sql",
+      "0048_wa_quick_open.sql", // Aşama 2: açma için kısıt gevşetme
     ]) {
       const text = readFileSync(path.join(dir, f), "utf8")
         .replace(/\$\$[\s\S]*?\$\$/g, "$$$$")

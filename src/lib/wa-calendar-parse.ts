@@ -441,6 +441,14 @@ const ACTION_WORDS: { re: RegExp; action: WaCalendarAction }[] = [
   },
 ];
 
+/**
+ * Daha önce yapılmış kapatmaya ATIF ("kapattığımız", "kapatılan", "kapalı olan … tarihleri"):
+ * eylem değil, açılacak tarihleri niteler. Yalnız metinde açma sözcüğü de varsa yok sayılır
+ * ("daha önce kapattığımız 5-10 Ocak tarihlerini serbest bırakalım" → açma). Tek başına
+ * ("10-15 Aralık'ı kapattık") kapatma bildirimi olarak kalır.
+ */
+const CLOSE_REFERENCE = /\bkapat(?:tig|tik|il|ilmis)\w*|\bkapadig\w*|\bkapali\s+olan\w*/g;
+
 const QUESTION = /\?|\bm[iu](?:\s|$|[.,!])/;
 const OPTION = /\bopsiyon\w*/;
 const CHECK_IN_OUT = /\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
@@ -470,6 +478,9 @@ function detectAction(folded: string): ActionResult {
       return " ".repeat(m.length);
     });
   }
+  const openWord = ACTION_WORDS.find((w) => w.action === "open")!.re;
+  const withoutReference = rest.replace(CLOSE_REFERENCE, (m) => " ".repeat(m.length));
+  if (withoutReference !== rest && openWord.test(withoutReference)) rest = withoutReference;
   for (const w of ACTION_WORDS) if (w.re.test(rest)) found.add(w.action);
   // "giriş … çıkış" tek başına rezervasyon anlamı taşır. Yalnız açık kapatma talimatıyla
   // ("10 Haziran giriş, 15 Haziran çıkış … kapat") birlikteyse tarih sınırını belirtir (v3).
@@ -859,8 +870,11 @@ export function confidenceBand(score: number): ConfidenceBand {
 // İnceleme kuralı (güvenlik): güven puanı bu kuralları ASLA aşamaz
 // ---------------------------------------------------------------------------------------------
 
-/** Tek tıkla onaylanabilecek eylemler. Rezervasyon, iptal ve açma her zaman elle incelenir. */
-export const WA_QUICK_APPROVE_ACTIONS: readonly WaCalendarAction[] = ["close"];
+/**
+ * Doğrudan (inceleme nedeni olmadan) uygulanabilecek eylemler: kapatma ve (Aşama 2) açma — açma
+ * yalnız takvim BLOKLARINI kaldırır. Rezervasyon ve iptal her zaman elle incelenir.
+ */
+export const WA_QUICK_APPROVE_ACTIONS: readonly WaCalendarAction[] = ["close", "open"];
 
 /** Tek tıkla onayı engellemeyen (yalnız bilgi veren) bayraklar. */
 const INFO_ONLY_FLAGS: ReadonlySet<WaCalendarFlag> = new Set<WaCalendarFlag>([
@@ -871,7 +885,7 @@ const INFO_ONLY_FLAGS: ReadonlySet<WaCalendarFlag> = new Set<WaCalendarFlag>([
 export const WA_REVIEW_REASONS = [
   /** Eylem yok (belirsiz, soru, tarih değişikliği…). */
   "no_action",
-  /** Rezervasyon, iptal veya açma: puan ne olursa olsun elle inceleme. */
+  /** Rezervasyon veya iptal: puan ne olursa olsun elle inceleme (açma Aşama 2 ile doğrudan uygulanır). */
   "action_requires_review",
   /** Bilgi dışı bir bayrak var. */
   "flagged",

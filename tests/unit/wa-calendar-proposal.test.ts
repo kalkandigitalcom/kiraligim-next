@@ -116,7 +116,8 @@ describe("öğe (app_wa_store_proposals girdisi)", () => {
     const open = build("Villa Mavi 15-20 Haziran tekrar açıldı", { busy: [BLOCK] });
     expect(open.action).toBe("open");
     expect(open.review_reasons).not.toContain("conflict");
-    expect(open.review_reasons).toContain("action_requires_review");
+    // Aşama 2: açma doğrudan uygulanabilir; dolu kayıtlar engel değil, hedeftir.
+    expect(open.review_reasons).not.toContain("action_requires_review");
     // Çakışma sorgulanamadı: temkinli.
     expect(build("Villa Mavi 15-20 Haziran kapalı", { busy: null }).review_reasons).toContain(
       "conflict",

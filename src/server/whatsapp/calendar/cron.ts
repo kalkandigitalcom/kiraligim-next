@@ -6,7 +6,8 @@
  * (wa_calendar_proposals) oluşturur. Bağlı ve aktif grubun Super Admin tarafından engellenmemiş
  * herhangi bir katılımcısının (B aşaması) grubun villası için açık, net tarihli ve çakışmasız kapatma
  * talimatı, işletme sahibinin oturum bağlamında rezervasyon servisiyle doğrudan blok olur
- * (../auto-close.ts).
+ * (../auto-close.ts); açık "aç / müsait" talimatı aralıkta TAMAMEN kalan takvim bloklarını
+ * kaldırır (Aşama 2, ../auto-open.ts; rezervasyon ve harici takvim kayıtlarına dokunulmaz).
  * Uygulamanın kendi bağlantısını (DATABASE_URL, app_user, RLS) kullanır; HTTP uç noktası veya ek
  * sır yoktur. İlk çalıştırma worker'ı etkinleştirir: o ana kadar kuyruktaki mesajlar işlenmez.
  * Çıkış kodu: 0 başarılı (tek tek mesaj hataları mesaja yazılır), 1 beklenmeyen hata.
@@ -16,6 +17,7 @@ import { createStandaloneDb } from "../../../db/standalone";
 import { APP_ENVS, type AppEnv, checkDatabaseName } from "../../../lib/env";
 import { createLogger } from "../../../lib/logger";
 import { createAutoCloser } from "../auto-close";
+import { createAutoOpener } from "../auto-open";
 import { runCalendarWorker, safeError } from "./worker";
 
 const log = createLogger({ service: "wa-calendar" });
@@ -37,7 +39,11 @@ async function main() {
   });
   try {
     const started = Date.now();
-    const summary = await runCalendarWorker(db, { log, autoClose: createAutoCloser(db) });
+    const summary = await runCalendarWorker(db, {
+      log,
+      autoClose: createAutoCloser(db),
+      autoOpen: createAutoOpener(db),
+    });
     log.info("wa_calendar_finished", { ...summary, ms: Date.now() - started });
   } finally {
     await end();

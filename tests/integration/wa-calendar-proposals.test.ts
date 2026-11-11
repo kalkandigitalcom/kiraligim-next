@@ -832,7 +832,7 @@ describe("öneri: RLS, durum makinesi ve karar", () => {
     ).toBe("23514");
   });
 
-  it("GÜVENLİK: 'tek tık' yalnız nedensiz kapatma — rezervasyon/iptal/açma puan 100 olsa da 'quick' kaydedilemez", async () => {
+  it("GÜVENLİK: 'tek tık' yalnız nedensiz kapatma ve (Aşama 2) açma — rezervasyon/iptal puan 100 olsa da 'quick' kaydedilemez", async () => {
     const decide = (id: string, mode: string, reasons: string[]) =>
       upd(
         O,
@@ -849,15 +849,22 @@ describe("öneri: RLS, durum makinesi ve karar", () => {
       band: "high",
     });
     expect(await decide(reserve.id, "quick", [])).toBe("23514");
-    for (const action of ["cancel", "open"]) {
-      const p = await proposal(G.jid, {
-        action,
-        check_in: day(150),
-        check_out: day(152),
-        score: 100,
-      });
-      expect([action, await decide(p.id, "quick", [])]).toEqual([action, "23514"]);
-    }
+    const cancel = await proposal(G.jid, {
+      action: "cancel",
+      check_in: day(150),
+      check_out: day(152),
+      score: 100,
+    });
+    expect(await decide(cancel.id, "quick", [])).toBe("23514");
+    // Aşama 2 (0048): nedensiz açma "quick" olabilir; nedenli açma olamaz.
+    const openFlagged = await proposal(G.jid, {
+      action: "open",
+      check_in: day(154),
+      check_out: day(156),
+      score: 100,
+    });
+    expect(await decide(openFlagged.id, "quick", ["flagged"])).toBe("23514");
+    expect(await decide(openFlagged.id, "quick", [])).toBe("ok");
     const closeFlagged = await proposal(G.jid, { check_in: day(160), check_out: day(162) });
     expect(await decide(closeFlagged.id, "quick", ["flagged"])).toBe("23514");
     // İncelenmiş onay kabul edilir; nedenler kaydedilir.

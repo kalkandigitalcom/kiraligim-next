@@ -557,10 +557,12 @@ export const waCalendarProposals = pgTable(
     // GÜVENLİK: "tek tık" yalnız nedensiz kapatma; rezervasyon, iptal ve açma her zaman incelenir.
     // Güven puanı bu kuralı aşamaz (uygulama kodu atlansa bile veritabanı reddeder).
     // Gönderen rolü kısıtlamaz (B aşaması): engellenmemiş grup katılımcısının kapatması da "quick".
+    // Aşama 2 (drizzle/0048): takvim AÇMA da "quick" olabilir (yalnız blokları kaldırır). Kısıt adı
+    // geriye uyum için korunur.
     check(
       "wa_calendar_proposals_quick_only_close",
       sql`${t.decisionMode} is distinct from 'quick'
-        or (${t.action} = 'close' and cardinality(${t.decisionReasons}) = 0
+        or (${t.action} in ('close', 'open') and cardinality(${t.decisionReasons}) = 0
             and ${t.senderRole} in (${inList(WA_SENDER_ROLES)}))`,
     ),
     check(

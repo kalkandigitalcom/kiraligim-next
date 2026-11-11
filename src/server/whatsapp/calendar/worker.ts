@@ -52,7 +52,8 @@ import {
 } from "@/lib/whatsapp-meta";
 
 import type { AutoCloser } from "../auto-close";
-import { autoCloseCandidate } from "./auto-close-rule";
+import type { AutoOpener } from "../auto-open";
+import { autoCloseCandidate, autoOpenCandidate } from "./auto-close-rule";
 import { decideReaction } from "./reaction";
 import { type BusyRow, buildStoreItem, busyRange, type StoreItem } from "./proposal";
 import { type ResolverVilla, resolveProposal } from "./resolve";
@@ -69,8 +70,10 @@ export type WorkerDeps = {
   maxMessages?: number;
   /** Test kancası: öğeler hazırlandıktan sonra, yazımdan hemen önce. */
   beforeStore?: (claim: ClaimedMessage) => Promise<void>;
-  /** A2e: sahibin açık kapatma talimatını takvime işleyen servis (verilmezse yalnız öneri). */
+  /** A2e: açık kapatma talimatını takvime işleyen servis (verilmezse yalnız öneri). */
   autoClose?: AutoCloser;
+  /** Aşama 2: açık açma talimatıyla takvim bloklarını kaldıran servis (verilmezse yalnız öneri). */
+  autoOpen?: AutoOpener;
 };
 
 export type ClaimedMessage = {
@@ -90,6 +93,8 @@ export type ProcessOutcome =
       outcome: "stored";
       proposals: number;
       autoClose?: "applied" | "failed";
+      /** Aşama 2: otomatik açma sonucu (denendiyse). */
+      autoOpen?: "applied" | "failed";
       /** Kuyruğa yazılan tepki (yazılmadıysa veya tepki yoksa null). */
       reaction?: WaReactionKind | null;
     }
@@ -106,6 +111,8 @@ export type WorkerSummary = {
   lockLost: number;
   autoClosed: number;
   autoCloseFailed: number;
+  autoOpened: number;
+  autoOpenFailed: number;
   reactions: number;
 };
 
@@ -273,10 +280,12 @@ export async function processClaimed(
     }
   }
 
-  // A2e / B: otomatik kapatma adayı ve işlemi yapacak işletme sahibi (mesaj hâlâ kilitliyken).
-  const candidate = deps.autoClose
-    ? autoCloseCandidate(items, { senderRole: c.senderRole, groupPropertyId: c.groupPropertyId })
-    : null;
+  // A2e / B / Aşama 2: otomatik kapatma veya açma adayı ve işlemi yapacak işletme sahibi (mesaj
+  // hâlâ kilitliyken). Kural tek öğe istediği için en fazla biri seçilir.
+  const rule = { senderRole: c.senderRole, groupPropertyId: c.groupPropertyId };
+  const closeItem = deps.autoClose ? autoCloseCandidate(items, rule) : null;
+  const openItem = !closeItem && deps.autoOpen ? autoOpenCandidate(items, rule) : null;
+  const candidate = closeItem ?? openItem;
   let owner: string | null = null;
   if (candidate) {
     const actor = await step("context_error", () => actorOf(db, c));
@@ -287,34 +296,38 @@ export async function processClaimed(
   await deps.beforeStore?.(c);
   const stored = await step("store_error", () => store(db, c, items));
   if (!stored.ok) return stored.out;
-  if (!candidate || !owner || !deps.autoClose || stored.value === 0) {
+  if (!candidate || !owner || stored.value === 0) {
     const reaction = await queueReaction(db, c, items, stored.value, undefined, log);
     return { outcome: "stored", proposals: stored.value, reaction };
   }
 
-  // Öneri kaydedildi ve mesaj işlendi; otomatik kapatma başarısız olursa öneri panelde bekler.
+  // Öneri kaydedildi ve mesaj işlendi; otomatik işlem başarısız olursa takvim değişmez (⚠️).
   let auto: "applied" | "failed" = "failed";
+  const req = {
+    workspaceId: c.workspaceId,
+    userId: owner,
+    messageId: c.messageId,
+    itemNo: candidate.item_no,
+    propertyId: candidate.property_id!,
+    checkIn: candidate.check_in!,
+    checkOut: candidate.check_out!,
+  };
+  const kind = closeItem ? "close" : "open";
   try {
-    const r = await deps.autoClose({
-      workspaceId: c.workspaceId,
-      userId: owner,
-      messageId: c.messageId,
-      itemNo: candidate.item_no,
-      propertyId: candidate.property_id!,
-      checkIn: candidate.check_in!,
-      checkOut: candidate.check_out!,
-    });
+    const r = closeItem ? await deps.autoClose!(req) : await deps.autoOpen!(req);
     auto = r.outcome;
-    log?.info("wa_calendar_auto_close", {
+    log?.info(closeItem ? "wa_calendar_auto_close" : "wa_calendar_auto_open", {
       message: c.messageId,
       outcome: r.outcome,
       ...(r.outcome === "failed" ? { reason: r.reason } : {}),
     });
   } catch (err) {
-    log?.error("wa_calendar_auto_close_error", { message: c.messageId, ...safeError(err) });
+    log?.error(`wa_calendar_auto_${kind}_error`, { message: c.messageId, ...safeError(err) });
   }
   const reaction = await queueReaction(db, c, items, stored.value, auto, log);
-  return { outcome: "stored", proposals: stored.value, autoClose: auto, reaction };
+  return closeItem
+    ? { outcome: "stored", proposals: stored.value, autoClose: auto, reaction }
+    : { outcome: "stored", proposals: stored.value, autoOpen: auto, reaction };
 }
 
 /**
@@ -367,6 +380,8 @@ export async function runCalendarWorker(
     lockLost: 0,
     autoClosed: 0,
     autoCloseFailed: 0,
+    autoOpened: 0,
+    autoOpenFailed: 0,
     reactions: 0,
   };
   const batch = Math.min(Math.max(1, deps.batchSize ?? WL.batchSize), PL.claimBatchMax);
@@ -388,6 +403,8 @@ export async function runCalendarWorker(
         if (r.reaction) summary.reactions++;
         if (r.autoClose === "applied") summary.autoClosed++;
         else if (r.autoClose === "failed") summary.autoCloseFailed++;
+        if (r.autoOpen === "applied") summary.autoOpened++;
+        else if (r.autoOpen === "failed") summary.autoOpenFailed++;
       } else if (r.outcome === "lock_lost") summary.lockLost++;
       else if (r.outcome === "failed") summary.failed++;
       else summary.retried++;

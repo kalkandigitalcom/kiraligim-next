@@ -164,8 +164,26 @@ export const AUDIT_ACTIONS = {
     group: z.uuid().optional(),
     sender_role: z.enum(WA_SENDER_ROLES).optional(),
   }),
+  // Aşama 2: açma talimatı takvim bloklarını kaldırdı (yalnız kimlikler; numara yazılmaz).
+  "whatsapp.proposal_auto_opened": z.strictObject({
+    property: z.uuid(),
+    reservations: z.array(z.uuid()).min(1).max(20),
+    group: z.uuid(),
+    sender_role: z.enum(WA_SENDER_ROLES),
+  }),
   "whatsapp.proposal_auto_failed": z.strictObject({
-    reason: z.enum(["changed", "conflict", "property_inactive", "invalid", "error"]),
+    reason: z.enum([
+      "changed",
+      "conflict",
+      "property_inactive",
+      "invalid",
+      "error",
+      // Aşama 2 (açma): kısmi çakışma, kaldırılacak blok yok, sınır aşıldı, aralık dolu.
+      "partial",
+      "no_target",
+      "too_many",
+      "occupied",
+    ]),
   }),
   "reservation.status_changed": z.strictObject({
     property: z.uuid(),

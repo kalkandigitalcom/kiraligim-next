@@ -120,13 +120,19 @@ describe("merkezi tepki kararı", () => {
     expect(decideReaction({ senderRole: "owner", items: its, stored: 0 })).toBeNull();
   });
 
-  it("açma / iptal (bu aşamada desteklenmiyor) → ⚠️, ☑️ değil", () => {
+  it("açma uygulanmadıysa / iptal (desteklenmiyor) → ⚠️, ☑️ değil", () => {
     expect(decide("Villa In Love 10-15 Haziran açıldı")).toBe("warning");
     expect(decide("Villa In Love 10-15 Haziran iptal")).toBe("warning");
   });
 
   it("birden çok öğe: biri sorunluysa ⚠️", () => {
     expect(decide("Villa In Love 10-15 Haziran kapalı, 20 Temmuz kapalı")).toBe("warning");
+  });
+
+  it("Aşama 2: açma — bloklar kaldırıldıysa ✅, kaldırılamadıysa ⚠️", () => {
+    expect(decide("Villa In Love 10-15 Haziran açalım", { auto: "applied" })).toBe("done");
+    expect(decide("Villa In Love 10-15 Haziran açalım", { auto: "failed" })).toBe("warning");
+    expect(decide("Villa In Love 15 Haziran açalım")).toBe("warning"); // tek tarih: belirsiz
   });
 
   it("☑️ (submitted) hiçbir girdide seçilmez", () => {

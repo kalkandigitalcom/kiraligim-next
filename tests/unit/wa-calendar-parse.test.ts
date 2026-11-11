@@ -661,17 +661,18 @@ describe("v2 villa adı: eylemden ayrı ayrıştırılır", () => {
 describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
   const ok = { villa: "named" as const, senderRole: "owner" as const, conflictFree: true };
 
-  it("yalnız 'close' tek tıkla onaylanabilir", () => {
-    expect(WA_QUICK_APPROVE_ACTIONS).toEqual(["close"]);
+  it("yalnız 'close' ve (Aşama 2) 'open' doğrudan uygulanabilir", () => {
+    expect(WA_QUICK_APPROVE_ACTIONS).toEqual(["close", "open"]);
     const d = reviewRequirement(one("Villa A 15-20 Haziran kapalı."), ok);
     expect(d).toEqual({ quickApprove: true, score: 100, band: "high", reasons: [] });
+    const o = reviewRequirement(one("Villa C'nin 10-15 Ağustos tarihlerini tekrar açalım."), ok);
+    expect(o).toEqual({ quickApprove: true, score: 100, band: "high", reasons: [] });
   });
 
   it("rezervasyon ve iptal, puan 100 olsa bile elle incelenir", () => {
     for (const text of [
       "Villa B 5 Temmuz giriş, 12 Temmuz çıkış rezervasyon aldı.",
       "Villa Lavanta 14-21 Temmuz rezervasyonu iptal oldu",
-      "Villa C'nin 10-15 Ağustos tarihlerini tekrar açalım.",
     ]) {
       const i = one(text);
       const d = reviewRequirement(i, ok);

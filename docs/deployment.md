@@ -1012,3 +1012,32 @@ Coolify'da bu değişkenler **Build Variable olarak işaretlenmez** (yalnız ça
 1. Şema `src/db/schema` altında değişir → `npm run db:generate` (RLS/yetki için `npm run db:generate:custom`).
 2. CI tüm migration'ları boş veritabanına sıfırdan uygular ve testleri koşturur.
 3. Deploy'da konteyner açılışında uygulanır. Production'dan önce Coolify'da elle yedek alınır.
+
+## WhatsApp üzerinden takvim açma — Aşama 2 (0048)
+
+Bağlı ve aktif grubun engellenmemiş her katılımcısı (B aşaması kuralları aynen) kapalı tarihleri
+yeniden açabilir: "10-15 Aralık tarihlerini açalım", "20-25 Aralık arasını müsait yapalım", "Daha
+önce kapattığımız 5-10 Ocak tarihlerini serbest bırakalım", "Villa artık 15-20 Aralık arasında
+müsait". Mesaj kesin komuttur; onay beklenmez.
+
+- **Yalnız takvim blokları:** grubun villasında, istenen `[giriş, çıkış)` aralığında **tamamen**
+  kalan aktif bloklar (elle veya WhatsApp'tan eklenmiş) mevcut `cancelReservation` servisiyle,
+  işletme sahibi adına kaldırılır. Rezervasyonlar (Airbnb/Booking kaynaklı olanlar dahil), harici
+  takvim (iCal) olayları ve başka villaların kayıtları hiç değişmez.
+- **İşlem yapılmayan durumlar (⚠️):** bir blok aralıkla yalnız kısmen çakışıyorsa (blok bölme yok),
+  aralıkta kaldırılacak blok yoksa, aralıkta gerçek rezervasyon veya harici takvim doluluğu varsa
+  (tarihler tamamen açılamaz; hiçbir blok kaldırılmaz), tarih belirsizse (tek tarih) veya işlem tamamlanamadıysa.
+  Soru ("müsait mi?") ve ilgisiz sohbet tepki almaz.
+- **Bütünlük:** kilit sırası grup (FOR SHARE) → öneri → bloklar (FOR UPDATE, kimlik sırasıyla);
+  blokların kaldırılması ve önerinin `applied` (`decision_mode = 'quick'`) olması tek
+  transaction'dır. ✅ yalnız commit'ten sonra kuyruğa yazılır. Aynı mesaj ikinci kez işlenmez.
+- **Kayıt:** öneride gerçek gönderen (`sender_hash`, `sender_role`) ve grup; denetimde
+  `whatsapp.proposal_auto_opened` (villa, kaldırılan bloklar, grup, gönderen rolü) ve her blok için
+  `reservation.status_changed`; başarısızlıkta `whatsapp.proposal_auto_failed` (`partial`,
+  `no_target`, `occupied`, `changed`, …).
+- **Veritabanı (0048):** `wa_calendar_proposals_quick_only_close` kısıtı `action in ('close',
+'open')` olacak şekilde gevşetildi (ad korunur). Veri değişmez.
+
+**Deploy:** ek ortam değişkeni yok; 0048 açılışta uygulanır. Worker aynı imajdan çalışır; Gateway
+değişmedi. **Geri alma:** kısıt 0046'daki tanımına döndürülür (önce `action = 'open'` ve
+`decision_mode = 'quick'` olan öneri yoksa).

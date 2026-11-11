@@ -5,10 +5,11 @@
  * bu fonksiyonla TEK bir tepki seçer; tepki veritabanında yeniden doğrulanır (app_wa_queue_reaction)
  * ve ağ geçidi tarafından mesajın üzerine reaction olarak gönderilir.
  *
- *   done      ✅  istenen takvim işlemi GERÇEKTEN tamamlandı (otomatik blok oluştu).
- *   warning   ⚠️  takvim talimatı anlaşıldı ama uygulanamadı: tarih/villa belirsiz, çakışma, bu
- *                  aşamada desteklenmeyen işlem (rezervasyon, açma, iptal) ya da otomatik işlem
- *                  güvenle tamamlanamadı.
+ *   done      ✅  istenen takvim işlemi GERÇEKTEN tamamlandı (otomatik blok oluştu ya da — Aşama 2 —
+ *                  bloklar kaldırıldı); veritabanı commit'inden sonra.
+ *   warning   ⚠️  takvim talimatı anlaşıldı ama uygulanamadı: tarih/villa belirsiz, çakışma, kısmi
+ *                  blok, kaldırılacak blok yok, aralıkta rezervasyon/harici doluluk var, bu aşamada desteklenmeyen işlem (rezervasyon, iptal)
+ *                  ya da otomatik işlem güvenle tamamlanamadı.
  *   null          tepki yok: gönderen yetkisiz (engelli / belirlenemedi; veritabanı zaten eler),
  *                  mesaj takvimle ilgili değil (öneri yok) ya da yalnız soru ("müsait mi?").
  *
@@ -26,7 +27,7 @@ export type ReactionInput = {
   items: readonly StoreItem[];
   /** Kaydedilen öneri sayısı (0: mesaj öneri üretmedi / yok sayıldı). */
   stored: number;
-  /** Otomatik kapatma sonucu; denenmediyse undefined. */
+  /** Otomatik kapatma veya açma sonucu; denenmediyse undefined. */
   autoClose?: "applied" | "failed";
 };
 
