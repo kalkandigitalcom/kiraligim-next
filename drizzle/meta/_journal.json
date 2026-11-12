@@ -358,6 +358,20 @@
       "when": 1794423863184,
       "tag": "0050_wa_change_dates_security",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794430573025,
+      "tag": "0051_api_clients",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794430621125,
+      "tag": "0052_api_security",
+      "breakpoints": true
     }
   ]
 }

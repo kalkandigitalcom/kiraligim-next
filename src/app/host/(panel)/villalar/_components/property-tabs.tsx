@@ -4,12 +4,12 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   propertyId: string;
-  active: "info" | "rates" | "publish" | "ical";
+  active: "info" | "rates" | "publish" | "ical" | "api";
 };
 
 /**
  * Mülk sayfası sekmeleri: Bilgiler · Fiyatlar · Yayın · Takvim bağlantıları (iCal içe/dışa
- * aktarma, 3.1) · Takvim (takvim sayfasına, bu mülk seçili). Fotoğraflar Bilgiler sihirbazının 2. adımındadır (Aşama 3). Yayın: müşteriye açık villa
+ * aktarma, 3.1) · API erişimi (acente okuma API'si) · Takvim (takvim sayfasına, bu mülk seçili). Fotoğraflar Bilgiler sihirbazının 2. adımındadır (Aşama 3). Yayın: müşteriye açık villa
  * sayfası ayarları.
  */
 export function PropertyTabs({ propertyId, active }: Props) {
@@ -21,8 +21,14 @@ export function PropertyTabs({ propertyId, active }: Props) {
       key: "ical",
       href: `/villalar/${propertyId}/takvim-baglantilari`,
       label: "Takvim bağlantıları",
-      // Dar ekranda kısa ad: beş sekme 390 px'te kaydırmadan sığar.
+      // Dar ekranda kısa ad (sekmeler dar ekranda yatay kayar).
       short: "iCal",
+    },
+    {
+      key: "api",
+      href: `/villalar/${propertyId}/api-erisimi`,
+      label: "API erişimi",
+      short: "API",
     },
     { key: "calendar", href: `/takvim?mulk=${propertyId}`, label: "Takvim" },
   ] as const satisfies readonly { key: string; href: string; label: string; short?: string }[];

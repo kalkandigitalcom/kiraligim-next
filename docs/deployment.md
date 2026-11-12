@@ -1128,3 +1128,46 @@ tarihlerini değiştirebilir. Misafir adı kullanılmaz; kayıt eski tarih aral�
 **Deploy:** ek ortam değişkeni yok; 0049 ve 0050 açılışta uygulanır. Worker aynı imajdan
 çalışır; Gateway değişmedi. **Geri alma:** fonksiyonu 0047 tanımına döndürün; `change` önerisi
 yoksa kısıtlar 0048 hâline döndürülüp kolonlar kaldırılabilir.
+
+## Acente okuma API'si — 1. aşama (0051, 0052)
+
+Acenteler, ev sahibinin izin verdiği villaların **yalnız kimliğini, adını ve dolu tarih
+aralıklarını** okur. Ayrıntı: `docs/api/README.md`, sözleşme: `docs/api/openapi.yaml`.
+
+- **Uç noktalar:** `GET /api/v1/me`, `/api/v1/properties`, `/api/v1/properties/{id}`,
+  `/api/v1/properties/{id}/availability?from=&to=`. `/api/*` proxy tarafından yeniden yazılmaz;
+  API uygulama alan adında (`APP_URL`) yayınlanır. Tanımsız `/api/v1/*` → JSON 404.
+- **Paylaşılmayan:** açıklama, fotoğraf, özellik, adres/koordinat, fiyat, ev sahibi, misafir,
+  rezervasyon tutarı/notu, kaynak kanal. Dolu aralıklar Kiraligim kayıtları (beklemede/onaylı
+  rezervasyon ve bloklar) ile etkin harici takvim olaylarının birleşimidir; kaynak ayırt edilmez.
+- **Kimlik:** `Authorization: Bearer kg_live_…`. Anahtar ve acente erişim kodu yalnız SHA-256
+  özetiyle saklanır, bir kez gösterilir. Sorgu dizgisindeki anahtar kabul edilmez.
+- **Sınır:** anahtar başına dakikada 120 istek; sayaç veritabanında (`api_rate_windows`, atomik
+  `INSERT … ON CONFLICT`), bu yüzden birden çok uygulama örneği arasında ortaktır. Sabit dakika
+  penceresi. Başarısız kimlik denemeleri ayrıca süreç içinde IP özeti başına sınırlanır.
+- **Erişim:** Super Admin (`/api-musterileri`) hesap, anahtar, erişim kodu ve villa izinlerini
+  yönetir, son 30 günlük kullanımı görür. Ev sahibi/yönetici villa sayfasındaki **API erişimi**
+  sekmesinde kodu girer, acente adını görüp onaylar veya izni kaldırır. İzin kaldırma, hesap
+  pasifleştirme ve anahtar geri alma bir sonraki istekte geçerlidir. Pasif villa ve askıdaki
+  işletmenin villaları API'de görünmez.
+- **Veritabanı:** 0051 beş yeni tabloyu ekler (`api_clients`, `api_keys`, `api_access_grants`,
+  `api_rate_windows`, `api_usage_daily`); mevcut tablolarda kolon/kısıt değişmez. 0052: beş
+  tabloda FORCE RLS, PUBLIC yetkileri geri alınır (hiçbir uygulama rolü tablolara doğrudan
+  erişemez), `app_api_*` SECURITY DEFINER fonksiyonları ve yalnız `app.api_fn` bayrağıyla geçerli
+  dar **okuma** politikaları (`properties`, `workspaces`, `reservations`, harici takvim,
+  `admin_users`) ile denetim kaydı ekleme politikaları (`api.%`).
+
+**Deploy:** ek ortam değişkeni yok. 0051 ve 0052 açılışta uygulanır (önce Coolify'da yedek).
+Doğrulama (psql, `app_migrator` veya süper kullanıcı):
+
+```sql
+select relname, relrowsecurity, relforcerowsecurity from pg_class
+ where relname like 'api\_%' escape '\' order by 1;                     -- hepsi t, t
+select has_table_privilege('app_user', 'api_keys', 'select'),
+       has_table_privilege('app_admin', 'api_keys', 'select');           -- f, f
+select proname, prosecdef from pg_proc where proname like 'app\_api\_%' escape '\' order by 1;
+```
+
+**Geri alma:** `DROP FUNCTION app_api_*`; `DROP POLICY *_api_fn` (0052'deki liste); `DROP TABLE
+api_rate_windows, api_usage_daily, api_access_grants, api_keys, api_clients`. Mevcut villa,
+rezervasyon ve takvim verisi etkilenmez.

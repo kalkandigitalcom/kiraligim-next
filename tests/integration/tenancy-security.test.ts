@@ -25,6 +25,30 @@ describe("fonksiyonlar", () => {
   it("hepsinin sahibi app_migrator ve search_path sabit (pg_catalog, pg_temp)", async () => {
     const rows = await fn();
     expect(rows.map((r) => r.proname)).toEqual([
+      // 0052: acente okuma API'si (istek, villa sayfası, Super Admin; iki iç yardımcı)
+      "app_api_admin_assert",
+      "app_api_admin_client",
+      "app_api_admin_clients",
+      "app_api_admin_create_client",
+      "app_api_admin_create_key",
+      "app_api_admin_grant",
+      "app_api_admin_grants",
+      "app_api_admin_keys",
+      "app_api_admin_revoke_grant",
+      "app_api_admin_revoke_key",
+      "app_api_admin_set_access_code",
+      "app_api_admin_set_client_status",
+      "app_api_admin_usage",
+      "app_api_begin",
+      "app_api_busy",
+      "app_api_grant_property",
+      "app_api_lookup_access_code",
+      "app_api_note_error",
+      "app_api_properties",
+      "app_api_property",
+      "app_api_property_grants",
+      "app_api_resolve_key",
+      "app_api_revoke_property_grant",
       "app_audit_log_immutable",
       "app_current_member_role",
       "app_current_membership_role",
@@ -110,6 +134,28 @@ describe("fonksiyonlar", () => {
   it("yalnız üyelik aramaları, son owner koruması ve deneme aboneliği tetikleyicisi SECURITY DEFINER", async () => {
     const definers = (await fn()).filter((r) => r.definer).map((r) => r.proname);
     expect(definers).toEqual([
+      // 0052: acente API'si — tablolara tek erişim yolu (anahtar özeti / oturum / yönetici doğrulanır)
+      "app_api_admin_client",
+      "app_api_admin_clients",
+      "app_api_admin_create_client",
+      "app_api_admin_create_key",
+      "app_api_admin_grant",
+      "app_api_admin_grants",
+      "app_api_admin_keys",
+      "app_api_admin_revoke_grant",
+      "app_api_admin_revoke_key",
+      "app_api_admin_set_access_code",
+      "app_api_admin_set_client_status",
+      "app_api_admin_usage",
+      "app_api_begin",
+      "app_api_busy",
+      "app_api_grant_property",
+      "app_api_lookup_access_code",
+      "app_api_note_error",
+      "app_api_properties",
+      "app_api_property",
+      "app_api_property_grants",
+      "app_api_revoke_property_grant",
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
       // 0029 (3.1): iCal senkronu ve dışa aktarma — tek yazma/okuma noktaları (kilit belirteciyle)
@@ -178,6 +224,7 @@ describe("fonksiyonlar", () => {
          and proname <> 'app_public_reservation_request'
          and proname not like 'app\\_ical\\_%'
          and proname not like 'app\\_wa\\_%'
+         and proname not like 'app\\_api\\_%'
        order by 1`);
     expect(r.rows).toEqual([
       { proname: "app_current_membership_role", pronargs: 0 },
@@ -261,6 +308,51 @@ describe("fonksiyonlar", () => {
       { proname: "app_wa_unlink_group", args: "p_group uuid" },
       { proname: "app_wa_verify_phone", args: "p_code text, p_sender_pn text" },
     ]);
+    // 0052: acente API'si. İstek fonksiyonları yalnız anahtar ÖZETİ alır (hesap ondan bulunur);
+    // villa sayfası fonksiyonları işletme/kullanıcıyı oturum bağlamından alır; Super Admin
+    // fonksiyonlarının ilk parametresi yönetici kimliğidir. Ayrıntı: tests/integration/api.test.ts.
+    const api = await admin.query(`
+      select proname, pg_get_function_identity_arguments(oid) as args from pg_proc
+       where pronamespace = 'public'::regnamespace and prosecdef and proname like 'app\\_api\\_%'
+       order by 1, 2`);
+    expect(api.rows).toEqual([
+      { proname: "app_api_admin_client", args: "p_admin uuid, p_client uuid" },
+      { proname: "app_api_admin_clients", args: "p_admin uuid" },
+      { proname: "app_api_admin_create_client", args: "p_admin uuid, p_name text" },
+      {
+        proname: "app_api_admin_create_key",
+        args: "p_admin uuid, p_client uuid, p_prefix text, p_hash text, p_label text",
+      },
+      { proname: "app_api_admin_grant", args: "p_admin uuid, p_client uuid, p_property uuid" },
+      { proname: "app_api_admin_grants", args: "p_admin uuid, p_client uuid" },
+      { proname: "app_api_admin_keys", args: "p_admin uuid, p_client uuid" },
+      { proname: "app_api_admin_revoke_grant", args: "p_admin uuid, p_grant uuid" },
+      { proname: "app_api_admin_revoke_key", args: "p_admin uuid, p_key uuid" },
+      {
+        proname: "app_api_admin_set_access_code",
+        args: "p_admin uuid, p_client uuid, p_hash text, p_hint text",
+      },
+      {
+        proname: "app_api_admin_set_client_status",
+        args: "p_admin uuid, p_client uuid, p_active boolean",
+      },
+      { proname: "app_api_admin_usage", args: "p_admin uuid, p_client uuid" },
+      { proname: "app_api_begin", args: "p_hash text" },
+      {
+        proname: "app_api_busy",
+        args: "p_hash text, p_property uuid, p_from date, p_to date",
+      },
+      {
+        proname: "app_api_grant_property",
+        args: "p_property uuid, p_code_hash text, p_client uuid",
+      },
+      { proname: "app_api_lookup_access_code", args: "p_code_hash text" },
+      { proname: "app_api_note_error", args: "p_hash text" },
+      { proname: "app_api_properties", args: "p_hash text, p_after uuid, p_limit integer" },
+      { proname: "app_api_property", args: "p_hash text, p_property uuid" },
+      { proname: "app_api_property_grants", args: "p_property uuid" },
+      { proname: "app_api_revoke_property_grant", args: "p_grant uuid" },
+    ]);
     // 0024 (F2a): public okuma fonksiyonları parametre alır (adres / mülk kimliği / tarih), ancak
     // yalnız yayındaki ve görünür villaların sabit kolonlarını döndürür (tests/integration/public-villa.test.ts).
     const pub = await admin.query(`
@@ -296,6 +388,30 @@ describe("fonksiyonlar", () => {
        where p.pronamespace = 'public'::regnamespace and p.proname like 'app\\_%'
        group by p.proname order by 1`);
     expect(Object.fromEntries(r.rows.map((x) => [x.proname, x.grantees]))).toEqual({
+      // 0052: API istek ve villa sayfası fonksiyonları app_user; yönetim app_admin; iç yardımcılar kimsede
+      app_api_admin_assert: [],
+      app_api_admin_client: ["app_admin"],
+      app_api_admin_clients: ["app_admin"],
+      app_api_admin_create_client: ["app_admin"],
+      app_api_admin_create_key: ["app_admin"],
+      app_api_admin_grant: ["app_admin"],
+      app_api_admin_grants: ["app_admin"],
+      app_api_admin_keys: ["app_admin"],
+      app_api_admin_revoke_grant: ["app_admin"],
+      app_api_admin_revoke_key: ["app_admin"],
+      app_api_admin_set_access_code: ["app_admin"],
+      app_api_admin_set_client_status: ["app_admin"],
+      app_api_admin_usage: ["app_admin"],
+      app_api_begin: ["app_user"],
+      app_api_busy: ["app_user"],
+      app_api_grant_property: ["app_user"],
+      app_api_lookup_access_code: ["app_user"],
+      app_api_note_error: ["app_user"],
+      app_api_properties: ["app_user"],
+      app_api_property: ["app_user"],
+      app_api_property_grants: ["app_user"],
+      app_api_resolve_key: [],
+      app_api_revoke_property_grant: ["app_user"],
       app_audit_log_immutable: [],
       app_current_member_role: ["app_user"],
       app_current_membership_role: ["app_user"],
@@ -426,6 +542,8 @@ describe("RLS", () => {
       [TABLES],
     );
     expect(r.rows.map((x) => [x.tablename, x.policyname, x.cmd, x.roles])).toEqual([
+      // 0052: yalnız app.api_fn açıkken ve yalnız api.* eylemleri (villa erişim izni)
+      ["audit_log", "audit_log_api_fn", "INSERT", ["app_migrator"]],
       ["audit_log", "audit_log_insert", "INSERT", ["app_user"]],
       ["audit_log", "audit_log_select", "SELECT", ["app_user"]],
       // 0031 (A1): yalnız app.wa_fn açıkken ve yalnız whatsapp.* eylemleri
@@ -435,6 +553,8 @@ describe("RLS", () => {
       ["workspace_members", "members_migrator_lookup", "SELECT", ["app_migrator"]],
       ["workspace_members", "members_select", "SELECT", ["app_user"]],
       ["workspace_members", "members_update", "UPDATE", ["app_user"]],
+      // 0052: yalnız app.api_fn açıkken (acente API'si fonksiyonları)
+      ["workspaces", "workspaces_api_fn", "SELECT", ["app_migrator"]],
       // 0029 (3.1): yalnız app.ical_export / app.ical_sync açıkken (dışa aktarma, cron)
       ["workspaces", "workspaces_ical_export_read", "SELECT", ["app_migrator"]],
       ["workspaces", "workspaces_ical_sync_read", "SELECT", ["app_migrator"]],

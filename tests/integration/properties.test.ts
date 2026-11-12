@@ -603,6 +603,8 @@ describe("yetkiler, politikalar, fonksiyon", () => {
       "select policyname, cmd, roles::text[] as roles from pg_policies where tablename = 'properties' order by 1",
     );
     expect(p.rows.map((x) => [x.policyname, x.cmd, x.roles])).toEqual([
+      // 0052: acente API'si fonksiyonları için app_migrator'a dar SELECT (app.api_fn).
+      ["properties_api_fn", "SELECT", ["app_migrator"]],
       // 0029 (3.1): iCal dışa aktarma fonksiyonu için app_migrator'a dar SELECT (app.ical_export).
       ["properties_ical_export_read", "SELECT", ["app_migrator"]],
       ["properties_insert", "INSERT", ["app_user"]],

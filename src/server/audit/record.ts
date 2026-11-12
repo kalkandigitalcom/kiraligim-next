@@ -196,6 +196,18 @@ export const AUDIT_ACTIONS = {
       "external",
     ]),
   }),
+  // Acente API'si (1. aşama): villa erişim izni verildi / kaldırıldı. Kayıtları veritabanı
+  // fonksiyonları yazar (drizzle/0052); burada listelenir. Yalnız kimlikler; kod/anahtar yazılmaz.
+  "api.access_granted": z.strictObject({
+    property: z.uuid(),
+    client: z.uuid(),
+    via: z.enum(["owner", "admin"]),
+  }),
+  "api.access_revoked": z.strictObject({
+    property: z.uuid(),
+    client: z.uuid(),
+    by: z.enum(["owner", "admin"]),
+  }),
   "reservation.status_changed": z.strictObject({
     property: z.uuid(),
     from: z.enum(RESERVATION_STATUSES),

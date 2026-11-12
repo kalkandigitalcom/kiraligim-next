@@ -1,0 +1,209 @@
+openapi: 3.1.0
+info:
+  title: Kiraligim Agency API
+  version: "1.0.0"
+  description: |
+    Read-only API for agencies (phase 1). Returns only property id, property name and busy date
+    ranges for properties whose owners granted access. Busy ranges are half-open
+    [start_date, end_date): end_date is the check-out day and is NOT busy.
+servers:
+  - url: https://app.kiraligim.com
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/me:
+    get:
+      summary: The API account of the key
+      responses:
+        "200":
+          description: Account
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/Reset" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+              example:
+                id: 0198f2a1-7c3e-7b10-9a51-1f2e3d4c5b6a
+                name: Acente Alfa
+                rate_limit: { limit: 120, window_seconds: 60 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/properties:
+    get:
+      summary: Properties the account has access to
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: cursor
+          in: query
+          description: next_cursor of the previous page
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Page of properties ordered by id
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, next_cursor]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Property" }
+                  next_cursor: { type: [string, "null"], format: uuid }
+              example:
+                data:
+                  - { id: 0198f2a1-8d00-7c41-8e2f-3a4b5c6d7e8f, name: Villa Mavi }
+                next_cursor: null
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/properties/{id}:
+    get:
+      summary: One property
+      parameters:
+        - { $ref: "#/components/parameters/PropertyId" }
+      responses:
+        "200":
+          description: Property
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Property" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/properties/{id}/availability:
+    get:
+      summary: Busy date ranges of one property
+      parameters:
+        - { $ref: "#/components/parameters/PropertyId" }
+        - name: from
+          in: query
+          description: Window start (inclusive). Default today (Europe/Istanbul). At most 12 months in the past.
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: Window end (exclusive). Default from + 90 days. At most 24 months ahead; window at most 366 days.
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Merged busy ranges clipped to [from, to)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Availability" }
+              example:
+                property_id: 0198f2a1-8d00-7c41-8e2f-3a4b5c6d7e8f
+                from: "2027-07-01"
+                to: "2027-08-01"
+                busy_dates:
+                  - { start_date: "2027-07-10", end_date: "2027-07-14" }
+                  - { start_date: "2027-07-20", end_date: "2027-07-25" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "kg_live_<8 chars>_<43 chars>"
+  parameters:
+    PropertyId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  headers:
+    Limit: { schema: { type: integer }, description: Requests per minute for this key }
+    Remaining: { schema: { type: integer }, description: Requests left in the current minute }
+    Reset: { schema: { type: integer }, description: Seconds until the window resets }
+  schemas:
+    Me:
+      type: object
+      additionalProperties: false
+      required: [id, name, rate_limit]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        rate_limit:
+          type: object
+          additionalProperties: false
+          required: [limit, window_seconds]
+          properties:
+            limit: { type: integer }
+            window_seconds: { type: integer, const: 60 }
+    Property:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    Availability:
+      type: object
+      additionalProperties: false
+      required: [property_id, from, to, busy_dates]
+      properties:
+        property_id: { type: string, format: uuid }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        busy_dates:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [start_date, end_date]
+            properties:
+              start_date: { type: string, format: date, description: First busy night (inclusive) }
+              end_date:
+                { type: string, format: date, description: Check-out day (exclusive, not busy) }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                [
+                  unauthorized,
+                  account_disabled,
+                  not_found,
+                  invalid_request,
+                  rate_limited,
+                  method_not_allowed,
+                  internal_error,
+                ]
+            message: { type: string }
+  responses:
+    InvalidRequest:
+      description: Invalid or unknown parameter
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unauthorized:
+      description: Missing, invalid or revoked key
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    AccountDisabled:
+      description: API account is disabled
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Unknown property, no access, or another agency's property (same response)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    RateLimited:
+      description: 120 requests per minute per key exceeded
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }

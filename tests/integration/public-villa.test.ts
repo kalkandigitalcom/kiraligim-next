@@ -539,6 +539,12 @@ describe("veritabanı güvenliği", () => {
       "workspace_subscriptions:subscriptions_public_read:r:app_migrator",
       "workspaces:workspaces_public_read:r:app_migrator",
     ]);
+    // 0052: acente API'si fonksiyonları için dar app_migrator SELECT (app.api_fn).
+    expect(list.filter((x) => x.includes("_api_fn"))).toEqual([
+      "properties:properties_api_fn:r:app_migrator",
+      "reservations:reservations_api_fn:r:app_migrator",
+      "workspaces:workspaces_api_fn:r:app_migrator",
+    ]);
     // 0036 (A2): WhatsApp takvim önerisi worker'ı için dar app_migrator SELECT (app.wa_calendar).
     expect(list.filter((x) => x.includes("_wa_calendar_"))).toEqual([
       "properties:properties_wa_calendar_read:r:app_migrator",
@@ -547,7 +553,11 @@ describe("veritabanı güvenliği", () => {
     // Mevcut politikalar (0006–0018) aynen duruyor.
     expect(
       list.filter(
-        (x) => !x.includes("_public_read") && !x.includes("_ical_") && !x.includes("_wa_calendar_"),
+        (x) =>
+          !x.includes("_public_read") &&
+          !x.includes("_ical_") &&
+          !x.includes("_wa_calendar_") &&
+          !x.includes("_api_fn"),
       ),
     ).toEqual([
       "properties:properties_insert:a:app_user",
@@ -853,6 +863,29 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
          order by 1`)
     ).rows;
     expect(defs.map((x) => x.name).sort()).toEqual([
+      // 0052: acente API'si (istek: app_user + anahtar özeti; villa sayfası: app_user + oturum;
+      // Super Admin: app_admin)
+      "app_api_admin_client",
+      "app_api_admin_clients",
+      "app_api_admin_create_client",
+      "app_api_admin_create_key",
+      "app_api_admin_grant",
+      "app_api_admin_grants",
+      "app_api_admin_keys",
+      "app_api_admin_revoke_grant",
+      "app_api_admin_revoke_key",
+      "app_api_admin_set_access_code",
+      "app_api_admin_set_client_status",
+      "app_api_admin_usage",
+      "app_api_begin",
+      "app_api_busy",
+      "app_api_grant_property",
+      "app_api_lookup_access_code",
+      "app_api_note_error",
+      "app_api_properties",
+      "app_api_property",
+      "app_api_property_grants",
+      "app_api_revoke_property_grant",
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
       // 0029 (3.1): iCal senkron/dışa aktarma ve harici doluluk tetikleyicisi
@@ -945,6 +978,22 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_admin uuid, p_group uuid, p_archive boolean": `gen_random_uuid(), gen_random_uuid(), true`,
         "p_admin uuid, p_phone text, p_group uuid": `gen_random_uuid(), '905320000000', null`,
         "p_admin uuid, p_id uuid": `gen_random_uuid(), gen_random_uuid()`,
+        // 0052: acente API'si
+        "p_hash text": `'${"0".repeat(64)}'`,
+        "p_hash text, p_after uuid, p_limit integer": `'${"0".repeat(64)}', null, 1`,
+        "p_hash text, p_property uuid": `'${"0".repeat(64)}', gen_random_uuid()`,
+        "p_hash text, p_property uuid, p_from date, p_to date": `'${"0".repeat(64)}', gen_random_uuid(), current_date, current_date + 1`,
+        "p_code_hash text": `'${"0".repeat(64)}'`,
+        "p_property uuid, p_code_hash text, p_client uuid": `gen_random_uuid(), '${"0".repeat(64)}', gen_random_uuid()`,
+        "p_grant uuid": `gen_random_uuid()`,
+        "p_admin uuid, p_client uuid": `gen_random_uuid(), gen_random_uuid()`,
+        "p_admin uuid, p_name text": `gen_random_uuid(), 'x'`,
+        "p_admin uuid, p_client uuid, p_prefix text, p_hash text, p_label text": `gen_random_uuid(), gen_random_uuid(), 'abcdefgh', '${"0".repeat(64)}', null`,
+        "p_admin uuid, p_client uuid, p_property uuid": `gen_random_uuid(), gen_random_uuid(), gen_random_uuid()`,
+        "p_admin uuid, p_grant uuid": `gen_random_uuid(), gen_random_uuid()`,
+        "p_admin uuid, p_key uuid": `gen_random_uuid(), gen_random_uuid()`,
+        "p_admin uuid, p_client uuid, p_hash text, p_hint text": `gen_random_uuid(), gen_random_uuid(), '${"0".repeat(64)}', 'ABCD'`,
+        "p_admin uuid, p_client uuid, p_active boolean": `gen_random_uuid(), gen_random_uuid(), true`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;
@@ -990,9 +1039,37 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "app_wa_admin_unblock_sender",
         "app_wa_admin_unlink_group",
         "app_wa_admin_workspaces",
+        // 0052: Super Admin API hesap yönetimi yalnız app_admin'de
+        "app_api_admin_client",
+        "app_api_admin_clients",
+        "app_api_admin_create_client",
+        "app_api_admin_create_key",
+        "app_api_admin_grant",
+        "app_api_admin_grants",
+        "app_api_admin_keys",
+        "app_api_admin_revoke_grant",
+        "app_api_admin_revoke_key",
+        "app_api_admin_set_access_code",
+        "app_api_admin_set_client_status",
+        "app_api_admin_usage",
       ]) {
         const x = defs.find((y) => y.name === name)!;
         expect([name, await tryAs("app_user", call(x))]).toEqual([name, "42501"]);
+      }
+      // 0052: API istek ve villa sayfası fonksiyonları app_admin'e kapalı
+      for (const name of [
+        "app_api_begin",
+        "app_api_busy",
+        "app_api_grant_property",
+        "app_api_lookup_access_code",
+        "app_api_note_error",
+        "app_api_properties",
+        "app_api_property",
+        "app_api_property_grants",
+        "app_api_revoke_property_grant",
+      ]) {
+        const x = defs.find((y) => y.name === name)!;
+        expect([name, await tryAs("app_admin", call(x))]).toEqual([name, "42501"]);
       }
     } finally {
       await admin.query("rollback");

@@ -963,6 +963,8 @@ describe("yetkiler, politikalar, kısıtlar, fonksiyon", () => {
       "select policyname, cmd, roles::text[] as roles from pg_policies where tablename = 'reservations' order by 1",
     );
     expect(p.rows.map((x) => [x.policyname, x.cmd, x.roles])).toEqual([
+      // 0052: acente API'si müsaitlik fonksiyonu için dar SELECT (app.api_fn; yalnız beklemede/onaylı).
+      ["reservations_api_fn", "SELECT", ["app_migrator"]],
       // 0029 (3.1): iCal dışa aktarma ve senkron çakışma sayımı için app_migrator'a dar SELECT
       // (yalnız app.ical_export / app.ical_sync açıkken; misafir kolonları fonksiyonlarda okunmaz).
       ["reservations_ical_export_read", "SELECT", ["app_migrator"]],
