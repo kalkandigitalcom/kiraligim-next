@@ -1,11 +1,23 @@
 openapi: 3.1.0
 info:
   title: Kiraligim Agency API
-  version: "1.0.0"
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  version: "1.1.0"
   description: |
-    Read-only API for agencies (phase 1). Returns only property id, property name and busy date
-    ranges for properties whose owners granted access. Busy ranges are half-open
-    [start_date, end_date): end_date is the check-out day and is NOT busy.
+    API for agencies. Returns only property id, property name and busy date ranges for
+    properties whose owners granted access, and lets agencies keep a calendar in sync
+    (connections, snapshot + cursor, change feeds, signed webhooks). The API never writes to the
+    Kiraligim calendar. Busy ranges are half-open [start_date, end_date): end_date is the
+    check-out day and is NOT busy.
+
+    Webhooks (`calendar.changed`) are POSTed to the account's HTTPS URL with headers
+    `Kiraligim-Event-Id`, `Kiraligim-Timestamp` (unix seconds) and
+    `Kiraligim-Signature: v1=<hex HMAC-SHA256(secret, timestamp + "." + raw_body)>`.
+    Delivery is at-least-once, ordered per connection, retried after 1m, 5m, 15m, 1h, 3h, 6h,
+    12h, 24h; a 2xx within 10 seconds counts as success, redirects are not followed.
+    See the `WebhookEvent` schema and docs/api/README.md.
 servers:
   - url: https://app.kiraligim.com
 security:
@@ -13,6 +25,7 @@ security:
 paths:
   /api/v1/me:
     get:
+      operationId: getMe
       summary: The API account of the key
       responses:
         "200":
@@ -33,6 +46,7 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
   /api/v1/properties:
     get:
+      operationId: listProperties
       summary: Properties the account has access to
       parameters:
         - name: limit
@@ -66,6 +80,7 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
   /api/v1/properties/{id}:
     get:
+      operationId: getProperty
       summary: One property
       parameters:
         - { $ref: "#/components/parameters/PropertyId" }
@@ -81,6 +96,7 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
   /api/v1/properties/{id}/availability:
     get:
+      operationId: getAvailability
       summary: Busy date ranges of one property
       parameters:
         - { $ref: "#/components/parameters/PropertyId" }
@@ -110,6 +126,314 @@ paths:
         "403": { $ref: "#/components/responses/AccountDisabled" }
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/calendar-connections:
+    get:
+      operationId: listConnections
+      summary: Calendar connections of the account
+      parameters:
+        - name: status
+          in: query
+          description: current = active and paused (default); all = also ended ones
+          schema: { type: string, enum: [current, all], default: current }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: cursor
+          in: query
+          description: next_cursor of the previous page
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Page of connections
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data, next_cursor]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Connection" }
+                  next_cursor: { type: [string, "null"], format: uuid }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    post:
+      operationId: createConnection
+      summary: Connect a property's calendar under the agency's own id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [property_id, external_property_id]
+              properties:
+                property_id: { type: string, format: uuid }
+                external_property_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  pattern: "^[!-~](?:[ -~]{0,98}[!-~])?$"
+                  description: Agency's own id; printable ASCII, no leading/trailing spaces
+      responses:
+        "201":
+          description: Connected (active immediately while access is granted)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Connection" } } }
+        "200":
+          description: Already connected with the same external_property_id
+          content: { application/json: { schema: { $ref: "#/components/schemas/Connection" } } }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/calendar-connections/{id}:
+    get:
+      operationId: getConnection
+      summary: One connection (any status)
+      parameters:
+        - { $ref: "#/components/parameters/ConnectionId" }
+      responses:
+        "200":
+          description: Connection
+          content: { application/json: { schema: { $ref: "#/components/schemas/Connection" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    delete:
+      operationId: deleteConnection
+      summary: Stop syncing (idempotent). Agency-side records are not touched.
+      parameters:
+        - { $ref: "#/components/parameters/ConnectionId" }
+      responses:
+        "200":
+          description: The connection in its final state (status disconnected or revoked)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Connection" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/calendar-connections/{id}/snapshot:
+    get:
+      operationId: getSnapshot
+      summary: Full calendar (12 months back, 24 months ahead) and the cursor of the same moment
+      description: |
+        Replace the local calendar with busy_dates, then read changes after `cursor`. A new
+        snapshot also cancels this connection's undelivered webhooks queued before it.
+        404 while the connection is paused or ended.
+      parameters:
+        - { $ref: "#/components/parameters/ConnectionId" }
+      responses:
+        "200":
+          description: Snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Snapshot" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/calendar-connections/{id}/changes:
+    get:
+      operationId: listConnectionChanges
+      summary: Changes of one connection after a cursor
+      parameters:
+        - { $ref: "#/components/parameters/ConnectionId" }
+        - name: cursor
+          in: query
+          required: true
+          description: Snapshot cursor or next_cursor of this connection ("c1.")
+          schema: { type: string, maxLength: 200 }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: Changes in change_id order
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  [connection_id, property_id, external_property_id, changes, next_cursor, has_more]
+                properties:
+                  connection_id: { type: string, format: uuid }
+                  property_id: { type: string, format: uuid }
+                  external_property_id: { type: string }
+                  changes:
+                    type: array
+                    items: { $ref: "#/components/schemas/Change" }
+                  next_cursor: { type: string }
+                  has_more: { type: boolean }
+        "400": { $ref: "#/components/responses/InvalidCursor" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "410": { $ref: "#/components/responses/CursorExpired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/calendar-changes:
+    get:
+      operationId: listAccountChanges
+      summary: Account-wide change feed
+      description: |
+        Changes of all active connections of the account, each only after that connection's
+        latest snapshot. Without a cursor the feed starts at the current position (empty list +
+        cursor); take it before the snapshots. Cursors ("a1.") are bound to the account.
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: Changes in change_id order
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [changes, next_cursor, has_more]
+                properties:
+                  changes:
+                    type: array
+                    items: { $ref: "#/components/schemas/AccountChange" }
+                  next_cursor: { type: string }
+                  has_more: { type: boolean }
+        "400": { $ref: "#/components/responses/InvalidCursor" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "410": { $ref: "#/components/responses/CursorExpired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/webhook:
+    get:
+      operationId: getWebhook
+      summary: The account's webhook (the secret is never returned)
+      responses:
+        "200":
+          description: Webhook
+          content: { application/json: { schema: { $ref: "#/components/schemas/Webhook" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    put:
+      operationId: putWebhook
+      summary: Create the webhook (201, secret shown once) or change its URL (200, secret kept)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  maxLength: 2048
+                  description: |
+                    https only, port 443, no credentials or fragment, public host name (private
+                    and local addresses are rejected here and again at delivery time)
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Webhook" }
+                  - type: object
+                    required: [secret]
+                    properties:
+                      secret:
+                        type: string
+                        pattern: "^whsec_[A-Za-z0-9_-]{43}$"
+                        description: Signing secret. Shown only in this response.
+        "200":
+          description: URL changed
+          content: { application/json: { schema: { $ref: "#/components/schemas/Webhook" } } }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/WebhooksUnavailable" }
+    delete:
+      operationId: deleteWebhook
+      summary: Delete the webhook; pending deliveries are cancelled
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [deleted]
+                properties: { deleted: { type: boolean, const: true } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/webhook/rotate-secret:
+    post:
+      operationId: rotateWebhookSecret
+      summary: New signing secret (shown once); the old one stops working immediately
+      responses:
+        "200":
+          description: Rotated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [secret, secret_rotated_at]
+                properties:
+                  secret: { type: string, pattern: "^whsec_[A-Za-z0-9_-]{43}$" }
+                  secret_rotated_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/AccountDisabled" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/WebhooksUnavailable" }
+webhooks:
+  calendar.changed:
+    post:
+      operationId: calendarChanged
+      summary: Sent to the account's webhook URL when a connected calendar changes
+      parameters:
+        - name: Kiraligim-Event-Id
+          in: header
+          required: true
+          description: Event id (same as body.id); stable across retries
+          schema: { type: string, format: uuid }
+        - name: Kiraligim-Timestamp
+          in: header
+          required: true
+          description: Unix seconds; reject if more than 5 minutes off
+          schema: { type: string, pattern: "^[0-9]+$" }
+        - name: Kiraligim-Signature
+          in: header
+          required: true
+          description: '"v1=" + hex(HMAC-SHA256(secret, timestamp + "." + raw_body))'
+          schema: { type: string, pattern: "^v1=[0-9a-f]{64}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookEvent" }
+      responses:
+        "2XX":
+          description: Accepted (must answer within 10 seconds; body is ignored)
 components:
   securitySchemes:
     bearerAuth:
@@ -122,6 +446,15 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    ConnectionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
   headers:
     Limit: { schema: { type: integer }, description: Requests per minute for this key }
     Remaining: { schema: { type: integer }, description: Requests left in the current minute }
@@ -165,7 +498,111 @@ components:
             properties:
               start_date: { type: string, format: date, description: First busy night (inclusive) }
               end_date:
-                { type: string, format: date, description: Check-out day (exclusive, not busy) }
+                { type: string, format: date, description: "Check-out day (exclusive, not busy)" }
+    BusyRange:
+      type: object
+      additionalProperties: false
+      required: [start_date, end_date]
+      properties:
+        start_date: { type: string, format: date, description: First busy night (inclusive) }
+        end_date: { type: string, format: date, description: "Check-out day (exclusive, not busy)" }
+    Connection:
+      type: object
+      additionalProperties: false
+      required:
+        [id, property_id, external_property_id, status, created_at, ended_at, last_synced_at]
+      properties:
+        id: { type: string, format: uuid }
+        property_id: { type: string, format: uuid }
+        external_property_id: { type: string }
+        status:
+          type: string
+          enum: [active, paused, disconnected, revoked]
+          description: |
+            paused = property or business temporarily inactive (computed, resumes by itself);
+            disconnected = ended by the agency; revoked = access removed by the owner/Kiraligim
+        created_at: { type: string, format: date-time }
+        ended_at: { type: [string, "null"], format: date-time }
+        last_synced_at:
+          { type: [string, "null"], format: date-time, description: Last snapshot time }
+    Snapshot:
+      type: object
+      additionalProperties: false
+      required: [connection_id, property_id, external_property_id, from, to, busy_dates, cursor]
+      properties:
+        connection_id: { type: string, format: uuid }
+        property_id: { type: string, format: uuid }
+        external_property_id: { type: string }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        busy_dates:
+          type: array
+          items: { $ref: "#/components/schemas/BusyRange" }
+        cursor: { type: string, description: "Opaque; valid only for this connection, 30 days" }
+    Change:
+      type: object
+      additionalProperties: false
+      required: [change_id, start_date, end_date, busy_dates]
+      description: |
+        Full state of [start_date, end_date): clear the local range, then write busy_dates.
+        Idempotent.
+      properties:
+        change_id: { type: string, pattern: "^[0-9]+$", description: Increasing id }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        busy_dates:
+          type: array
+          items: { $ref: "#/components/schemas/BusyRange" }
+    AccountChange:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          change_id,
+          connection_id,
+          property_id,
+          external_property_id,
+          start_date,
+          end_date,
+          busy_dates,
+        ]
+      description: A Change plus the connection it belongs to.
+      properties:
+        change_id: { type: string, pattern: "^[0-9]+$" }
+        connection_id: { type: string, format: uuid }
+        property_id: { type: string, format: uuid }
+        external_property_id: { type: string }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        busy_dates:
+          type: array
+          items: { $ref: "#/components/schemas/BusyRange" }
+    Webhook:
+      type: object
+      required: [url, created_at, updated_at, secret_rotated_at]
+      properties:
+        url: { type: string, format: uri }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        secret_rotated_at: { type: [string, "null"], format: date-time }
+    WebhookEvent:
+      description: Body of a webhook POST (see info.description for headers and signature)
+      type: object
+      additionalProperties: false
+      required: [id, type, created_at, connection_id, property_id, external_property_id, change]
+      properties:
+        id:
+          {
+            type: string,
+            format: uuid,
+            description: Same as Kiraligim-Event-Id; stable across retries,
+          }
+        type: { type: string, const: calendar.changed }
+        created_at: { type: string, format: date-time }
+        connection_id: { type: string, format: uuid }
+        property_id: { type: string, format: uuid }
+        external_property_id: { type: string }
+        change: { $ref: "#/components/schemas/Change" }
     Error:
       type: object
       additionalProperties: false
@@ -187,6 +624,13 @@ components:
                   rate_limited,
                   method_not_allowed,
                   internal_error,
+                  already_connected,
+                  external_id_in_use,
+                  payload_too_large,
+                  unsupported_media_type,
+                  invalid_cursor,
+                  cursor_expired,
+                  webhooks_unavailable,
                 ]
             message: { type: string }
   responses:
@@ -200,10 +644,28 @@ components:
       description: API account is disabled
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     NotFound:
-      description: Unknown property, no access, or another agency's property (same response)
+      description: Unknown, no access, paused/ended connection, or another agency's resource (same response)
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     RateLimited:
       description: 120 requests per minute per key exceeded
       headers:
         Retry-After: { schema: { type: integer } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    InvalidCursor:
+      description: Invalid parameter, or invalid_cursor (cursor of another connection/account, tampered or malformed)
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    CursorExpired:
+      description: cursor_expired — older than 30 days or beyond retention; take a new snapshot
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: already_connected or external_id_in_use
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    PayloadTooLarge:
+      description: Body larger than 4 KB
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    UnsupportedMediaType:
+      description: Content-Type is not application/json
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    WebhooksUnavailable:
+      description: Webhook creation/rotation temporarily unavailable
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }

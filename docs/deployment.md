@@ -1157,7 +1157,7 @@ aralıklarını** okur. Ayrıntı: `docs/api/README.md`, sözleşme: `docs/api/o
   dar **okuma** politikaları (`properties`, `workspaces`, `reservations`, harici takvim,
   `admin_users`) ile denetim kaydı ekleme politikaları (`api.%`).
 
-**Deploy:** ek ortam değişkeni yok. 0051 ve 0052 açılışta uygulanır (önce Coolify'da yedek).
+**Deploy:** ek ortam değişkeni yok (2. aşama için aşağıdaki bölüme bakın). 0051 ve 0052 açılışta uygulanır (önce Coolify'da yedek).
 Doğrulama (psql, `app_migrator` veya süper kullanıcı):
 
 ```sql
@@ -1171,3 +1171,170 @@ select proname, prosecdef from pg_proc where proname like 'app\_api\_%' escape '
 **Geri alma:** `DROP FUNCTION app_api_*`; `DROP POLICY *_api_fn` (0052'deki liste); `DROP TABLE
 api_rate_windows, api_usage_daily, api_access_grants, api_keys, api_clients`. Mevcut villa,
 rezervasyon ve takvim verisi etkilenmez.
+
+## Acente API'si — 2. aşama: takvim senkronu ve webhook (0053–0061)
+
+Acenteler izinli villaları kendi kimlikleriyle **bağlar**, tam takvimi **snapshot + cursor** ile
+alır, sonrasını **değişiklik akışlarından** (bağlantı başına ve hesap geneli) ve imzalı
+**webhook**'lardan izler. API Kiraligim takvimine yazmaz. Acente dokümantasyonu:
+`docs/api/README.md`, sözleşme `docs/api/openapi.yaml`, örnekler `docs/api/examples/`.
+
+### Bileşenler
+
+| Bileşen                           | Ne yapar                                                                                                                                                                                                                                |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Yakalama (0053–0054)              | Takvimi etkileyen her yazmada (panel, WhatsApp worker'ı, iCal senkronu, villa sayfası talebi, villa/işletme durumu) AYNI transaction'da `api_calendar_dirty` satırı. WhatsApp ve iCal kodu değişmedi; tetikleyiciler tablo düzeyindedir |
+| Bağlantılar (0055–0056)           | `api_calendar_connections`; izin kaldırılınca bağlantı `revoked` olur                                                                                                                                                                   |
+| Snapshot/cursor (0057–0058)       | `api_sync_state`, `api_calendar_changes`; HMAC imzalı cursor (`c1.`)                                                                                                                                                                    |
+| İşlemci (0059)                    | `app_api_process_changes`: "değişti" satırlarını villa başına birleştirip değişiklik kaydı yazar; 31 günlük saklama                                                                                                                     |
+| Webhook + hesap akışı (0060–0061) | `api_webhook_endpoints` (şifreli sır), `api_webhook_deliveries` (kuyruk); hesap cursor'ı (`a1.`)                                                                                                                                        |
+| `node dist/api-sync.js`           | İşlemci + webhook gönderimi + saklama temizliği (Scheduled Task)                                                                                                                                                                        |
+| Yönetim                           | Super Admin `/api-musterileri/<hesap>`: "Takvim bağlantıları" (durum, acente kimliği, son senkron). Ev sahibi: villa → **API erişimi** (bağlı / duraklatıldı / bağlantı yok)                                                            |
+
+### Migration sırası ve bağımlılıklar
+
+Dokuz dosya tek deploy'da, uygulama açılışında sırayla uygulanır (journal `when` değerleri artan;
+denetlendi). Her güvenlik dosyası bir önceki tablo dosyasına bağlıdır:
+
+| Dosya | İçerik                                                                                                                                                                                             | Bağımlı olduğu                                                    |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 0053  | `api_calendar_dirty` tablosu                                                                                                                                                                       | 0009 (properties)                                                 |
+| 0054  | RLS; 10 tetikleyici (`reservations`, `external_calendar_events`, `external_calendar_sources`, `properties`, `workspaces`) ve yakalama fonksiyonları                                                | 0053, rezervasyon/iCal tabloları                                  |
+| 0055  | `api_calendar_connections`                                                                                                                                                                         | 0051 (`api_clients`, `api_access_grants`), properties, workspaces |
+| 0056  | Bağlantı fonksiyonları; **0052'deki** `app_api_revoke_property_grant` ve `app_api_admin_revoke_grant` yeniden tanımlanır (izin kaldırma bağlantıyı bitirir)                                        | 0055, 0052                                                        |
+| 0057  | `api_sync_state`, `api_calendar_changes`; `api_calendar_connections.cursor_key`                                                                                                                    | 0055                                                              |
+| 0058  | Tek satır `api_sync_state`; snapshot, cursor, bağlantı akışı                                                                                                                                       | 0057, 0056 (`app_api_connection_rows`)                            |
+| 0059  | HMAC-SHA256 (`app_api_cursor_mac` yeniden tanımlanır), işlemci, saklama                                                                                                                            | 0053, 0057, 0058                                                  |
+| 0060  | `api_webhook_endpoints`, `api_webhook_deliveries`; `api_clients.cursor_key`, `api_calendar_connections.snapshot_change_id`                                                                         | 0051, 0055                                                        |
+| 0061  | Webhook ve hesap akışı fonksiyonları; 0058/0056/0059'daki `app_api_snapshot`, `app_api_disconnect`, `app_api_end_grant_connections`, `app_api_process_changes` **aynı imzayla** yeniden tanımlanır | 0053–0060                                                         |
+
+Mevcut tablolarda yalnız iki değişiklik vardır: `api_clients.cursor_key` kolonu (varsayılanlı,
+NOT NULL) ve beş tabloya AFTER tetikleyicileri. Başka mevcut tablo, kolon, kısıt veya politika
+değişmez. Geçmiş veri geri doldurulmaz: deploy anında kuyruk boştur (`last_change_id = 0`);
+acenteler bağlandıktan sonra snapshot alır.
+
+Test ortamında doğrulandı: 0052'de verisi olan veritabanı 0061'e yükseltildi, kullanıldı,
+aşağıdaki geri alma betiğiyle geri alındı → şema (tablo, kolon, kısıt, indeks, fonksiyon gövdeleri
+ve yetkileri, tetikleyici, politika) temiz 0052 kurulumuyla **aynı**; ardından yeniden 0061'e
+yükseltildi → temiz 0061 kurulumuyla aynı. Rezervasyon verisi her adımda korundu.
+
+### Scheduled Task (`api-sync`)
+
+Coolify → uygulama → **Scheduled Tasks** → **Add**:
+
+| Alan      | Değer                                            |
+| --------- | ------------------------------------------------ |
+| Name      | `api-sync`                                       |
+| Command   | `node dist/api-sync.js`                          |
+| Frequency | `* * * * *` (her dakika)                         |
+| Container | Web uygulaması konteyneri (wa-calendar ile aynı) |
+
+- Uygulamanın `DATABASE_URL`'ini (`app_user`) ve `APP_ENV`'i kullanır; emniyet kemeri geçerlidir
+  (`APP_ENV=production` iken veritabanı adı `_prod` ile bitmeli, yoksa çıkış 1).
+- Bir çalıştırma ~50 sn sürer, 3 sn'de bir yeni işe bakar. **Üst üste binme yok:** oturum
+  advisory lock'u (`kiraligim:api-sync`); kilidi alamayan süreç hemen çıkar (`api_sync_skipped_running`,
+  çıkış 0). Süreç düşerse kilit bağlantıyla birlikte bırakılır.
+- Her çalıştırma: 31 günden eski değişiklik ve bitmiş teslim kayıtlarını temizler → değişiklikleri
+  işler → süresi gelmiş webhook'ları gönderir (bağlantı başına sırayla; 60 sn kilit, 10 sn zaman
+  aşımı).
+- Log (JSON, tek satır): `api_sync_finished` + sayılar (`rounds`, `processed`, `failed`,
+  `changes`, `discarded`, `pruned`, `webhooks.{attempted,delivered,retried,failed,stale}`, `ms`).
+  Villa, tarih, adres, gövde, sır yazılmaz. `api_webhooks_disabled_no_key` (uyarı): anahtar yok.
+  `api_sync_failed` (hata, çıkış 1): yapılandırma veya veritabanı hatası (yalnız neden/SQLSTATE).
+- **Task kapalıysa:** API okuma, bağlantı ve snapshot çalışır; değişiklik akışı ve webhook
+  **ilerlemez**, `api_calendar_dirty` büyür (bağlantısı olmayan villaların satırları bile ilk
+  çalıştırmada silinir). Bu yüzden migration'la AYNI deploy'da açın.
+- Konteynerden acente webhook adreslerine **giden HTTPS (443)** erişimi gerekir. Sunucu/Hetzner
+  güvenlik duvarında giden 443 kapalıysa teslimler `network`/`timeout` ile yeniden denenir.
+
+### `API_WEBHOOK_SECRET_KEY`
+
+Acentelerin webhook imza sırlarını veritabanında AES-256-GCM ile şifreleyen anahtar. Veritabanında
+yoktur; yalnız Coolify ortam değişkenidir. **Hem web uygulamasında** (PUT `/webhook`, sır yenileme)
+**hem Scheduled Task'ta** (gönderim) aynı değer gerekir — Coolify Scheduled Task uygulama
+konteynerinin ortamını kullanır.
+
+- **Üretim:** `openssl rand -base64 32` (tam 32 bayt, base64). Development ve production için
+  **ayrı** anahtar. Coolify'a normal (Build Variable değil) ortam değişkeni olarak girilir.
+  Git'e, loga, sohbete yazılmaz.
+- **Saklama:** parola yöneticisinde (ör. 1Password) "Kiraligim prod — API_WEBHOOK_SECRET_KEY"
+  kaydı; Coolify erişimi olanlarla sınırlı. Veritabanı yedeği tek başına sırları açamaz; yedek
+  geri yükleme senaryosu için anahtar ayrıca saklanmalıdır.
+- **Tanımlı değil veya bozuk (32 bayt değil):** webhook oluşturma ve sır yenileme `503
+webhooks_unavailable`; GET/DELETE `/webhook` ve tüm takvim uç noktaları çalışır. Gönderim
+  yapılmaz, teslimler **bekler** (iptal edilmez, deneme sayılmaz); anahtar eklenince gönderilir.
+  Log'da her çalıştırmada `api_webhooks_disabled_no_key`.
+- **Kaybolur veya değiştirilirse:** mevcut şifreli sırlar çözülemez. Gönderim her denemede
+  `secret_unreadable` hatasıyla yeniden denenir ve ~2 gün sonra `failed` olur; **imzasız veya
+  yanlış imzalı istek gönderilmez**. Düzeltme: her acente `POST /api/v1/webhook/rotate-secret`
+  çağırır (yeni sır yeni anahtarla şifrelenir; eski sırra gerek yoktur) veya webhook'u silip
+  yeniden oluşturur. Kiraligim tarafında toplu yeniden şifreleme aracı **yoktur**.
+- **Planlı yenileme:** çift anahtar desteği yoktur. Gerekirse: acentelere önceden bildirin →
+  yeni anahtarı girip uygulamayı yeniden başlatın → her acente `rotate-secret` çağırır. Arada
+  kalan teslimler yeniden denenir (2 güne kadar). Değişiklik akışları bundan etkilenmez.
+- Değer konteyner ortamından okunur: ekleme/değiştirme sonrası uygulamayı yeniden deploy/başlatın
+  (Scheduled Task aynı konteynerde çalışır ve yeni değeri o zaman görür).
+
+### Ortam değişkenleri ve servis ayarları (production, deploy öncesi)
+
+| Değişken / ayar                                     | Gerekli mi                     | Not                                                                         |
+| --------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------- |
+| `API_WEBHOOK_SECRET_KEY`                            | **Yeni.** Webhook için zorunlu | Yukarıya bakın. Web uygulaması ortamı (Scheduled Task aynı ortamı kullanır) |
+| `DATABASE_URL` (`app_user`), `APP_ENV=production`   | Mevcut                         | api-sync de bunları kullanır                                                |
+| `MIGRATION_DATABASE_URL`, `RUN_MIGRATIONS_ON_START` | Mevcut                         | 0053–0061 açılışta uygulanır                                                |
+| `AUTH_IP_HEADER`, `AUTH_TRUSTED_PROXIES`            | Mevcut                         | API'nin başarısız kimlik sınırı aynı ayarı kullanır                         |
+| `DATABASE_ADMIN_URL`, `ADMIN_SECRET_KEY`            | Mevcut                         | Super Admin bağlantı ekranı için                                            |
+| Scheduled Task `api-sync`                           | **Yeni**                       | `node dist/api-sync.js`, `* * * * *`                                        |
+| Scheduled Task `wa-calendar`                        | Mevcut, değişmez               |                                                                             |
+| Giden HTTPS 443                                     | **Yeni gereksinim**            | Webhook gönderimi                                                           |
+| Proxy                                               | Değişmez                       | `/api/*` yeniden yazılmaz; API `APP_URL` alan adında                        |
+
+Yeni rol, yeni veritabanı yetkisi veya ağ geçidi (WhatsApp Gateway) değişikliği **yoktur**.
+
+### Yayın adımları
+
+1. Coolify'da veritabanı yedeği (zorunlu) ve yedeğin indirilebilir olduğunu doğrulayın.
+2. `API_WEBHOOK_SECRET_KEY`'i production ortamına ekleyin.
+3. Yeni imajı deploy edin (0053–0061 açılışta). Uygulama loglarında migration hatası olmadığını
+   doğrulayın.
+4. Scheduled Task `api-sync`'i ekleyin; ilk çalıştırmanın `api_sync_finished` yazdığını görün.
+5. Doğrulama (psql, salt okuma):
+
+```sql
+select relname, relrowsecurity, relforcerowsecurity from pg_class
+ where relname in ('api_calendar_dirty','api_calendar_connections','api_sync_state',
+                   'api_calendar_changes','api_webhook_endpoints','api_webhook_deliveries');  -- hepsi t, t
+select * from api_sync_state;                         -- 1 satır, last_change_id artıyor
+select count(*), min(created_at) from api_calendar_dirty;   -- işlemci çalışıyorsa ~0 ve taze
+select status, count(*) from api_webhook_deliveries group by 1;
+select tgname from pg_trigger where tgname like '%api_capture%' order by 1;  -- 10 satır
+```
+
+6. Duman testi (test acentesiyle): bağlan → snapshot → panelden test bloğu → bir dakika içinde
+   `changes`'ta ve (webhook varsa) alıcıda görünmeli → bloğu silin → bağlantıyı kesin.
+
+### İzleme
+
+- `api_calendar_dirty` en eski satırı birkaç dakikadan eskiyse işlemci çalışmıyor veya hata
+  veriyor (`last_error` = `sqlstate_<kod>`; yeniden deneme 10 sn·2^n, en fazla 1 sa).
+- `api_webhook_deliveries` `failed` artışı: acentenin alıcısı çalışmıyor (`last_status`,
+  `last_error`: `dns`, `blocked_address`, `timeout`, `network`, `redirect`, `http_status`,
+  `secret_unreadable`).
+
+### Geri alma
+
+Önce **uygulama imajını önceki sürüme** döndürün ve Scheduled Task `api-sync`'i kapatın/silin.
+Şema değişikliklerini geri almak gerekirse tercih edilen yol deploy öncesi yedektir; yedeğe
+dönmek istenmiyorsa `docs/api/rollback-0053-0061.sql` (tek transaction, ters sıra):
+tetikleyiciler → 0052'deki iki fonksiyonun eski hâli → 2. aşama fonksiyonları → tablolar
+(teslimler → webhook adresleri → değişiklikler → senkron durumu → bağlantılar → "değişti") →
+`api_clients.cursor_key` → migration kaydından 0053–0061.
+
+```bash
+psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f docs/api/rollback-0053-0061.sql
+```
+
+Kaybolan veri: bağlantılar, değişiklik kayıtları, webhook adresleri/sırları ve teslim geçmişi.
+Rezervasyon, iCal, villa, işletme, API hesabı/anahtarı/izin verisi korunur. Yalnız 0061'i geri
+almak desteklenmez (0058/0056/0059 tanımlarına dönmek gerekir); bütün 2. aşama birlikte geri
+alınır. Yeniden deploy 0053–0061'i tekrar uygular.

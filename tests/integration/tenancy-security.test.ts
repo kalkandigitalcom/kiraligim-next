@@ -26,9 +26,14 @@ describe("fonksiyonlar", () => {
     const rows = await fn();
     expect(rows.map((r) => r.proname)).toEqual([
       // 0052: acente okuma API'si (istek, villa sayfası, Super Admin; iki iç yardımcı)
+      // 0061: hesap geneli değişiklik akışı ve hesaba özel cursor
+      "app_api_account_changes",
+      "app_api_account_cursor_issue",
+      "app_api_account_cursor_parse",
       "app_api_admin_assert",
       "app_api_admin_client",
       "app_api_admin_clients",
+      "app_api_admin_connections", // 0056
       "app_api_admin_create_client",
       "app_api_admin_create_key",
       "app_api_admin_grant",
@@ -41,14 +46,48 @@ describe("fonksiyonlar", () => {
       "app_api_admin_usage",
       "app_api_begin",
       "app_api_busy",
+      "app_api_busy_json", // 0058
+      "app_api_cancel_deliveries", // 0061 (iç)
+      // 0054: takvim değişikliği yakalama (tetikleyiciler + iç ekleme yardımcısı)
+      "app_api_capture_external_event",
+      "app_api_capture_external_source",
+      "app_api_capture_insert",
+      "app_api_capture_property_status",
+      "app_api_capture_reservation",
+      "app_api_capture_workspace_status",
+      "app_api_changes", // 0058
+      "app_api_claim_deliveries", // 0061
+      // 0056: takvim bağlantıları
+      "app_api_connect",
+      "app_api_connection",
+      "app_api_connection_rows",
+      "app_api_connections",
+      // 0058: cursor
+      "app_api_cursor_issue",
+      "app_api_cursor_mac",
+      "app_api_cursor_parse",
+      "app_api_disconnect",
+      "app_api_end_grant_connections",
+      "app_api_finish_delivery", // 0061
       "app_api_grant_property",
+      "app_api_hmac_sha256", // 0059 (iç)
       "app_api_lookup_access_code",
       "app_api_note_error",
+      "app_api_process_changes", // 0059
       "app_api_properties",
       "app_api_property",
+      "app_api_property_connections", // 0056
       "app_api_property_grants",
+      "app_api_prune_changes", // 0059
+      "app_api_prune_deliveries", // 0061
       "app_api_resolve_key",
       "app_api_revoke_property_grant",
+      "app_api_snapshot", // 0058
+      // 0061: webhook (yapılandırma, teslim) — iç iptal yardımcısı kimsede
+      "app_api_webhook_delete",
+      "app_api_webhook_get",
+      "app_api_webhook_put",
+      "app_api_webhook_rotate",
       "app_audit_log_immutable",
       "app_current_member_role",
       "app_current_membership_role",
@@ -135,8 +174,10 @@ describe("fonksiyonlar", () => {
     const definers = (await fn()).filter((r) => r.definer).map((r) => r.proname);
     expect(definers).toEqual([
       // 0052: acente API'si — tablolara tek erişim yolu (anahtar özeti / oturum / yönetici doğrulanır)
+      "app_api_account_changes", // 0061
       "app_api_admin_client",
       "app_api_admin_clients",
+      "app_api_admin_connections", // 0056
       "app_api_admin_create_client",
       "app_api_admin_create_key",
       "app_api_admin_grant",
@@ -149,13 +190,37 @@ describe("fonksiyonlar", () => {
       "app_api_admin_usage",
       "app_api_begin",
       "app_api_busy",
+      // 0054: değişiklik yakalama tetikleyicileri (tek yazma yolu api_calendar_dirty)
+      "app_api_capture_external_event",
+      "app_api_capture_external_source",
+      "app_api_capture_property_status",
+      "app_api_capture_reservation",
+      "app_api_capture_workspace_status",
+      "app_api_changes", // 0058
+      "app_api_claim_deliveries", // 0061
+      // 0056: takvim bağlantıları
+      "app_api_connect",
+      "app_api_connection",
+      "app_api_connections",
+      "app_api_disconnect",
+      "app_api_finish_delivery", // 0061
       "app_api_grant_property",
       "app_api_lookup_access_code",
       "app_api_note_error",
+      "app_api_process_changes", // 0059
       "app_api_properties",
       "app_api_property",
+      "app_api_property_connections", // 0056
       "app_api_property_grants",
+      "app_api_prune_changes", // 0059
+      "app_api_prune_deliveries", // 0061
       "app_api_revoke_property_grant",
+      "app_api_snapshot", // 0058
+      // 0061: webhook
+      "app_api_webhook_delete",
+      "app_api_webhook_get",
+      "app_api_webhook_put",
+      "app_api_webhook_rotate",
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
       // 0029 (3.1): iCal senkronu ve dışa aktarma — tek yazma/okuma noktaları (kilit belirteciyle)
@@ -314,10 +379,14 @@ describe("fonksiyonlar", () => {
     const api = await admin.query(`
       select proname, pg_get_function_identity_arguments(oid) as args from pg_proc
        where pronamespace = 'public'::regnamespace and prosecdef and proname like 'app\\_api\\_%'
+         and prorettype <> 'trigger'::regtype
        order by 1, 2`);
     expect(api.rows).toEqual([
+      // 0061: hesap geneli akış (hesap anahtar özetinden)
+      { proname: "app_api_account_changes", args: "p_hash text, p_cursor text, p_limit integer" },
       { proname: "app_api_admin_client", args: "p_admin uuid, p_client uuid" },
       { proname: "app_api_admin_clients", args: "p_admin uuid" },
+      { proname: "app_api_admin_connections", args: "p_admin uuid, p_client uuid" },
       { proname: "app_api_admin_create_client", args: "p_admin uuid, p_name text" },
       {
         proname: "app_api_admin_create_key",
@@ -342,16 +411,49 @@ describe("fonksiyonlar", () => {
         proname: "app_api_busy",
         args: "p_hash text, p_property uuid, p_from date, p_to date",
       },
+      // 0056: takvim bağlantıları (hesap anahtar özetinden; bağlantı yalnız kendi hesabınınsa)
+      {
+        proname: "app_api_changes",
+        args: "p_hash text, p_connection uuid, p_cursor text, p_limit integer",
+      },
+      { proname: "app_api_claim_deliveries", args: "p_limit integer, p_lease_seconds integer" },
+      {
+        proname: "app_api_connect",
+        args: "p_hash text, p_property uuid, p_external text",
+      },
+      { proname: "app_api_connection", args: "p_hash text, p_id uuid" },
+      {
+        proname: "app_api_connections",
+        args: "p_hash text, p_after uuid, p_limit integer, p_all boolean",
+      },
+      { proname: "app_api_disconnect", args: "p_hash text, p_id uuid" },
+      // 0061: teslim (işlemci; kimlik + kilit belirteci)
+      {
+        proname: "app_api_finish_delivery",
+        args: "p_id uuid, p_token uuid, p_ok boolean, p_status integer, p_error text",
+      },
       {
         proname: "app_api_grant_property",
         args: "p_property uuid, p_code_hash text, p_client uuid",
       },
       { proname: "app_api_lookup_access_code", args: "p_code_hash text" },
       { proname: "app_api_note_error", args: "p_hash text" },
+      // 0059: işlemci ve saklama (kimlik/villa parametresi almaz; tüm işi veritabanı seçer)
+      { proname: "app_api_process_changes", args: "p_max_properties integer" },
       { proname: "app_api_properties", args: "p_hash text, p_after uuid, p_limit integer" },
       { proname: "app_api_property", args: "p_hash text, p_property uuid" },
+      { proname: "app_api_property_connections", args: "p_property uuid" },
       { proname: "app_api_property_grants", args: "p_property uuid" },
+      { proname: "app_api_prune_changes", args: "" },
+      { proname: "app_api_prune_deliveries", args: "" }, // 0061
       { proname: "app_api_revoke_property_grant", args: "p_grant uuid" },
+      // 0058: snapshot ve cursor (hesap anahtar özetinden; bağlantı yalnız kendi hesabınınsa)
+      { proname: "app_api_snapshot", args: "p_hash text, p_connection uuid" },
+      // 0061: webhook yapılandırması (hesap anahtar özetinden)
+      { proname: "app_api_webhook_delete", args: "p_hash text" },
+      { proname: "app_api_webhook_get", args: "p_hash text" },
+      { proname: "app_api_webhook_put", args: "p_hash text, p_url text, p_secret_enc text" },
+      { proname: "app_api_webhook_rotate", args: "p_hash text, p_secret_enc text" },
     ]);
     // 0024 (F2a): public okuma fonksiyonları parametre alır (adres / mülk kimliği / tarih), ancak
     // yalnız yayındaki ve görünür villaların sabit kolonlarını döndürür (tests/integration/public-villa.test.ts).
@@ -389,9 +491,14 @@ describe("fonksiyonlar", () => {
        group by p.proname order by 1`);
     expect(Object.fromEntries(r.rows.map((x) => [x.proname, x.grantees]))).toEqual({
       // 0052: API istek ve villa sayfası fonksiyonları app_user; yönetim app_admin; iç yardımcılar kimsede
+      // 0061: hesap geneli akış app_user; cursor yardımcıları kimsede
+      app_api_account_changes: ["app_user"],
+      app_api_account_cursor_issue: [],
+      app_api_account_cursor_parse: [],
       app_api_admin_assert: [],
       app_api_admin_client: ["app_admin"],
       app_api_admin_clients: ["app_admin"],
+      app_api_admin_connections: ["app_admin"],
       app_api_admin_create_client: ["app_admin"],
       app_api_admin_create_key: ["app_admin"],
       app_api_admin_grant: ["app_admin"],
@@ -404,14 +511,47 @@ describe("fonksiyonlar", () => {
       app_api_admin_usage: ["app_admin"],
       app_api_begin: ["app_user"],
       app_api_busy: ["app_user"],
+      app_api_busy_json: [],
+      app_api_cancel_deliveries: [],
+      // 0054: tetikleyici fonksiyonları ve iç yardımcı kimsede
+      app_api_capture_external_event: [],
+      app_api_capture_external_source: [],
+      app_api_capture_insert: [],
+      app_api_capture_property_status: [],
+      app_api_capture_reservation: [],
+      app_api_capture_workspace_status: [],
+      app_api_changes: ["app_user"],
+      app_api_claim_deliveries: ["app_user"],
+      // 0056: takvim bağlantıları
+      app_api_connect: ["app_user"],
+      app_api_connection: ["app_user"],
+      app_api_connection_rows: [],
+      app_api_connections: ["app_user"],
+      app_api_cursor_issue: [],
+      app_api_cursor_mac: [],
+      app_api_cursor_parse: [],
+      app_api_disconnect: ["app_user"],
+      app_api_end_grant_connections: [],
+      app_api_finish_delivery: ["app_user"],
       app_api_grant_property: ["app_user"],
+      app_api_hmac_sha256: [],
       app_api_lookup_access_code: ["app_user"],
       app_api_note_error: ["app_user"],
+      app_api_process_changes: ["app_user"],
       app_api_properties: ["app_user"],
       app_api_property: ["app_user"],
+      app_api_property_connections: ["app_user"],
       app_api_property_grants: ["app_user"],
+      app_api_prune_changes: ["app_user"],
+      app_api_prune_deliveries: ["app_user"],
       app_api_resolve_key: [],
       app_api_revoke_property_grant: ["app_user"],
+      app_api_snapshot: ["app_user"],
+      // 0061: webhook
+      app_api_webhook_delete: ["app_user"],
+      app_api_webhook_get: ["app_user"],
+      app_api_webhook_put: ["app_user"],
+      app_api_webhook_rotate: ["app_user"],
       app_audit_log_immutable: [],
       app_current_member_role: ["app_user"],
       app_current_membership_role: ["app_user"],
@@ -569,6 +709,22 @@ describe("RLS", () => {
   });
 
   it("tablo sahibi (app_migrator) workspace ve denetim satırlarını göremez; yalnız üyelikleri okuyabilir", async () => {
+    // Test kendi üyeliğini oluşturur (dosya sırasından bağımsız; yalnız bu dosya çalışsa da).
+    const uid = crypto.randomUUID();
+    const wid = crypto.randomUUID();
+    const sfx = uid.slice(0, 8);
+    await admin.query(
+      "insert into users (id, name, email, email_verified) values ($1, 'RLS', $2, true)",
+      [uid, `rls.${sfx}@ornek.com`],
+    );
+    await admin.query(
+      "insert into workspaces (id, name, slug, created_by) values ($1, 'RLS', $2, $3)",
+      [wid, `rls-${sfx}`, uid],
+    );
+    await admin.query(
+      "insert into workspace_members (id, workspace_id, user_id, role) values (gen_random_uuid(), $1, $2, 'owner') on conflict do nothing",
+      [wid, uid],
+    );
     const mig = new Client({ connectionString: db.migratorUrl });
     await mig.connect();
     try {

@@ -575,7 +575,14 @@ describe("iptal ve düzenleme kuralları", () => {
       property: prop,
       fields: ["dates", "guest_name", "guest_phone", "amounts", "currency"],
     });
-    expect(JSON.stringify(audit)).not.toMatch(/Mehmet|Ayşe|5000|532/);
+    // Kimlik (UUID) alanları rastgele rakam içerebilir ("…5000…", "…532…"): yalnız kimlik OLMAYAN
+    // değerler aranır; kimlik alanlarının biçimi ayrıca doğrulanır.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    expect(audit.actor_user_id).toMatch(UUID_RE);
+    expect(audit.target_id).toMatch(UUID_RE);
+    expect(audit.metadata.property).toMatch(UUID_RE);
+    const { property: _property, ...rest } = audit.metadata;
+    expect(JSON.stringify([audit.target_type, rest])).not.toMatch(/Mehmet|Ayşe|5000|532/);
     expect(await rowOf(id)).toMatchObject({
       guest_name: "Mehmet Kaya",
       guest_phone: null,
@@ -1053,6 +1060,10 @@ describe("yetkiler, politikalar, kısıtlar, fonksiyon", () => {
     const t = await admin.query(`
       select tgname from pg_trigger where tgrelid = 'reservations'::regclass and not tgisinternal order by 1`);
     expect(t.rows.map((x) => x.tgname)).toEqual([
+      // 0054: API değişiklik yakalama (AFTER, SECURITY DEFINER; yalnız api_calendar_dirty'ye ekler)
+      "reservations_api_capture_del",
+      "reservations_api_capture_ins",
+      "reservations_api_capture_upd",
       "reservations_guard",
       // 0029 (3.1): harici takvim (iCal) çakışma tetikleyicisi — SECURITY DEFINER, çünkü F3 talebi
       // dahil her bağlamda olayları okuyabilmeli (tests/integration/ical.test.ts).

@@ -865,8 +865,10 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
     expect(defs.map((x) => x.name).sort()).toEqual([
       // 0052: acente API'si (istek: app_user + anahtar özeti; villa sayfası: app_user + oturum;
       // Super Admin: app_admin)
+      "app_api_account_changes", // 0061
       "app_api_admin_client",
       "app_api_admin_clients",
+      "app_api_admin_connections", // 0056
       "app_api_admin_create_client",
       "app_api_admin_create_key",
       "app_api_admin_grant",
@@ -879,13 +881,37 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_api_admin_usage",
       "app_api_begin",
       "app_api_busy",
+      // 0054: değişiklik yakalama tetikleyicileri
+      "app_api_capture_external_event",
+      "app_api_capture_external_source",
+      "app_api_capture_property_status",
+      "app_api_capture_reservation",
+      "app_api_capture_workspace_status",
+      "app_api_changes", // 0058
+      "app_api_claim_deliveries", // 0061
+      // 0056: takvim bağlantıları
+      "app_api_connect",
+      "app_api_connection",
+      "app_api_connections",
+      "app_api_disconnect",
+      "app_api_finish_delivery", // 0061
       "app_api_grant_property",
       "app_api_lookup_access_code",
       "app_api_note_error",
+      "app_api_process_changes", // 0059
       "app_api_properties",
       "app_api_property",
+      "app_api_property_connections", // 0056
       "app_api_property_grants",
+      "app_api_prune_changes", // 0059
+      "app_api_prune_deliveries", // 0061
       "app_api_revoke_property_grant",
+      "app_api_snapshot", // 0058
+      // 0061: webhook yapılandırması
+      "app_api_webhook_delete",
+      "app_api_webhook_get",
+      "app_api_webhook_put",
+      "app_api_webhook_rotate",
       "app_current_membership_role",
       "app_current_workspace_unclaimed",
       // 0029 (3.1): iCal senkron/dışa aktarma ve harici doluluk tetikleyicisi
@@ -994,6 +1020,20 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_admin uuid, p_key uuid": `gen_random_uuid(), gen_random_uuid()`,
         "p_admin uuid, p_client uuid, p_hash text, p_hint text": `gen_random_uuid(), gen_random_uuid(), '${"0".repeat(64)}', 'ABCD'`,
         "p_admin uuid, p_client uuid, p_active boolean": `gen_random_uuid(), gen_random_uuid(), true`,
+        // 0056: takvim bağlantıları
+        "p_hash text, p_property uuid, p_external text": `'${"0".repeat(64)}', gen_random_uuid(), 'X'`,
+        "p_hash text, p_id uuid": `'${"0".repeat(64)}', gen_random_uuid()`,
+        "p_hash text, p_after uuid, p_limit integer, p_all boolean": `'${"0".repeat(64)}', null, 1, false`,
+        // 0058: snapshot ve cursor
+        "p_max_properties integer": `1`,
+        "p_hash text, p_connection uuid": `'${"0".repeat(64)}', gen_random_uuid()`,
+        "p_hash text, p_connection uuid, p_cursor text, p_limit integer": `'${"0".repeat(64)}', gen_random_uuid(), 'x', 1`,
+        // 0061: webhook ve hesap geneli akış
+        "p_hash text, p_cursor text, p_limit integer": `'${"0".repeat(64)}', null, 1`,
+        "p_limit integer, p_lease_seconds integer": `1, 60`,
+        "p_id uuid, p_token uuid, p_ok boolean, p_status integer, p_error text": `gen_random_uuid(), gen_random_uuid(), true, 200, null`,
+        "p_hash text, p_url text, p_secret_enc text": `'${"0".repeat(64)}', 'https://a.example.com/', 'v1:a:b:c'`,
+        "p_hash text, p_secret_enc text": `'${"0".repeat(64)}', 'v1:a:b:c'`,
       };
       expect(x.args in args, x.args).toBe(true);
       return `select public.${x.name}(${args[x.args]})`;
@@ -1042,6 +1082,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         // 0052: Super Admin API hesap yönetimi yalnız app_admin'de
         "app_api_admin_client",
         "app_api_admin_clients",
+        "app_api_admin_connections",
         "app_api_admin_create_client",
         "app_api_admin_create_key",
         "app_api_admin_grant",
@@ -1058,15 +1099,32 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       }
       // 0052: API istek ve villa sayfası fonksiyonları app_admin'e kapalı
       for (const name of [
+        "app_api_account_changes",
         "app_api_begin",
         "app_api_busy",
+        "app_api_changes",
+        "app_api_claim_deliveries",
+        "app_api_connect",
+        "app_api_connection",
+        "app_api_connections",
+        "app_api_disconnect",
+        "app_api_finish_delivery",
         "app_api_grant_property",
         "app_api_lookup_access_code",
         "app_api_note_error",
+        "app_api_process_changes",
         "app_api_properties",
         "app_api_property",
+        "app_api_property_connections",
         "app_api_property_grants",
+        "app_api_prune_changes",
+        "app_api_prune_deliveries",
         "app_api_revoke_property_grant",
+        "app_api_snapshot",
+        "app_api_webhook_delete",
+        "app_api_webhook_get",
+        "app_api_webhook_put",
+        "app_api_webhook_rotate",
       ]) {
         const x = defs.find((y) => y.name === name)!;
         expect([name, await tryAs("app_admin", call(x))]).toEqual([name, "42501"]);

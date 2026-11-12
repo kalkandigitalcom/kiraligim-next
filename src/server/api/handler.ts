@@ -35,11 +35,26 @@ export type ApiContext = {
   rate: RateInfo;
   today: string;
   url: URL;
+  /** Yazma uç noktaları gövdeyi okur (readJsonBody); GET uç noktaları kullanmaz. */
+  request: Request;
 };
 
-/** Uç noktanın sonucu: gövde (200) ya da hata kodu. */
+/** Uç noktanın sonucu: gövde (200; oluşturmada 201) ya da hata kodu. */
 export type ApiResult =
-  { body: unknown } | { error: "not_found" | "invalid_request"; message?: string };
+  | { body: unknown; status?: 200 | 201 }
+  | {
+      error:
+        | "not_found"
+        | "invalid_request"
+        | "already_connected"
+        | "external_id_in_use"
+        | "payload_too_large"
+        | "unsupported_media_type"
+        | "invalid_cursor"
+        | "cursor_expired"
+        | "webhooks_unavailable";
+      message?: string;
+    };
 
 const failedAuth = createMemoryRateLimit({ limit: 30, windowMs: 60_000, maxKeys: 5_000 });
 
@@ -121,13 +136,14 @@ export async function handleApiRequest(
       rate,
       today: istanbulToday(now),
       url: new URL(request.url),
+      request,
     };
     const result = await run(ctx);
     if ("error" in result) {
       await noteError(db, keyHash).catch(() => undefined);
       return errorResponse(result.error, rateHeaders(rate, now), result.message);
     }
-    return jsonResponse(result.body, 200, rateHeaders(rate, now));
+    return jsonResponse(result.body, result.status ?? 200, rateHeaders(rate, now));
   } catch (err) {
     const headers = rate ? rateHeaders(rate, now) : {};
     if (err instanceof ApiUnauthorized) return errorResponse("unauthorized", headers);
@@ -147,3 +163,7 @@ export async function handleApiRequest(
 
 /** GET dışındaki yöntemler: 405 (JSON). */
 export const methodNotAllowed = async (): Promise<Response> => errorResponse("method_not_allowed");
+
+/** İzinli yöntemleri "Allow" başlığında bildiren 405 (2. aşama yazma uç noktaları). */
+export const methodNotAllowedFor = (allow: string) => async (): Promise<Response> =>
+  errorResponse("method_not_allowed", { allow });

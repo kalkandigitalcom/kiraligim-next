@@ -208,6 +208,14 @@ export const AUDIT_ACTIONS = {
     client: z.uuid(),
     by: z.enum(["owner", "admin"]),
   }),
+  // API 2. aşama: takvim bağlantısı kuruldu / sona erdi (drizzle/0056 fonksiyonları yazar).
+  // Acentenin kendi villa kimliği yazılmaz.
+  "api.calendar_connected": z.strictObject({ property: z.uuid(), client: z.uuid() }),
+  "api.calendar_disconnected": z.strictObject({
+    property: z.uuid(),
+    client: z.uuid(),
+    by: z.enum(["agency", "owner", "admin"]),
+  }),
   "reservation.status_changed": z.strictObject({
     property: z.uuid(),
     from: z.enum(RESERVATION_STATUSES),

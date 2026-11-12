@@ -372,6 +372,69 @@
       "when": 1794430621125,
       "tag": "0052_api_security",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794500965897,
+      "tag": "0053_api_calendar_dirty",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794501048157,
+      "tag": "0054_api_calendar_dirty_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794506582079,
+      "tag": "0055_api_calendar_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794506589665,
+      "tag": "0056_api_calendar_connections_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794507636577,
+      "tag": "0057_api_calendar_changes",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794507639657,
+      "tag": "0058_api_snapshot_cursor",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794509795428,
+      "tag": "0059_api_change_processor",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794510646198,
+      "tag": "0060_api_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794510649806,
+      "tag": "0061_api_webhooks_security",
+      "breakpoints": true
     }
   ]
 }

@@ -80,4 +80,13 @@ Tarayıcıda:
 `feature/*` → PR → `develop` (dev ortamına otomatik deploy) → PR → `main` (production, elle deploy).
 CI geçmeden birleştirme yapılmaz. `.env*` dosyaları Git'e girmez (yalnız `.env.example`).
 
+## Acente API'si
+
+Acenteler ev sahibinin izin verdiği villaların dolu tarihlerini okur ve takvimi senkronize eder
+(bağlantı, snapshot + cursor, değişiklik akışları, imzalı webhook). Acente dokümantasyonu
+[docs/api/README.md](docs/api/README.md), sözleşme [docs/api/openapi.yaml](docs/api/openapi.yaml),
+örnek istemci ve webhook alıcısı [docs/api/examples/](docs/api/examples). Değişiklik işlemcisi ve
+webhook gönderimi Coolify Scheduled Task olarak her dakika çalışır: `node dist/api-sync.js`
+(kurulum, `API_WEBHOOK_SECRET_KEY` ve geri alma: [docs/deployment.md](docs/deployment.md)).
+
 Ayrıntılı sunucu kurulumu: [docs/deployment.md](docs/deployment.md) · Testler: [docs/testing.md](docs/testing.md)

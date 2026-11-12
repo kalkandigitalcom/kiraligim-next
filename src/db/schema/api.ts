@@ -1,12 +1,15 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   check,
+  jsonb,
   date,
   foreignKey,
   index,
   integer,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -52,6 +55,13 @@ export const apiClients = pgTable(
     /** Kodun son 4 karakteri (yalnız Super Admin ekranında tanıma için). */
     accessCodeHint: text(),
     accessCodeCreatedAt: ts(),
+    /**
+     * 5. adım: hesap geneli değişiklik akışının cursor anahtarı (rastgele). Hesap cursor'ı bununla
+     * HMAC-SHA256 ile imzalanır; başka hesapta geçersizdir. Hiçbir yanıtta dönmez.
+     */
+    cursorKey: text()
+      .notNull()
+      .default(sql`gen_random_uuid()::text`),
     createdByAdmin: uuid().references(() => adminUsers.id, { onDelete: "set null" }),
     createdAt: ts().notNull().defaultNow(),
     updatedAt: ts().notNull().defaultNow(),
@@ -199,5 +209,272 @@ export const apiUsageDaily = pgTable(
       "api_usage_daily_counts_check",
       sql`${t.requests} >= 0 and ${t.rateLimited} >= 0 and ${t.errors} >= 0`,
     ),
+  ],
+);
+
+/**
+ * 2. aşama, 1. adım — takvim değişikliği yakalama (drizzle/0053, 0054).
+ *
+ * Takvimi etkileyen her yazma (rezervasyon/blok, harici takvim olayı ve kaynağı, villa ve işletme
+ * durumu) AYNI transaction içinde buraya "bu villanın bu aralığı değişti" satırı bırakır. Satırı
+ * yalnız tetikleyiciler yazar (SECURITY DEFINER, yalnız INSERT; hesaplama ve kilit yok). Geri alınan
+ * yazmanın satırı da geri alınır. Satırda kişisel veri, kaynak adı, tutar veya kayıt kimliği yoktur.
+ *
+ * Sonraki adımdaki tek işlemci satırları villa başına birleştirip güncel doluluğu hesaplar ve
+ * siler; işlenemezse attempts / next_attempt_at / last_error ile yeniden dener.
+ */
+export const API_CALENDAR_DIRTY_REASONS = [
+  "reservation",
+  "external_event",
+  "external_source",
+  "property_status",
+  "workspace_status",
+] as const;
+
+export const apiCalendarDirty = pgTable(
+  "api_calendar_dirty",
+  {
+    id: bigint({ mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    /** Yabancı anahtar YOK: tetikleyici üst satırda kilit almaz; işlemci olmayan villayı atlar. */
+    propertyId: uuid().notNull(),
+    /** Değişen aralık [startDate, endDate) — rezervasyonlarla aynı kural (çıkış günü hariç). */
+    startDate: date({ mode: "string" }).notNull(),
+    endDate: date({ mode: "string" }).notNull(),
+    reason: text({ enum: API_CALENDAR_DIRTY_REASONS }).notNull(),
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: ts(),
+    lastError: text(),
+    createdAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    index("api_calendar_dirty_property_idx").on(t.propertyId, t.id),
+    check("api_calendar_dirty_range_check", sql`${t.endDate} > ${t.startDate}`),
+    check(
+      "api_calendar_dirty_reason_check",
+      sql`${t.reason} in ('reservation', 'external_event', 'external_source', 'property_status', 'workspace_status')`,
+    ),
+    check("api_calendar_dirty_attempts_check", sql`${t.attempts} >= 0`),
+    check(
+      "api_calendar_dirty_last_error_format",
+      sql`${t.lastError} is null or ${t.lastError} ~ '^[a-z0-9_]{1,64}$'`,
+    ),
+  ],
+);
+
+/**
+ * 2. aşama, 2. adım — takvim bağlantıları (drizzle/0055, 0056).
+ *
+ * Acente, API erişim izni olan villayı kendi yazılımındaki villa kimliğiyle (external_property_id)
+ * bağlar. İzin etkinse bağlantı doğrudan "active" olur (ikinci sahip onayı yok). Bağlantı yalnız
+ * app_api_* fonksiyonlarıyla okunur/yazılır; uygulama rollerinin doğrudan erişimi yoktur.
+ *
+ *  - Aynı acentede aynı villanın ve aynı external_property_id'nin tek ETKİN bağlantısı olur.
+ *  - Saklanan durum yalnız active / disconnected (acente kesti) / revoked (izin kaldırıldı).
+ *    "paused" SAKLANMAZ: villa veya işletme etkin değilken etkin bağlantı API'de paused görünür.
+ *  - Yeniden bağlanma her zaman yeni satırdır; bitmiş bağlantılar geçmiş olarak kalır.
+ *  - last_synced_at sonraki adımlarda (snapshot / değişiklikler / webhook) güncellenir.
+ */
+export const API_CONNECTION_STATUSES = ["active", "disconnected", "revoked"] as const;
+
+export const apiCalendarConnections = pgTable(
+  "api_calendar_connections",
+  {
+    id: uuid().primaryKey(),
+    clientId: uuid()
+      .notNull()
+      .references(() => apiClients.id, { onDelete: "cascade" }),
+    workspaceId: uuid()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "restrict" }),
+    propertyId: uuid().notNull(),
+    /** Bağlantı kurulurken kullanılan izin. İzin kaldırılınca bağlantı "revoked" olur. */
+    grantId: uuid()
+      .notNull()
+      .references(() => apiAccessGrants.id, { onDelete: "restrict" }),
+    /** Acentenin kendi yazılımındaki villa kimliği (büyük/küçük harf duyarlı). */
+    externalPropertyId: text().notNull(),
+    status: text({ enum: API_CONNECTION_STATUSES }).notNull().default("active"),
+    endReason: text({ enum: ["agency", "grant_revoked"] }),
+    createdAt: ts().notNull().defaultNow(),
+    endedAt: ts(),
+    lastSyncedAt: ts(),
+    /**
+     * 5. adım: son snapshot'ın cursor'ı (değişiklik kimliği). Hesap geneli akış ve webhook, bu
+     * kimlikten SONRAKİ değişiklikleri verir: snapshot'tan eski bir değişiklik snapshot'ın üzerine
+     * uygulanıp takvimi geri götüremez. Snapshot alınmamış bağlantıya webhook gitmez.
+     */
+    snapshotChangeId: bigint({ mode: "number" }),
+    /**
+     * 3. adım: bağlantıya özel cursor anahtarı (rastgele). Cursor bununla imzalanır; başka
+     * bağlantının veya değiştirilmiş cursor kabul edilmez. API yanıtlarında hiçbir zaman dönmez.
+     */
+    cursorKey: text()
+      .notNull()
+      .default(sql`gen_random_uuid()::text`),
+  },
+  (t) => [
+    foreignKey({
+      name: "api_calendar_connections_property_fk",
+      columns: [t.propertyId, t.workspaceId],
+      foreignColumns: [properties.id, properties.workspaceId],
+    }).onDelete("restrict"),
+    uniqueIndex("api_calendar_connections_active_property_key")
+      .on(t.clientId, t.propertyId)
+      .where(sql`${t.status} = 'active'`),
+    uniqueIndex("api_calendar_connections_active_external_key")
+      .on(t.clientId, t.externalPropertyId)
+      .where(sql`${t.status} = 'active'`),
+    index("api_calendar_connections_client_idx").on(t.clientId, t.id),
+    index("api_calendar_connections_property_idx").on(t.propertyId, t.status),
+    index("api_calendar_connections_grant_idx").on(t.grantId),
+    index("api_calendar_connections_workspace_idx").on(t.workspaceId),
+    check(
+      "api_calendar_connections_status_check",
+      sql`${t.status} in ('active', 'disconnected', 'revoked')`,
+    ),
+    check(
+      "api_calendar_connections_external_id_format",
+      sql`${t.externalPropertyId} ~ '^[!-~]([ -~]{0,98}[!-~])?$'`,
+    ),
+    check(
+      "api_calendar_connections_end_consistent",
+      sql`(${t.status} = 'active' and ${t.endedAt} is null and ${t.endReason} is null) or (${t.status} = 'disconnected' and ${t.endedAt} is not null and ${t.endReason} = 'agency') or (${t.status} = 'revoked' and ${t.endedAt} is not null and ${t.endReason} = 'grant_revoked')`,
+    ),
+  ],
+);
+
+/**
+ * 2. aşama, 3. adım — snapshot ve cursor (drizzle/0057, 0058).
+ *
+ * api_sync_state (tek satır): değişiklik kaydının yazıcısı (işlemci, 4. adım) ile snapshot'ın
+ * buluştuğu nokta. İşlemci transaction'ının İLK ifadesi bu satırı UPDATE ile kilitler ve
+ * değişiklikleri yazdıktan sonra last_change_id'yi aynı transaction'da günceller; snapshot bu
+ * satırı FOR SHARE ile kilitler, ardından cursor (last_change_id) ve dolu aralıkları TEK SQL
+ * ifadesinde okur. İkisi birbirini bekler; snapshot'ın gördüğü veri anı cursor'la aynıdır.
+ * pruned_through_id: 30 günlük saklama sonucu bu kimliğe kadar (dahil) kayıtlar silinmiş olabilir.
+ *
+ * api_calendar_changes: sıralı değişiklik kaydı. Her satır "bu villanın [start_date, end_date)
+ * aralığındaki doluluk şu" der (busy: [{start_date, end_date}], aralığa kırpılmış). Uygulamak
+ * yerine koymadır; aynı kaydı iki kez uygulamak sonucu değiştirmez. Misafir, kaynak, tutar veya
+ * kayıt kimliği yoktur. Kimlikleri yalnız işlemci (tek yazıcı, satır kilidi altında) atar.
+ */
+export const apiSyncState = pgTable(
+  "api_sync_state",
+  {
+    id: smallint().primaryKey(),
+    lastChangeId: bigint({ mode: "number" }).notNull().default(0),
+    prunedThroughId: bigint({ mode: "number" }).notNull().default(0),
+    updatedAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    check("api_sync_state_singleton", sql`${t.id} = 1`),
+    check(
+      "api_sync_state_ids_check",
+      sql`${t.lastChangeId} >= 0 and ${t.prunedThroughId} >= 0 and ${t.prunedThroughId} <= ${t.lastChangeId}`,
+    ),
+  ],
+);
+
+export const apiCalendarChanges = pgTable(
+  "api_calendar_changes",
+  {
+    id: bigint({ mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    propertyId: uuid().notNull(),
+    startDate: date({ mode: "string" }).notNull(),
+    endDate: date({ mode: "string" }).notNull(),
+    /** [{start_date, end_date}] — aralık içindeki dolu bölümler; kalanı boş. */
+    busy: jsonb().$type<{ start_date: string; end_date: string }[]>().notNull(),
+    createdAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    index("api_calendar_changes_property_idx").on(t.propertyId, t.id),
+    index("api_calendar_changes_created_idx").on(t.createdAt),
+    check("api_calendar_changes_range_check", sql`${t.endDate} > ${t.startDate}`),
+    check("api_calendar_changes_busy_array", sql`jsonb_typeof(${t.busy}) = 'array'`),
+  ],
+);
+
+/**
+ * 2. aşama, 5. adım — webhook (drizzle/0060, 0061).
+ *
+ * api_webhook_endpoints: acente başına tek adres (yalnız HTTPS). İmza sırrı uygulamada AES-256-GCM
+ * ile şifrelenir (API_WEBHOOK_SECRET_KEY, veritabanında yok); açık hâli yalnız oluşturma/yenileme
+ * yanıtında bir kez döner.
+ *
+ * api_webhook_deliveries: her (bağlantı, değişiklik) için tek teslim kaydı; kimliği olay kimliğidir
+ * ve yeniden denemelerde değişmez. Değişiklik kaydıyla AYNI transaction'da (işlemci) oluşur.
+ * Bağlantı başına sıra: yalnız en eski bekleyen kayıt gönderilir. En az bir kez: kilit süresi
+ * dolan gönderim aynı olay kimliğiyle yeniden denenir. Gövde ve yanıt saklanmaz.
+ */
+export const API_DELIVERY_STATUSES = ["pending", "delivered", "failed", "cancelled"] as const;
+
+export const apiWebhookEndpoints = pgTable(
+  "api_webhook_endpoints",
+  {
+    clientId: uuid()
+      .primaryKey()
+      .references(() => apiClients.id, { onDelete: "cascade" }),
+    url: text().notNull(),
+    /** AES-256-GCM ("v1:iv:etiket:şifreli", base64url). */
+    secretEnc: text().notNull(),
+    createdAt: ts().notNull().defaultNow(),
+    updatedAt: ts().notNull().defaultNow(),
+    secretRotatedAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      "api_webhook_endpoints_url_format",
+      sql`${t.url} ~ '^https://[^/@[:space:]]+(/[^[:space:]]*)?$' and length(${t.url}) <= 2048`,
+    ),
+    check(
+      "api_webhook_endpoints_secret_format",
+      sql`${t.secretEnc} ~ '^v1:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'`,
+    ),
+  ],
+);
+
+export const apiWebhookDeliveries = pgTable(
+  "api_webhook_deliveries",
+  {
+    /** Olay kimliği (Kiraligim-Event-Id); yeniden denemelerde aynı. */
+    id: uuid().primaryKey(),
+    clientId: uuid()
+      .notNull()
+      .references(() => apiClients.id, { onDelete: "cascade" }),
+    connectionId: uuid()
+      .notNull()
+      .references(() => apiCalendarConnections.id, { onDelete: "cascade" }),
+    changeId: bigint({ mode: "number" }).notNull(),
+    status: text({ enum: API_DELIVERY_STATUSES }).notNull().default("pending"),
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: ts().notNull().defaultNow(),
+    leaseToken: uuid(),
+    leaseUntil: ts(),
+    lastStatus: integer(),
+    lastError: text(),
+    cancelReason: text(),
+    createdAt: ts().notNull().defaultNow(),
+    finishedAt: ts(),
+  },
+  (t) => [
+    uniqueIndex("api_webhook_deliveries_connection_change_key").on(t.connectionId, t.changeId),
+    index("api_webhook_deliveries_pending_idx")
+      .on(t.connectionId, t.changeId)
+      .where(sql`${t.status} = 'pending'`),
+    index("api_webhook_deliveries_client_idx").on(t.clientId, t.status),
+    index("api_webhook_deliveries_created_idx").on(t.createdAt),
+    check(
+      "api_webhook_deliveries_status_check",
+      sql`${t.status} in ('pending', 'delivered', 'failed', 'cancelled')`,
+    ),
+    check(
+      "api_webhook_deliveries_finished_consistent",
+      sql`(${t.status} = 'pending') = (${t.finishedAt} is null)`,
+    ),
+    check(
+      "api_webhook_deliveries_codes_format",
+      sql`(${t.lastError} is null or ${t.lastError} ~ '^[a-z0-9_]{1,64}$') and (${t.cancelReason} is null or ${t.cancelReason} ~ '^[a-z0-9_]{1,64}$')`,
+    ),
+    check("api_webhook_deliveries_attempts_check", sql`${t.attempts} >= 0`),
   ],
 );

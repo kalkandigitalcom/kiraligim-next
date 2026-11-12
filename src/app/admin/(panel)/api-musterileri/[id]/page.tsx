@@ -10,6 +10,7 @@ import {
   ADMIN_API_ERRORS,
   type AdminApiErrorCode,
   getApiClient,
+  listApiConnections,
   listApiGrants,
   listApiKeys,
   listApiUsage,
@@ -47,6 +48,13 @@ const NOTICES: Record<string, string> = {
   "izin-kaldirildi": "Villa erişimi kaldırıldı; bir sonraki istekte geçerlidir.",
 };
 
+const CONNECTION_LABELS = {
+  active: "etkin",
+  paused: "duraklatıldı (villa, işletme veya hesap etkin değil)",
+  disconnected: "acente kesti",
+  revoked: "izin kaldırıldı",
+} as const;
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 sm:flex-row sm:gap-4">
@@ -69,10 +77,11 @@ export default async function AdminApiClientPage({ params, searchParams }: Props
     if (isAppError(err) && err.code === "NOT_FOUND") notFound();
     throw err;
   }
-  const [keys, grants, usage] = await Promise.all([
+  const [keys, grants, usage, connections] = await Promise.all([
     listApiKeys(db, admin.adminId, c.id),
     listApiGrants(db, admin.adminId, c.id),
     listApiUsage(db, admin.adminId, c.id),
+    listApiConnections(db, admin.adminId, c.id),
   ]);
   const query = one(sp.ara).slice(0, 100);
   const chosenWs = one(sp.isletme);
@@ -270,6 +279,41 @@ export default async function AdminApiClientPage({ params, searchParams }: Props
             </form>
           ) : null}
         </div>
+      </section>
+
+      <section
+        className={CARD}
+        aria-labelledby="connections-title"
+        data-testid="admin-api-connections"
+      >
+        <h2 id="connections-title" className="font-semibold text-navy-900">
+          Takvim bağlantıları{" "}
+          <span className="font-normal text-muted-foreground">
+            ({connections.filter((x) => x.status === "active" || x.status === "paused").length}{" "}
+            güncel)
+          </span>
+        </h2>
+        {connections.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Henüz takvim bağlantısı yok.</p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+            {connections.map((x) => (
+              <li key={x.id} className="flex flex-col gap-0.5 px-4 py-3 text-sm">
+                <span className="font-medium text-navy-900">
+                  {x.propertyName}{" "}
+                  <span className="font-normal text-muted-foreground">
+                    → acente kimliği <span className="font-mono">{x.externalPropertyId}</span>
+                  </span>
+                </span>
+                <span className="text-muted-foreground">
+                  {x.workspaceName} · {CONNECTION_LABELS[x.status]} · bağlantı {fmt(x.createdAt)}
+                  {x.endedAt ? ` · bitiş ${fmt(x.endedAt)}` : ""} · son senkron{" "}
+                  {x.lastSyncedAt ? fmt(x.lastSyncedAt) : "henüz yok"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className={CARD} aria-labelledby="usage-title" data-testid="admin-api-usage">

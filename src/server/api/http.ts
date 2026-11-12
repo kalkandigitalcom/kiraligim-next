@@ -3,7 +3,7 @@
  * Yanıt gövdeleri yalnız açıkça tanımlanmış alanlardan oluşur; hata mesajları iç ayrıntı
  * (SQL, yığın, tablo adı) içermez.
  */
-import { API_LIMITS, type ApiErrorCode } from "@/lib/api-meta";
+import { API_BODY_MAX_BYTES, API_LIMITS, type ApiErrorCode } from "@/lib/api-meta";
 import { addDays, isIsoDate, nightsBetween } from "@/lib/reservation-meta";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,6 +24,13 @@ export const ERROR_STATUS: Record<ApiErrorCode, number> = {
   rate_limited: 429,
   method_not_allowed: 405,
   internal_error: 500,
+  already_connected: 409,
+  external_id_in_use: 409,
+  payload_too_large: 413,
+  unsupported_media_type: 415,
+  invalid_cursor: 400,
+  cursor_expired: 410,
+  webhooks_unavailable: 503,
 };
 
 const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
@@ -34,6 +41,13 @@ const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   rate_limited: "Rate limit exceeded. Retry after the reset time.",
   method_not_allowed: "Method not allowed.",
   internal_error: "Service temporarily unavailable.",
+  already_connected: "This property is already connected with a different external_property_id.",
+  external_id_in_use: "This external_property_id is already used by another active connection.",
+  payload_too_large: "Request body is too large.",
+  unsupported_media_type: "Content-Type must be application/json.",
+  invalid_cursor: "The cursor is not valid for this connection.",
+  cursor_expired: "The cursor has expired. Take a new snapshot.",
+  webhooks_unavailable: "Webhooks are temporarily unavailable.",
 };
 
 export function jsonResponse(
@@ -54,7 +68,7 @@ export function errorResponse(
 ): Response {
   const extra: Record<string, string> = { ...headers };
   if (code === "unauthorized") extra["www-authenticate"] = 'Bearer realm="kiraligim"';
-  if (code === "method_not_allowed") extra.allow = "GET";
+  if (code === "method_not_allowed") extra.allow ??= "GET";
   return jsonResponse(
     { error: { code, message: message ?? ERROR_MESSAGES[code] } },
     ERROR_STATUS[code],
@@ -127,4 +141,119 @@ export function parseAvailabilityQuery(
     return { ok: false, message: "to is too far in the future (max 24 months)." };
   }
   return { ok: true, value: { from, to } };
+}
+
+export type JsonBody =
+  | { ok: true; value: Record<string, unknown> }
+  | {
+      ok: false;
+      code: "invalid_request" | "payload_too_large" | "unsupported_media_type";
+      message?: string;
+    };
+
+/**
+ * Yazma isteği gövdesi: Content-Type application/json, en fazla 4 KB, düz JSON nesnesi.
+ * Gövde log'a yazılmaz; hata mesajı gövdeden değer içermez.
+ */
+export async function readJsonBody(request: Request): Promise<JsonBody> {
+  const type = request.headers.get("content-type") ?? "";
+  if (!/^application\/json(\s*;|$)/i.test(type.trim())) {
+    return { ok: false, code: "unsupported_media_type" };
+  }
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > API_BODY_MAX_BYTES) {
+    return { ok: false, code: "payload_too_large" };
+  }
+  let text: string;
+  try {
+    text = await readLimited(request, API_BODY_MAX_BYTES);
+  } catch (err) {
+    if (err instanceof BodyTooLarge) return { ok: false, code: "payload_too_large" };
+    return { ok: false, code: "invalid_request", message: "Request body could not be read." };
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { ok: false, code: "invalid_request", message: "Request body must be valid JSON." };
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, code: "invalid_request", message: "Request body must be a JSON object." };
+  }
+  return { ok: true, value: value as Record<string, unknown> };
+}
+
+class BodyTooLarge extends Error {}
+
+async function readLimited(request: Request, max: number): Promise<string> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      throw new BodyTooLarge();
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+}
+
+/** /calendar-connections listesi: ?limit=&cursor=&status=current|all */
+export function parseConnectionListQuery(
+  url: URL,
+): Parsed<{ limit: number; after: string | null; all: boolean }> {
+  for (const k of url.searchParams.keys()) {
+    if (k !== "limit" && k !== "cursor" && k !== "status") {
+      return { ok: false, message: `Unknown parameter: ${k}` };
+    }
+  }
+  const status = url.searchParams.get("status") ?? "current";
+  if (status !== "current" && status !== "all") {
+    return { ok: false, message: "status must be current or all." };
+  }
+  const base = new URL(url);
+  base.searchParams.delete("status");
+  const list = parseListQuery(base);
+  if (!list.ok) return list;
+  return { ok: true, value: { ...list.value, all: status === "all" } };
+}
+
+/** /changes: ?cursor= (zorunlu), ?limit=1..500 (varsayılan 100). */
+export function parseChangesQuery(url: URL): Parsed<{ cursor: string; limit: number }> {
+  for (const k of url.searchParams.keys()) {
+    if (k !== "limit" && k !== "cursor") return { ok: false, message: `Unknown parameter: ${k}` };
+  }
+  const cursor = url.searchParams.get("cursor");
+  if (!cursor) return { ok: false, message: "cursor is required." };
+  if (cursor.length > 200) return { ok: false, message: "Invalid cursor." };
+  const base = new URL(url);
+  base.searchParams.delete("cursor");
+  const list = parseListQuery(base);
+  if (!list.ok) return list;
+  return { ok: true, value: { cursor, limit: list.value.limit } };
+}
+
+/** /calendar-changes (hesap geneli): ?cursor=&limit= — cursor isteğe bağlı (yoksa şimdiden başlar). */
+export function parseAccountChangesQuery(
+  url: URL,
+): Parsed<{ cursor: string | null; limit: number }> {
+  for (const k of url.searchParams.keys()) {
+    if (k !== "limit" && k !== "cursor") return { ok: false, message: `Unknown parameter: ${k}` };
+  }
+  const all = url.searchParams.getAll("cursor");
+  if (all.length > 1) return { ok: false, message: "Invalid cursor." };
+  const cursor = all[0] ?? null;
+  if (cursor !== null && (cursor.length === 0 || cursor.length > 200)) {
+    return { ok: false, message: "Invalid cursor." };
+  }
+  const base = new URL(url);
+  base.searchParams.delete("cursor");
+  const list = parseListQuery(base);
+  if (!list.ok) return list;
+  return { ok: true, value: { cursor, limit: list.value.limit } };
 }

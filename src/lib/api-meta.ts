@@ -66,5 +66,33 @@ export const API_ERROR_CODES = [
   "rate_limited",
   "method_not_allowed",
   "internal_error",
+  // 2. aşama: takvim bağlantıları (yazma istekleri)
+  "already_connected",
+  "external_id_in_use",
+  "payload_too_large",
+  "unsupported_media_type",
+  // 3. adım: snapshot ve cursor
+  "invalid_cursor",
+  "cursor_expired",
+  // 5. adım: webhook (sunucuda şifreleme anahtarı tanımlı değil)
+  "webhooks_unavailable",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
+
+/**
+ * Acentenin kendi villa kimliği (external_property_id): 1–100 yazdırılabilir ASCII karakter,
+ * başta/sonda boşluk yok; büyük/küçük harf duyarlı. Veritabanı kısıtıyla aynı kural (drizzle/0055).
+ */
+export const API_EXTERNAL_ID_PATTERN = /^[!-~](?:[ -~]{0,98}[!-~])?$/;
+/** Yazma isteklerinin gövdesi en fazla bu kadar bayt olabilir. */
+export const API_BODY_MAX_BYTES = 4096;
+export const API_CONNECTION_VIEW_STATUSES = [
+  "active",
+  "paused",
+  "disconnected",
+  "revoked",
+] as const;
+export type ApiConnectionViewStatus = (typeof API_CONNECTION_VIEW_STATUSES)[number];
+
+/** Cursor ömrü (gün): daha eski cursor 410 cursor_expired; acente yeniden snapshot alır. */
+export const API_CURSOR_TTL_DAYS = 30;

@@ -3,7 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Alert } from "@/components/ui/alert";
-import { canManageApiAccess, listPropertyApiGrants } from "@/server/api/grants";
+import {
+  canManageApiAccess,
+  listPropertyApiConnections,
+  listPropertyApiGrants,
+} from "@/server/api/grants";
 import { getProperty } from "@/server/properties/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
@@ -42,6 +46,27 @@ const DATE = new Intl.DateTimeFormat("tr-TR", {
  * okuyabilir. Tüm üyeler erişimi olan acenteleri görür; kod girme, onay ve kaldırma işletme sahibi
  * ve yöneticilerdedir (sunucuda ve veritabanında yeniden denetlenir).
  */
+/** Acentenin bu villa için takvim bağlantısı (2. aşama): bağlı / duraklatıldı / yok. */
+function ConnectionNote({
+  connection: c,
+}: {
+  connection: { paused: boolean; createdAt: Date; lastSyncedAt: Date | null } | undefined;
+}) {
+  if (!c) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="api-connection">
+        Takvim bağlantısı yok.
+      </p>
+    );
+  }
+  return (
+    <p className="text-sm text-muted-foreground" data-testid="api-connection">
+      {c.paused ? "Takvim bağlı (duraklatıldı)" : "Takvim bağlı"} · {DATE.format(c.createdAt)}
+      {c.lastSyncedAt ? ` · son senkron ${DATE.format(c.lastSyncedAt)}` : ""}
+    </p>
+  );
+}
+
 export default async function PropertyApiAccessPage({ params, searchParams }: Props) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const view = await withPanelTenant(async (tx, ctx) => {
@@ -50,11 +75,12 @@ export default async function PropertyApiAccessPage({ params, searchParams }: Pr
     return {
       property,
       grants: await listPropertyApiGrants(tx, property.id),
+      connections: await listPropertyApiConnections(tx, property.id),
       canManage: canManageApiAccess(ctx.role),
     };
   });
   if (!view) notFound();
-  const { property: p, grants, canManage } = view;
+  const { property: p, grants, connections, canManage } = view;
   const notice = NOTICES[one(sp.durum) ?? ""];
 
   return (
@@ -93,7 +119,8 @@ export default async function PropertyApiAccessPage({ params, searchParams }: Pr
           <p className="mt-1 text-sm text-muted-foreground">
             Acenteler bu villanın yalnız adını ve dolu tarihlerini görebilir. Fiyat, misafir
             bilgisi, açıklama, fotoğraf, adres ve rezervasyon ayrıntısı paylaşılmaz. Villa pasif
-            olduğunda acenteler villayı göremez.
+            olduğunda acenteler villayı göremez ve takvim bağlantısı duraklatılır. Erişimi
+            kaldırdığınızda takvim bağlantısı da sona erer.
           </p>
         </div>
         {grants.length === 0 ? (
@@ -117,6 +144,7 @@ export default async function PropertyApiAccessPage({ params, searchParams }: Pr
                     {DATE.format(g.createdAt)} ·{" "}
                     {g.grantedVia === "owner" ? "Kodla onaylandı" : "Platform tarafından eklendi"}
                   </p>
+                  <ConnectionNote connection={connections.find((c) => c.grantId === g.id)} />
                 </div>
                 {canManage ? (
                   <RevokeButton

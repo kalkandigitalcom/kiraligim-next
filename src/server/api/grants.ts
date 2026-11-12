@@ -85,3 +85,37 @@ export async function revokePropertyAccess(
   );
   return res.rows[0]?.out ?? "not_found";
 }
+
+export type PropertyApiConnection = {
+  id: string;
+  grantId: string;
+  clientName: string;
+  /** Villa pasif veya acente hesabı pasif: bağlantı kayıtlı ama senkron duraklatılmış. */
+  paused: boolean;
+  createdAt: Date;
+  lastSyncedAt: Date | null;
+};
+
+/** Villanın etkin takvim bağlantıları (acentenin kendi villa kimliği gösterilmez). */
+export async function listPropertyApiConnections(
+  tx: Tx,
+  propertyId: string,
+): Promise<PropertyApiConnection[]> {
+  if (!isUuid(propertyId)) return [];
+  const res = await tx.execute<{
+    id: string;
+    grant_id: string;
+    client_name: string;
+    paused: boolean;
+    created_at: Date | string;
+    last_synced_at: Date | string | null;
+  }>(sql`select * from public.app_api_property_connections(${propertyId}::uuid)`);
+  return res.rows.map((r) => ({
+    id: r.id,
+    grantId: r.grant_id,
+    clientName: r.client_name,
+    paused: r.paused,
+    createdAt: new Date(r.created_at),
+    lastSyncedAt: r.last_synced_at === null ? null : new Date(r.last_synced_at),
+  }));
+}

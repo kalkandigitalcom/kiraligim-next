@@ -10,7 +10,12 @@ import { sql } from "drizzle-orm";
 
 import type { Database } from "@/db/client";
 import { pgErrorInfo } from "@/db/pg-error";
-import { API_LIMITS, type ApiClientStatus, type ApiKeyStatus } from "@/lib/api-meta";
+import {
+  API_LIMITS,
+  type ApiClientStatus,
+  type ApiConnectionViewStatus,
+  type ApiKeyStatus,
+} from "@/lib/api-meta";
 import { AppError } from "@/lib/errors";
 import { generateAccessCode, generateApiKey } from "@/server/api/keys";
 
@@ -342,5 +347,48 @@ export async function listApiUsage(
     requests: Number(r.requests),
     rateLimited: Number(r.rate_limited),
     errors: Number(r.errors),
+  }));
+}
+
+export type AdminApiConnection = {
+  id: string;
+  workspaceName: string;
+  propertyId: string;
+  propertyName: string;
+  externalPropertyId: string;
+  status: ApiConnectionViewStatus;
+  createdAt: Date;
+  endedAt: Date | null;
+  lastSyncedAt: Date | null;
+};
+
+/** Hesabın takvim bağlantıları (salt okunur; güncel olanlar önce). */
+export async function listApiConnections(
+  db: Database,
+  adminId: string,
+  clientId: string,
+): Promise<AdminApiConnection[]> {
+  if (!isUuid(clientId)) return [];
+  const res = await db.execute<{
+    id: string;
+    workspace_name: string;
+    property_id: string;
+    property_name: string;
+    external_property_id: string;
+    status: ApiConnectionViewStatus;
+    created_at: Date | string;
+    ended_at: Date | string | null;
+    last_synced_at: Date | string | null;
+  }>(sql`select * from public.app_api_admin_connections(${adminId}::uuid, ${clientId}::uuid)`);
+  return res.rows.map((r) => ({
+    id: r.id,
+    workspaceName: r.workspace_name,
+    propertyId: r.property_id,
+    propertyName: r.property_name,
+    externalPropertyId: r.external_property_id,
+    status: r.status,
+    createdAt: new Date(r.created_at),
+    endedAt: d(r.ended_at),
+    lastSyncedAt: d(r.last_synced_at),
   }));
 }
