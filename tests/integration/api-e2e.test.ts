@@ -18,10 +18,11 @@ import { type TenantContext, type Tx, withTenant } from "@/db/tenant";
 import { createLogger } from "@/lib/logger";
 import { addDays, istanbulToday } from "@/lib/reservation-meta";
 import {
-  createAccessCode,
   createApiClient,
   createApiKey,
+  grantApiAccess,
   listApiConnections,
+  revokeApiAccess,
 } from "@/server/admin/api-clients";
 import {
   accountChangesEndpoint,
@@ -31,13 +32,7 @@ import {
   snapshotEndpoint,
   webhookPutEndpoint,
 } from "@/server/api/endpoints";
-import {
-  grantPropertyAccess,
-  listPropertyApiConnections,
-  listPropertyApiGrants,
-  lookupAccessCode,
-  revokePropertyAccess,
-} from "@/server/api/grants";
+import { listPropertyApiConnections, listPropertyApiGrants } from "@/server/api/grants";
 import { type ApiContext, type ApiResult, handleApiRequest } from "@/server/api/handler";
 import { runApiSync } from "@/server/api/processor";
 import { deliverDue, verifyWebhookSignature } from "@/server/api/webhooks";
@@ -441,20 +436,12 @@ beforeEach(() => {
 
 // ===========================================================================================
 describe("uçtan uca: izin → bağlantı → snapshot → değişiklik → webhook", () => {
-  it("ev sahibi kodla izin verir; acente bağlanır, webhook kaydeder, snapshot alır", async () => {
+  it("Super Admin izin verir; acente bağlanır, webhook kaydeder, snapshot alır", async () => {
     for (const [client, props] of [
       [clientA, [mavi, ical, deniz]],
       [clientB, [mavi]],
     ] as const) {
-      for (const p of props) {
-        const code = await createAccessCode(adminDb, adminId, client);
-        const out = await as(O, ws, async (tx) => {
-          const l = await lookupAccessCode(tx, code);
-          expect(l.ok).toBe(true);
-          return grantPropertyAccess(tx, { propertyId: p, code, clientId: client });
-        });
-        expect(out).toBe("granted");
-      }
+      for (const p of props) await grantApiAccess(adminDb, adminId, client, p);
     }
     const connect = async (key: string, p: string, ext: string) => {
       const r = await call(key, "/api/v1/calendar-connections", "POST", {
@@ -703,7 +690,7 @@ describe("duraklatma, kesme, izin kaldırma", () => {
     expect(await adminView(clientA)).toMatchObject({ "Villa iCal": "disconnected" });
   });
 
-  it("ev sahibi izni kaldırır: bağlantı biter (revoked), bekleyenler iptal, veri sızmaz", async () => {
+  it("Super Admin izni kaldırır: bağlantı biter (revoked), bekleyenler iptal, veri sızmaz", async () => {
     reply = () => 500;
     await block(mavi, 110, 111);
     await cycle();
@@ -711,7 +698,7 @@ describe("duraklatma, kesme, izin kaldırma", () => {
       const rows = await tx.execute<{ id: string; client_name: string }>(grantsSql(mavi));
       return rows.rows.find((g) => g.client_name === "Acente Beta")!.id;
     });
-    expect(await as(O, ws, (tx) => revokePropertyAccess(tx, grant))).toBe("revoked");
+    await revokeApiAccess(adminDb, adminId, grant);
     const pend = await admin.query(
       "select count(*)::int n from api_webhook_deliveries where connection_id = $1 and status = 'pending'",
       [connB],

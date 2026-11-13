@@ -42,22 +42,6 @@ export const API_LIMITS = {
 export const API_KEY_PATTERN = /^kg_live_[a-z2-7]{8}_[A-Za-z0-9_-]{43}$/;
 export const API_KEY_PREFIX_PATTERN = /^[a-z2-7]{8}$/;
 
-/**
- * Acente erişim kodu: "KG-XXXX-XXXX" (karışan harfler yok: 0/O, 1/I/L, U). Ev sahibi villa
- * sayfasında girer; yalnız SHA-256 özeti saklanır. Kod yalnız sahiplik kanıtı DEĞİLDİR: ev sahibi
- * acente adını görüp onaylamadan izin oluşmaz.
- */
-export const API_ACCESS_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
-export const API_ACCESS_CODE_PATTERN = /^KG-[A-HJKMNP-TV-Z2-9]{4}-[A-HJKMNP-TV-Z2-9]{4}$/;
-
-/** Kullanıcının yazdığı kodu standart biçime getirir (boşluk/küçük harf/tire hoşgörüsü). */
-export function normalizeAccessCode(input: string): string | null {
-  const raw = input.toUpperCase().replace(/[\s-]/g, "").replace(/^KG/, "");
-  if (raw.length !== 8) return null;
-  const code = `KG-${raw.slice(0, 4)}-${raw.slice(4)}`;
-  return API_ACCESS_CODE_PATTERN.test(code) ? code : null;
-}
-
 export const API_ERROR_CODES = [
   "unauthorized",
   "account_disabled",

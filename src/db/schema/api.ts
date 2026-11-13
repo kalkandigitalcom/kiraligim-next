@@ -30,10 +30,12 @@ import { workspaces } from "./tenancy";
  * doğrudan erişemez. Fonksiyonlar her istekte anahtarı, hesabın durumunu ve villa iznini yeniden
  * denetler; yalnız izin verilen alanları (villa kimliği, adı, dolu aralıklar) döndürür.
  *
- *  - api_clients: acente hesabı (Super Admin oluşturur). Erişim kodu yalnız özetiyle saklanır.
+ *  - api_clients: acente hesabı (Super Admin oluşturur).
  *  - api_keys: API anahtarları; yalnız SHA-256 özeti ve açık önek. Geri alınabilir.
- *  - api_access_grants: villa başına izin. Ev sahibi (kodla, onaylayarak) veya Super Admin verir;
- *    geri alınınca bir sonraki istekte etkisizdir. Aynı acente + villa için tek etkin izin.
+ *  - api_access_grants: villa başına izin. Yeni izinleri yalnız Super Admin verir (granted_via
+ *    'admin'); 'owner' kayıtları 0062'den önce ev sahibinin erişim koduyla verdiği izinlerdir ve
+ *    geçerliliğini korur. Geri alınınca bir sonraki istekte etkisizdir. Aynı acente + villa için
+ *    tek etkin izin.
  *  - api_rate_windows: anahtar başına dakikalık sayaç (birden çok uygulama örneği arasında ortak).
  *  - api_usage_daily: hesap başına günlük kullanım özeti (istek, sınır aşımı, hata). İstek
  *    içeriği, IP veya anahtar saklanmaz.
@@ -50,11 +52,6 @@ export const apiClients = pgTable(
       .default("active"),
     /** Dakikalık istek sınırı (anahtar başına). */
     rateLimitPerMinute: integer().notNull().default(API_LIMITS.ratePerMinute),
-    /** Erişim kodunun SHA-256 özeti ("api-access-code:" + kod); kodun kendisi saklanmaz. */
-    accessCodeHash: text(),
-    /** Kodun son 4 karakteri (yalnız Super Admin ekranında tanıma için). */
-    accessCodeHint: text(),
-    accessCodeCreatedAt: ts(),
     /**
      * 5. adım: hesap geneli değişiklik akışının cursor anahtarı (rastgele). Hesap cursor'ı bununla
      * HMAC-SHA256 ile imzalanır; başka hesapta geçersizdir. Hiçbir yanıtta dönmez.
@@ -67,9 +64,6 @@ export const apiClients = pgTable(
     updatedAt: ts().notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("api_clients_access_code_hash_key")
-      .on(t.accessCodeHash)
-      .where(sql`${t.accessCodeHash} is not null`),
     index("api_clients_created_by_admin_idx").on(t.createdByAdmin),
     check("api_clients_status_check", sql`${t.status} in ('active', 'disabled')`),
     check(
@@ -77,10 +71,6 @@ export const apiClients = pgTable(
       sql`length(btrim(${t.name})) between 1 and ${sql.raw(String(API_LIMITS.clientNameMax))}`,
     ),
     check("api_clients_rate_limit_range", sql`${t.rateLimitPerMinute} between 1 and 10000`),
-    check(
-      "api_clients_access_code_format",
-      sql`(${t.accessCodeHash} is null and ${t.accessCodeHint} is null and ${t.accessCodeCreatedAt} is null) or (${t.accessCodeHash} ~ '^[0-9a-f]{64}$' and ${t.accessCodeHint} ~ '^[A-Z2-9]{4}$' and ${t.accessCodeCreatedAt} is not null)`,
-    ),
   ],
 );
 

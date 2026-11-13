@@ -62,35 +62,3 @@ export function CreateKeyForm({
     </form>
   );
 }
-
-export function AccessCodeForm({
-  action,
-  errors,
-  disabled,
-  hasCode,
-}: {
-  action: (state: SecretState) => Promise<SecretState>;
-  errors: Record<string, string>;
-  disabled: boolean;
-  hasCode: boolean;
-}) {
-  const [state, formAction, pending] = useActionState(action, {});
-  const hydrated = useHydrated();
-  return (
-    <form action={formAction} className="flex flex-col gap-3" data-testid="admin-api-code-form">
-      {state.secret ? (
-        <SecretBox
-          label="Yeni erişim kodu"
-          value={state.secret}
-          note="Kod yalnız şimdi gösteriliyor. Acente bu kodu ev sahiplerine verir; ev sahibi villa sayfasında girip acente adını görerek onaylar. Önceki kod artık çalışmaz; verilmiş izinler etkilenmez."
-        />
-      ) : null}
-      {state.error ? <Alert tone="error">{errors[state.error] ?? errors.error}</Alert> : null}
-      <div>
-        <Button type="submit" variant="secondary" disabled={pending || !hydrated || disabled}>
-          {pending ? "Oluşturuluyor…" : hasCode ? "Kodu yenile" : "Erişim kodu oluştur"}
-        </Button>
-      </div>
-    </form>
-  );
-}

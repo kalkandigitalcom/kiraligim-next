@@ -1,6 +1,6 @@
 # Kiraligim Acente API'si — v1
 
-Acenteler, ev sahibinin **izin verdiği** villaların yalnız kimliğini, adını ve dolu tarih
+Acenteler, Kiraligim ekibinin **izin verdiği** villaların yalnız kimliğini, adını ve dolu tarih
 aralıklarını görür ve bu takvimi kendi sistemine **senkronize** eder. API yalnız okur: rezervasyon
 oluşturmaz, Kiraligim takvimini değiştirmez; Airbnb/Booking ve iCal kayıtlarına dokunmaz.
 
@@ -8,25 +8,25 @@ oluşturmaz, Kiraligim takvimini değiştirmez; Airbnb/Booking ve iCal kayıtlar
 - Örnekler: [`examples/`](./examples) — senkron istemcisi ve webhook alıcısı (Node.js 20+,
   bağımlılıksız)
 
-| Bölüm                                               | İçerik                                       |
-| --------------------------------------------------- | -------------------------------------------- |
-| [Erişim](#erişim-nasıl-verilir)                     | Hesap, anahtar, erişim kodu, ev sahibi onayı |
-| [Okuma uç noktaları](#okuma-uç-noktaları-1-aşama)   | `/me`, `/properties`, `/availability`        |
-| [Takvim senkronu](#takvim-senkronu-2-aşama)         | Bağlantı, snapshot, değişiklik akışları      |
-| [Webhook](#webhook)                                 | Kayıt, imza doğrulama, yeniden deneme, sıra  |
-| [Önerilen entegrasyon](#önerilen-entegrasyon-akışı) | Adım adım istemci mantığı                    |
-| [Hatalar](#hatalar) · [Sınırlar](#istek-sınırı)     |                                              |
+| Bölüm                                               | İçerik                                      |
+| --------------------------------------------------- | ------------------------------------------- |
+| [Erişim](#erişim-nasıl-verilir)                     | Hesap, anahtar, villa izinleri              |
+| [Okuma uç noktaları](#okuma-uç-noktaları-1-aşama)   | `/me`, `/properties`, `/availability`       |
+| [Takvim senkronu](#takvim-senkronu-2-aşama)         | Bağlantı, snapshot, değişiklik akışları     |
+| [Webhook](#webhook)                                 | Kayıt, imza doğrulama, yeniden deneme, sıra |
+| [Önerilen entegrasyon](#önerilen-entegrasyon-akışı) | Adım adım istemci mantığı                   |
+| [Hatalar](#hatalar) · [Sınırlar](#istek-sınırı)     |                                             |
 
 ## Erişim nasıl verilir?
 
-1. Kiraligim ekibi (Super Admin) acente için API hesabı açar, bir **API anahtarı** ve bir
-   **acente erişim kodu** (`KG-XXXX-XXXX`) oluşturur. İkisi de yalnız bir kez gösterilir.
-2. Acente kodu ev sahibine verir.
-3. Ev sahibi (veya işletme yöneticisi) panelde **Villalar → villa → API erişimi** sekmesinde kodu
-   girer, acentenin adını görür ve onaylar. İzin yalnız o villa içindir.
-4. Ev sahibi izni aynı ekrandan istediği zaman kaldırır; acente bir sonraki istekte villayı
-   göremez, varsa takvim bağlantısı sona erer (`revoked`). Kiraligim ekibi de izin
-   verebilir/kaldırabilir.
+1. Kiraligim ekibi (Super Admin) acente için API hesabı açar ve bir **API anahtarı** oluşturur.
+   Anahtar yalnız bir kez gösterilir.
+2. Kiraligim ekibi, ev sahibiyle mutabık kalınan villalar için acenteye **villa izni** verir.
+   İzin yalnız o villa içindir. İzinleri yalnız Kiraligim ekibi ekler ve kaldırır.
+3. Ev sahibi (veya işletme yöneticisi) erişimi olan acenteleri panelde **Villalar → villa → API
+   erişimi** sekmesinde yalnız görüntüler; değişiklik için Kiraligim ekibine başvurur. Kaldırılan
+   izinde acente bir sonraki istekte villayı göremez, varsa takvim bağlantısı sona erer
+   (`revoked`).
 
 ## Kimlik doğrulama
 
@@ -93,7 +93,7 @@ Bağlantı durumları:
 | `active`       | Senkron çalışıyor                                                                   |
 | `paused`       | Villa veya işletme geçici olarak pasif. Snapshot/changes `404`, webhook gönderilmez |
 | `disconnected` | Siz kestiniz (DELETE). Kalıcı; yeniden bağlanmak için yeni POST                     |
-| `revoked`      | Ev sahibi veya Kiraligim izni kaldırdı. Kalıcı                                      |
+| `revoked`      | Villa izni kaldırıldı (Kiraligim ekibi). Kalıcı                                     |
 
 `paused` saklanan bir durum değildir; villa/işletme yeniden etkinleştiğinde bağlantı kendiliğinden
 `active` olur ve **tam pencere değişikliği** (12 ay geri – 24 ay ileri) gelir. DELETE yalnız

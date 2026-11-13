@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";
 import { uuidv7 } from "uuidv7";
@@ -10,7 +11,6 @@ import { pgErrorInfo } from "@/db/pg-error";
 import * as schema from "@/db/schema";
 import { type TenantContext, type Tx, withTenant } from "@/db/tenant";
 import {
-  createAccessCode,
   createApiClient,
   createApiKey,
   grantApiAccess,
@@ -26,13 +26,7 @@ import {
   disconnectEndpoint,
   propertiesEndpoint,
 } from "@/server/api/endpoints";
-import {
-  grantPropertyAccess,
-  listPropertyApiConnections,
-  listPropertyApiGrants,
-  lookupAccessCode,
-  revokePropertyAccess,
-} from "@/server/api/grants";
+import { listPropertyApiConnections, listPropertyApiGrants } from "@/server/api/grants";
 import { type ApiContext, type ApiResult, handleApiRequest } from "@/server/api/handler";
 import { hashApiKey } from "@/server/api/keys";
 import { createProperty, setPropertyStatus } from "@/server/properties/service";
@@ -79,7 +73,6 @@ let mavi: string, asya: string, kapali: string, sari: string, villaX: string;
 let adminId: string;
 let clientA: string, clientB: string;
 let keyA: string, keyB: string;
-let codeA: string;
 const planCode = `apic_${tag}`;
 
 async function villa(u: U, w: string, name: string) {
@@ -95,12 +88,6 @@ async function villa(u: U, w: string, name: string) {
     }),
   );
 }
-const ownerGrant = (u: U, w: string, property: string, code: string) =>
-  as(u, w, async (tx) => {
-    const look = await lookupAccessCode(tx, code);
-    if (!look.ok) return look.reason;
-    return grantPropertyAccess(tx, { propertyId: property, code, clientId: look.client.id });
-  });
 
 type Res = { status: number; body: Record<string, unknown>; headers: Headers };
 /** Üretimdeki route eşlemesinin aynısı (src/app/api/v1/calendar-connections/…). */
@@ -185,10 +172,8 @@ beforeAll(async () => {
   clientB = await createApiClient(adminDb, adminId, "Acente Beta");
   keyA = (await createApiKey(adminDb, adminId, clientA, "")).key;
   keyB = (await createApiKey(adminDb, adminId, clientB, "")).key;
-  codeA = await createAccessCode(adminDb, adminId, clientA);
-  // A: mavi, asya, kapali, sari (ev sahibi kodla); B: villaX (Super Admin) + mavi (Super Admin)
-  for (const p of [mavi, asya, kapali, sari])
-    expect(await ownerGrant(O, ws, p, codeA)).toBe("granted");
+  // A: mavi, asya, kapali, sari; B: villaX + mavi (hepsi Super Admin)
+  for (const p of [mavi, asya, kapali, sari]) await grantApiAccess(adminDb, adminId, clientA, p);
   await grantApiAccess(adminDb, adminId, clientB, villaX);
   await grantApiAccess(adminDb, adminId, clientB, mavi);
   await as(O, ws, (tx, ctx) => setPropertyStatus(tx, ctx, kapali, "passive"));
@@ -417,16 +402,20 @@ describe("bağlantıyı kesme ve yeniden bağlama", () => {
     connMavi = re.body.id as string;
   });
 
-  it("ev sahibi izni kaldırır: bağlantı revoked; yeniden bağlanamaz; yeni izinle yeni bağlantı", async () => {
+  it("Super Admin izni kaldırır: bağlantı revoked; yeniden bağlanamaz; yeni izinle yeni bağlantı", async () => {
     const [g] = (await as(O, ws, (tx) => listPropertyApiGrants(tx, mavi))).filter(
       (x) => x.clientName === "Acente Alfa",
     );
-    // Personel kaldıramaz; bağlantı etkilenmez.
-    await expect(as(S, ws, (tx) => revokePropertyAccess(tx, g!.id))).rejects.toSatisfy(
-      (e) => pgErrorInfo(e).code === "42501",
-    );
+    // İşletme tarafı (sahip dahil) kaldıramaz; bağlantı etkilenmez.
+    for (const u of [O, S]) {
+      await expect(
+        as(u, ws, (tx) =>
+          tx.execute(sql`select public.app_api_revoke_property_grant(${g!.id}::uuid)`),
+        ),
+      ).rejects.toSatisfy((e) => pgErrorInfo(e).code === "42883");
+    }
     expect((await dbRow(connMavi)).status).toBe("active");
-    expect(await as(O, ws, (tx) => revokePropertyAccess(tx, g!.id))).toBe("revoked");
+    await revokeApiAccess(adminDb, adminId, g!.id);
     expect(await dbRow(connMavi)).toEqual({
       status: "revoked",
       end_reason: "grant_revoked",
@@ -438,7 +427,7 @@ describe("bağlantıyı kesme ve yeniden bağlama", () => {
     expect((await connect(keyA, mavi, "VILLA-001")).status).toBe(404);
     // Başka acentenin bağlantısı etkilenmez.
     expect((await list(keyB)).map((x) => x.status)).toEqual(["active"]);
-    expect(await ownerGrant(O, ws, mavi, codeA)).toBe("granted");
+    await grantApiAccess(adminDb, adminId, clientA, mavi);
     const re = await connect(keyA, mavi, "VILLA-001");
     expect(re.status).toBe(201);
     connMavi = re.body.id as string;
@@ -513,13 +502,13 @@ describe("eşzamanlılık", () => {
         `/api/v1/calendar-connections/${((await list(keyA)).find((x) => x.property_id === sari)?.id as string) ?? uuidv7()}`,
         keyA,
       );
-      if (i > 0) expect(await ownerGrant(O, ws, sari, codeA)).toBe("granted");
+      if (i > 0) await grantApiAccess(adminDb, adminId, clientA, sari);
       const [g] = (await as(O, ws, (tx) => listPropertyApiGrants(tx, sari))).filter(
         (x) => x.clientName === "Acente Alfa",
       );
       await Promise.all([
         connect(keyA, sari, `RACE-${i}`),
-        as(O, ws, (tx) => revokePropertyAccess(tx, g!.id)),
+        revokeApiAccess(adminDb, adminId, g!.id),
       ]);
       const bad = (
         await admin.query(
@@ -603,7 +592,7 @@ describe("uyumluluk ve güvenlik", () => {
       new Set(
         rows.filter((x) => x.action === "api.calendar_disconnected").map((x) => x.metadata.by),
       ),
-    ).toEqual(new Set(["agency", "owner", "admin"]));
+    ).toEqual(new Set(["agency", "admin"]));
     expect(JSON.stringify(rows)).not.toContain("VILLA-001");
   });
 });

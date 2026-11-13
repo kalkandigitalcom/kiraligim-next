@@ -1,25 +1,20 @@
 /**
- * Acente API'si (1. aşama) — saf yardımcılar: anahtar/kod üretimi ve özetleme, Authorization
+ * Acente API'si (1. aşama) — saf yardımcılar: anahtar üretimi ve özetleme, Authorization
  * başlığı, sorgu parametreleri ve hata yanıtları. Veritabanı davranışı:
  * tests/integration/api.test.ts.
  */
 import { describe, expect, it } from "vitest";
 
-import { API_ACCESS_CODE_PATTERN, API_KEY_PATTERN, normalizeAccessCode } from "@/lib/api-meta";
+import * as apiMeta from "@/lib/api-meta";
+import { API_KEY_PATTERN } from "@/lib/api-meta";
 import {
   errorResponse,
   parseAvailabilityQuery,
   parseListQuery,
   rateHeaders,
 } from "@/server/api/http";
-import {
-  accessCodeHashFromInput,
-  bearerKey,
-  generateAccessCode,
-  generateApiKey,
-  hashAccessCode,
-  hashApiKey,
-} from "@/server/api/keys";
+import * as apiKeys from "@/server/api/keys";
+import { bearerKey, generateApiKey, hashApiKey } from "@/server/api/keys";
 
 describe("API anahtarı", () => {
   it("biçim: kg_live_<8 önek>_<43 gizli>; özet 64 hex; açık anahtar özette yok", () => {
@@ -53,37 +48,18 @@ describe("API anahtarı", () => {
   });
 });
 
-describe("acente erişim kodu", () => {
-  it("biçim KG-XXXX-XXXX, karışan karakter yok; ipucu son 4 karakter", () => {
-    for (let i = 0; i < 100; i++) {
-      const c = generateAccessCode();
-      expect(c.code).toMatch(API_ACCESS_CODE_PATTERN);
-      expect(c.code).not.toMatch(/[01ILOU]/);
-      expect(c.hint).toBe(c.code.slice(-4));
-      expect(c.hash).toBe(hashAccessCode(c.code));
+describe("acente erişim kodu kaldırıldı (0062)", () => {
+  it("kod üretme, biçimleme ve özetleme yardımcıları artık dışa açılmıyor", () => {
+    for (const name of ["generateAccessCode", "hashAccessCode", "accessCodeHashFromInput"]) {
+      expect(apiKeys).not.toHaveProperty(name);
     }
-  });
-
-  it("kullanıcı yazımı normalize edilir (küçük harf, boşluk, tire, KG öneki)", () => {
-    const { code, hash } = generateAccessCode();
-    const raw = code.slice(3).replace("-", "");
-    for (const input of [
-      code,
-      code.toLowerCase(),
-      ` ${raw} `,
-      `kg ${raw.slice(0, 4)} ${raw.slice(4)}`,
+    for (const name of [
+      "API_ACCESS_CODE_ALPHABET",
+      "API_ACCESS_CODE_PATTERN",
+      "normalizeAccessCode",
     ]) {
-      expect(normalizeAccessCode(input)).toBe(code);
-      expect(accessCodeHashFromInput(input)).toBe(hash);
+      expect(apiMeta).not.toHaveProperty(name);
     }
-    expect(normalizeAccessCode("KG-ABCD-EFG")).toBeNull();
-    expect(normalizeAccessCode("KG-ABCD-EFG0")).toBeNull();
-    expect(accessCodeHashFromInput("")).toBeNull();
-  });
-
-  it("kod özeti anahtar özetinden ayrı alanda (önekli) hesaplanır", () => {
-    const { code } = generateAccessCode();
-    expect(hashAccessCode(code)).not.toBe(hashApiKey(code));
   });
 });
 

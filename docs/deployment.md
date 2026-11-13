@@ -1140,14 +1140,16 @@ aralıklarını** okur. Ayrıntı: `docs/api/README.md`, sözleşme: `docs/api/o
 - **Paylaşılmayan:** açıklama, fotoğraf, özellik, adres/koordinat, fiyat, ev sahibi, misafir,
   rezervasyon tutarı/notu, kaynak kanal. Dolu aralıklar Kiraligim kayıtları (beklemede/onaylı
   rezervasyon ve bloklar) ile etkin harici takvim olaylarının birleşimidir; kaynak ayırt edilmez.
-- **Kimlik:** `Authorization: Bearer kg_live_…`. Anahtar ve acente erişim kodu yalnız SHA-256
-  özetiyle saklanır, bir kez gösterilir. Sorgu dizgisindeki anahtar kabul edilmez.
+- **Kimlik:** `Authorization: Bearer kg_live_…`. Anahtar yalnız SHA-256 özetiyle saklanır, bir
+  kez gösterilir. Sorgu dizgisindeki anahtar kabul edilmez.
 - **Sınır:** anahtar başına dakikada 120 istek; sayaç veritabanında (`api_rate_windows`, atomik
   `INSERT … ON CONFLICT`), bu yüzden birden çok uygulama örneği arasında ortaktır. Sabit dakika
   penceresi. Başarısız kimlik denemeleri ayrıca süreç içinde IP özeti başına sınırlanır.
-- **Erişim:** Super Admin (`/api-musterileri`) hesap, anahtar, erişim kodu ve villa izinlerini
-  yönetir, son 30 günlük kullanımı görür. Ev sahibi/yönetici villa sayfasındaki **API erişimi**
-  sekmesinde kodu girer, acente adını görüp onaylar veya izni kaldırır. İzin kaldırma, hesap
+- **Erişim:** Super Admin (`/api-musterileri`) hesap, anahtar ve villa izinlerini yönetir, son
+  30 günlük kullanımı görür; villa izinlerini yalnız Super Admin ekler ve kaldırır. Ev
+  sahibi/yönetici villa sayfasındaki **API erişimi** sekmesinde erişimi olan acenteleri yalnız
+  görüntüler (0062 öncesinde ev sahibinin acente erişim koduyla verdiği izinler `granted_via = 'owner'`
+  olarak geçerliliğini korur). İzin kaldırma, hesap
   pasifleştirme ve anahtar geri alma bir sonraki istekte geçerlidir. Pasif villa ve askıdaki
   işletmenin villaları API'de görünmez.
 - **Veritabanı:** 0051 beş yeni tabloyu ekler (`api_clients`, `api_keys`, `api_access_grants`,
@@ -1338,3 +1340,45 @@ Kaybolan veri: bağlantılar, değişiklik kayıtları, webhook adresleri/sırla
 Rezervasyon, iCal, villa, işletme, API hesabı/anahtarı/izin verisi korunur. Yalnız 0061'i geri
 almak desteklenmez (0058/0056/0059 tanımlarına dönmek gerekir); bütün 2. aşama birlikte geri
 alınır. Yeniden deploy 0053–0061'i tekrar uygular.
+
+## Acente API'si — erişim kodunun kaldırılması (0062)
+
+Villa izinlerini artık yalnız Super Admin ekler ve kaldırır (`/api-musterileri` → hesap → **Villa
+izinleri**). Super Admin'deki erişim kodu bölümü, ev sahibi panelindeki "kod gir ve onayla" akışı
+ve işletme tarafındaki "Erişimi kaldır" düğmesi kaldırıldı; ev sahibi/yönetici **API erişimi**
+sekmesinde erişimi olan acenteleri ve takvim bağlantılarını yalnız görüntüler.
+
+| Migration | İçerik                                                                                                                                                                                                                                                                                                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0062      | `app_api_lookup_access_code`, `app_api_grant_property`, `app_api_admin_set_access_code`, `app_api_revoke_property_grant` (işletme tarafında izin kaldırma) kaldırılır; `app_api_admin_client` kod alanları olmadan yeniden tanımlanır (yalnız `app_admin`); `api_clients.access_code_hash`, `access_code_hint`, `access_code_created_at`, benzersiz indeks ve biçim kısıtı kaldırılır |
+
+**Korunan veri:** `api_access_grants` satırlarına dokunulmaz; `granted_via = 'owner'` olan (kodla
+verilmiş) izinler geçerliliğini korur. API hesapları, anahtarlar, bağlantılar, değişiklik
+akışları, webhook'lar ve denetim kayıtları değişmez. Yalnız kod özetleri silinir (artık
+kullanılmıyorlar).
+
+**Deploy:** ek ortam değişkeni yok; 0062 açılışta uygulanır (önce Coolify'da yedek). Eski ve yeni
+sürümün kısa süre birlikte çalıştığı geçişte eski sürümün Super Admin hesap detay sayfası, ev
+sahibi kod akışı ve işletme tarafındaki izin kaldırma düğmesi hata verebilir; API, senkron ve webhook etkilenmez.
+
+Doğrulama (psql, `app_migrator` veya süper kullanıcı):
+
+```sql
+select count(*) from information_schema.columns
+ where table_name = 'api_clients' and column_name like 'access\_code%' escape '\';   -- 0
+select proname from pg_proc
+ where proname in ('app_api_lookup_access_code', 'app_api_grant_property',
+                   'app_api_admin_set_access_code', 'app_api_revoke_property_grant'); -- 0 satır
+select granted_via, status, count(*) from api_access_grants group by 1, 2 order by 1, 2;
+-- deploy öncesiyle aynı sayılar
+```
+
+**Geri alma:** tercih edilen yol deploy öncesi yedektir. Şema elle geri alınırsa kolonlar, indeks,
+kısıt ve dört fonksiyon 0051/0052/0056'daki tanımlarla yeniden oluşturulur, `app_api_admin_client`
+0052'deki imzasına döndürülür ve migration kaydından 0062 silinir; eski kodlar geri gelmez (yeni
+kod üretilir). `docs/api/rollback-0053-0061.sql` 0062 uygulanmamış bir veritabanı içindir; 0062
+sonrasında önce 0062 geri alınmalıdır. Betik bunu kendisi denetler: 0062 (veya sonrası) migration
+kaydı, `app_api_revoke_property_grant` ya da `api_clients.access_code_hash` yoksa, ya da izin
+kaldırma fonksiyonlarının yetkileri 0052 modelinden genişse (PUBLIC'e açık veya Super Admin
+fonksiyonu `app_user`'a açık) **hiçbir değişiklik yapmadan** `rollback_0053_0061_blocked` hatası
+verir.

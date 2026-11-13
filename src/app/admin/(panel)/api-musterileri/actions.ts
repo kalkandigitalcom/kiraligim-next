@@ -6,7 +6,6 @@ import { logger } from "@/lib/logger";
 import {
   AdminApiError,
   type AdminApiErrorCode,
-  createAccessCode,
   createApiClient,
   createApiKey,
   grantApiAccess,
@@ -19,8 +18,8 @@ import { requireAdmin } from "@/server/admin/session";
 /**
  * Super Admin — API müşterileri işlemleri. Yönetici oturumu (2FA) her işlemde yeniden denetlenir;
  * hesap, anahtar, villa ve izin veritabanında doğrulanır. Sonuç sayfaya kısa kodla döner.
- * Yeni API anahtarı ve erişim kodu YALNIZ işlem dönüşünde (bir kez) ekrana verilir; URL'ye,
- * log'a veya veritabanına açık yazılmaz.
+ * Yeni API anahtarı YALNIZ işlem dönüşünde (bir kez) ekrana verilir; URL'ye, log'a veya
+ * veritabanına açık yazılmaz.
  */
 const text = (fd: FormData, k: string) => {
   const v = fd.get(k);
@@ -120,18 +119,5 @@ export async function createKeyAction(
     unstable_rethrow(err);
     const code = errorCode(err, "key_create");
     return { error: code };
-  }
-}
-
-export async function createAccessCodeAction(
-  clientId: string,
-  _prev: SecretState,
-): Promise<SecretState> {
-  const admin = await requireAdmin();
-  try {
-    return { secret: await createAccessCode(admin.ctx.db, admin.adminId, clientId) };
-  } catch (err) {
-    unstable_rethrow(err);
-    return { error: errorCode(err, "access_code") };
   }
 }

@@ -876,7 +876,6 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_api_admin_keys",
       "app_api_admin_revoke_grant",
       "app_api_admin_revoke_key",
-      "app_api_admin_set_access_code",
       "app_api_admin_set_client_status",
       "app_api_admin_usage",
       "app_api_begin",
@@ -895,8 +894,6 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_api_connections",
       "app_api_disconnect",
       "app_api_finish_delivery", // 0061
-      "app_api_grant_property",
-      "app_api_lookup_access_code",
       "app_api_note_error",
       "app_api_process_changes", // 0059
       "app_api_properties",
@@ -905,7 +902,6 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_api_property_grants",
       "app_api_prune_changes", // 0059
       "app_api_prune_deliveries", // 0061
-      "app_api_revoke_property_grant",
       "app_api_snapshot", // 0058
       // 0061: webhook yapılandırması
       "app_api_webhook_delete",
@@ -1090,7 +1086,6 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "app_api_admin_keys",
         "app_api_admin_revoke_grant",
         "app_api_admin_revoke_key",
-        "app_api_admin_set_access_code",
         "app_api_admin_set_client_status",
         "app_api_admin_usage",
       ]) {
@@ -1109,8 +1104,6 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "app_api_connections",
         "app_api_disconnect",
         "app_api_finish_delivery",
-        "app_api_grant_property",
-        "app_api_lookup_access_code",
         "app_api_note_error",
         "app_api_process_changes",
         "app_api_properties",
@@ -1119,7 +1112,6 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "app_api_property_grants",
         "app_api_prune_changes",
         "app_api_prune_deliveries",
-        "app_api_revoke_property_grant",
         "app_api_snapshot",
         "app_api_webhook_delete",
         "app_api_webhook_get",

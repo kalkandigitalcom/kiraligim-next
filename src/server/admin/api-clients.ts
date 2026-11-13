@@ -3,8 +3,9 @@
  * veritabanı fonksiyonları (app_api_admin_*, drizzle/0052) üzerinden yapılır: yönetici kimliği
  * veritabanında yeniden doğrulanır, denetim kayıtlarını fonksiyonlar yazar.
  *
- * API anahtarı ve erişim kodu burada üretilir; veritabanına yalnız özetleri gider. Açık değerler
- * yalnız oluşturma işleminin dönüşünde (bir kez) ekrana verilir; log'a, URL'ye yazılmaz.
+ * API anahtarı burada üretilir; veritabanına yalnız özeti gider. Açık değer yalnız oluşturma
+ * işleminin dönüşünde (bir kez) ekrana verilir; log'a, URL'ye yazılmaz. Villa izinlerini yalnız
+ * Super Admin verir (grantApiAccess).
  */
 import { sql } from "drizzle-orm";
 
@@ -17,7 +18,7 @@ import {
   type ApiKeyStatus,
 } from "@/lib/api-meta";
 import { AppError } from "@/lib/errors";
-import { generateAccessCode, generateApiKey } from "@/server/api/keys";
+import { generateApiKey } from "@/server/api/keys";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
@@ -28,7 +29,6 @@ export const ADMIN_API_ERRORS = {
   name_invalid: `Acente adı 1-${API_LIMITS.clientNameMax} karakter olmalı.`,
   label_invalid: `Anahtar etiketi en fazla ${API_LIMITS.keyLabelMax} karakter olabilir.`,
   limit: `Bir hesapta en fazla ${API_LIMITS.activeKeysPerClient} etkin anahtar olabilir. Önce kullanılmayan bir anahtarı geri alın.`,
-  disabled: "Pasif hesap için erişim kodu oluşturulamaz. Önce hesabı etkinleştirin.",
   exists: "Bu villa için bu acenteye zaten etkin izin var.",
   property_invalid: "Villa seçin.",
   confirm_required: "Onay kutusunu işaretleyin.",
@@ -97,8 +97,6 @@ export type AdminApiClient = {
   name: string;
   status: ApiClientStatus;
   rateLimitPerMinute: number;
-  accessCodeHint: string | null;
-  accessCodeCreatedAt: Date | null;
   createdAt: Date;
 };
 
@@ -113,8 +111,6 @@ export async function getApiClient(
     name: string;
     status: ApiClientStatus;
     rate_limit_per_minute: number;
-    access_code_hint: string | null;
-    access_code_created_at: Date | string | null;
     created_at: Date | string;
   }>(sql`select * from public.app_api_admin_client(${adminId}::uuid, ${clientId}::uuid)`);
   const r = res.rows[0];
@@ -124,8 +120,6 @@ export async function getApiClient(
     name: r.name,
     status: r.status,
     rateLimitPerMinute: Number(r.rate_limit_per_minute),
-    accessCodeHint: r.access_code_hint,
-    accessCodeCreatedAt: d(r.access_code_created_at),
     createdAt: new Date(r.created_at),
   };
 }
@@ -228,26 +222,6 @@ export async function revokeApiKey(db: Database, adminId: string, keyId: string)
     sql`select public.app_api_admin_revoke_key(${adminId}::uuid, ${keyId}::uuid) as out`,
   );
   outcomeOf(out, ["revoked"]);
-}
-
-/** Yeni erişim kodu (öncekini geçersiz kılar). Dönen kod YALNIZ BİR KEZ gösterilir. */
-export async function createAccessCode(
-  db: Database,
-  adminId: string,
-  clientId: string,
-): Promise<string> {
-  if (!isUuid(clientId)) throw new AdminApiError("not_found");
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const c = generateAccessCode();
-    const out = await scalar(
-      db,
-      sql`select public.app_api_admin_set_access_code(${adminId}::uuid, ${clientId}::uuid, ${c.hash}, ${c.hint}) as out`,
-    );
-    if (out === "collision") continue;
-    outcomeOf(out, ["set"]);
-    return c.code;
-  }
-  throw new AdminApiError("error");
 }
 
 export type AdminApiGrant = {

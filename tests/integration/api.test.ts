@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import { type SQL, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";
 import { uuidv7 } from "uuidv7";
@@ -11,9 +12,9 @@ import * as schema from "@/db/schema";
 import { type TenantContext, type Tx, withTenant } from "@/db/tenant";
 import { addDays, istanbulToday } from "@/lib/reservation-meta";
 import {
-  createAccessCode,
   createApiClient,
   createApiKey,
+  getApiClient,
   grantApiAccess,
   listApiClients,
   listApiGrants,
@@ -29,12 +30,7 @@ import {
   propertiesEndpoint,
   propertyEndpoint,
 } from "@/server/api/endpoints";
-import {
-  grantPropertyAccess,
-  listPropertyApiGrants,
-  lookupAccessCode,
-  revokePropertyAccess,
-} from "@/server/api/grants";
+import { listPropertyApiGrants } from "@/server/api/grants";
 import { type ApiContext, type ApiResult, handleApiRequest } from "@/server/api/handler";
 import { hashApiKey } from "@/server/api/keys";
 import { createProperty } from "@/server/properties/service";
@@ -130,7 +126,6 @@ let mavi: string, asya: string, kapali: string, villaX: string, bos: string;
 let adminId: string, disabledAdmin: string;
 let clientA: string, clientB: string, clientC: string;
 let keyA: string, keyB: string, keyC1: string, keyC2: string;
-let codeA: string;
 const planCode = `api_${tag}`;
 
 async function villa(u: U, w: string, name: string) {
@@ -199,12 +194,21 @@ async function call(
 const ids = (body: Record<string, unknown>) =>
   (body.data as { id: string }[]).map((r) => r.id).sort();
 
-const ownerGrant = async (u: U, property: string, code: string) =>
-  as(u, ws, async (tx) => {
-    const look = await lookupAccessCode(tx, code);
-    if (!look.ok) return look.reason;
-    return grantPropertyAccess(tx, { propertyId: property, code, clientId: look.client.id });
-  });
+/**
+ * 0062 öncesinde ev sahibinin erişim koduyla verdiği izin (granted_via 'owner'). Kod akışı
+ * kaldırıldı; mevcut kayıtların geçerliliğini sınamak için satır doğrudan eklenir.
+ */
+const legacyOwnerGrant = async (u: U, property: string, client: string) => {
+  const id = uuidv7();
+  await admin.query(
+    "insert into api_access_grants (id, client_id, workspace_id, property_id, status, granted_by_user, granted_via) values ($1, $2, $3, $4, 'active', $5, 'owner')",
+    [id, client, ws, property, u.id],
+  );
+  return id;
+};
+
+/** İşletme oturumuyla (app_user) ham SQL; kaldırılan fonksiyonları çağırmayı denemek için. */
+const tenantSql = (u: U, q: SQL) => as(u, ws, (tx) => tx.execute(q));
 
 beforeAll(async () => {
   await admin.connect();
@@ -245,7 +249,6 @@ beforeAll(async () => {
   keyB = (await createApiKey(adminDb, adminId, clientB, "")).key;
   keyC1 = (await createApiKey(adminDb, adminId, clientC, "bir")).key;
   keyC2 = (await createApiKey(adminDb, adminId, clientC, "iki")).key;
-  codeA = await createAccessCode(adminDb, adminId, clientA);
 });
 
 afterAll(async () => {
@@ -299,7 +302,19 @@ describe("kimlik doğrulama", () => {
       ),
     );
     expect(dump).not.toContain(keyA.slice(17));
-    expect(dump).not.toContain(codeA);
+  });
+
+  it("api_clients'ta erişim kodu kolonu yok; hesap detayı kod alanı döndürmez (0062)", async () => {
+    const cols = (
+      await admin.query(
+        "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'api_clients' and column_name like 'access%'",
+      )
+    ).rows;
+    expect(cols).toEqual([]);
+    const c = await getApiClient(adminDb, adminId, clientA);
+    expect(Object.keys(c).sort()).toEqual(
+      ["createdAt", "id", "name", "rateLimitPerMinute", "status"].sort(),
+    );
   });
 
   it("geri alınmış anahtar bir sonraki istekte 401; aynı hesabın diğer anahtarı çalışır", async () => {
@@ -336,13 +351,11 @@ describe("villa izinleri", () => {
     expect((await call(`/api/v1/properties/${mavi}/availability`, keyA)).status).toBe(404);
   });
 
-  it("ev sahibi kodu girer, acente adını görür, onaylar → villa listelenir (yalnız id, ad)", async () => {
-    const look = await as(O, ws, (tx) => lookupAccessCode(tx, codeA.toLowerCase()));
-    expect(look).toEqual({ ok: true, client: { id: clientA, name: "Acente Alfa" } });
-    // Yalnız arama izin oluşturmaz.
-    expect(ids((await call("/api/v1/properties", keyA)).body)).toEqual([]);
-    expect(await ownerGrant(O, mavi, codeA)).toBe("granted");
-    expect(await ownerGrant(O, mavi, codeA)).toBe("exists");
+  it("Super Admin izin verir → villa listelenir (yalnız id, ad); işletme tarafında görünür", async () => {
+    await grantApiAccess(adminDb, adminId, clientA, mavi);
+    await expect(grantApiAccess(adminDb, adminId, clientA, mavi)).rejects.toMatchObject({
+      reason: "exists",
+    });
     const r = await call("/api/v1/properties", keyA);
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ data: [{ id: mavi, name: "Villa Mavi" }], next_cursor: null });
@@ -351,7 +364,7 @@ describe("villa izinleri", () => {
       name: "Villa Mavi",
     });
     const grants = await as(S, ws, (tx) => listPropertyApiGrants(tx, mavi));
-    expect(grants).toMatchObject([{ clientName: "Acente Alfa", grantedVia: "owner" }]);
+    expect(grants).toMatchObject([{ clientName: "Acente Alfa", grantedVia: "admin" }]);
   });
 
   it("başka acente aynı villayı göremez", async () => {
@@ -377,75 +390,73 @@ describe("villa izinleri", () => {
     ]);
   });
 
-  it("yönetici (manager) kodla izin verir; personel (staff) veremez ve kod sorgulayamaz", async () => {
-    expect(await ownerGrant(M, asya, codeA)).toBe("granted");
-    await expect(as(S, ws, (tx) => lookupAccessCode(tx, codeA))).rejects.toSatisfy(
-      (e) => pgErrorInfo(e).code === "42501",
-    );
-    await expect(
-      as(S, ws, (tx) =>
-        grantPropertyAccess(tx, { propertyId: bos, code: codeA, clientId: clientA }),
-      ),
-    ).rejects.toSatisfy((e) => pgErrorInfo(e).code === "42501");
-    expect(ids((await call("/api/v1/properties", keyA)).body)).toEqual([mavi, asya].sort());
+  it("işletme tarafı izin veremez: kod fonksiyonları kaldırıldı (sahip, yönetici, personel)", async () => {
+    for (const u of [O, M, S]) {
+      await expect(
+        tenantSql(
+          u,
+          sql`select public.app_api_grant_property(${bos}::uuid, ${"0".repeat(64)}, ${clientA}::uuid)`,
+        ),
+      ).rejects.toSatisfy((e) => pgErrorInfo(e).code === "42883");
+      await expect(
+        tenantSql(u, sql`select * from public.app_api_lookup_access_code(${"0".repeat(64)})`),
+      ).rejects.toSatisfy((e) => pgErrorInfo(e).code === "42883");
+    }
+    // Super Admin dışında hiçbir yoldan izin oluşmadı.
+    expect(ids((await call("/api/v1/properties", keyA)).body)).toEqual([mavi]);
+    expect(await as(O, ws, (tx) => listPropertyApiGrants(tx, bos))).toEqual([]);
   });
 
-  it("başka işletme kendi oturumuyla bu villaya izin veremez / izni kaldıramaz", async () => {
-    expect(
-      await as(X, wsX, (tx) =>
-        grantPropertyAccess(tx, { propertyId: bos, code: codeA, clientId: clientA }),
-      ),
-    ).toBe("not_found");
-    const [g] = await as(O, ws, (tx) => listPropertyApiGrants(tx, asya));
-    expect(await as(X, wsX, (tx) => revokePropertyAccess(tx, g!.id))).toBe("not_found");
+  it("kodla verilmiş eski izin (granted_via 'owner') geçerliliğini korur", async () => {
+    await legacyOwnerGrant(M, asya, clientA);
+    expect(ids((await call("/api/v1/properties", keyA)).body)).toEqual([mavi, asya].sort());
+    expect((await call(`/api/v1/properties/${asya}/availability`, keyA)).status).toBe(200);
+    expect(await as(S, ws, (tx) => listPropertyApiGrants(tx, asya))).toMatchObject([
+      { clientName: "Acente Alfa", grantedVia: "owner" },
+    ]);
+    const adminView = await listApiGrants(adminDb, adminId, clientA);
+    expect(adminView.find((g) => g.propertyId === asya)).toMatchObject({
+      grantedVia: "owner",
+      status: "active",
+    });
+  });
+
+  it("başka işletme kendi oturumuyla bu villanın iznini göremez", async () => {
     expect(await as(X, wsX, (tx) => listPropertyApiGrants(tx, asya))).toEqual([]);
   });
 
-  it("yanlış/yenilenmiş kod ve pasif hesap kodu izin vermez; onayda kod yeniden doğrulanır", async () => {
-    expect(await as(O, ws, (tx) => lookupAccessCode(tx, "KG-AAAA-BBBB"))).toEqual({
-      ok: false,
-      reason: "invalid_code",
-    });
-    expect(await as(O, ws, (tx) => lookupAccessCode(tx, "12345"))).toEqual({
-      ok: false,
-      reason: "format",
-    });
-    // Kod gösterildikten sonra yenilenirse onay reddedilir.
-    const look = await as(O, ws, (tx) => lookupAccessCode(tx, codeA));
-    expect(look.ok).toBe(true);
-    const newCode = await createAccessCode(adminDb, adminId, clientA);
-    expect(
-      await as(O, ws, (tx) =>
-        grantPropertyAccess(tx, { propertyId: bos, code: codeA, clientId: clientA }),
+  it("işletme tarafı izni kaldıramaz: kaldırma fonksiyonu yok (sahip, yönetici, personel)", async () => {
+    const [g] = await as(O, ws, (tx) => listPropertyApiGrants(tx, asya));
+    for (const u of [O, M, S]) {
+      await expect(
+        tenantSql(u, sql`select public.app_api_revoke_property_grant(${g!.id}::uuid)`),
+      ).rejects.toSatisfy((e) => pgErrorInfo(e).code === "42883");
+    }
+    await expect(
+      as(X, wsX, (tx) =>
+        tx.execute(sql`select public.app_api_revoke_property_grant(${g!.id}::uuid)`),
       ),
-    ).toBe("invalid_code");
-    // Kod başka acentenin kimliğiyle kullanılamaz.
-    expect(
-      await as(O, ws, (tx) =>
-        grantPropertyAccess(tx, { propertyId: bos, code: newCode, clientId: clientB }),
-      ),
-    ).toBe("invalid_code");
-    codeA = newCode;
-    await setApiClientActive(adminDb, adminId, clientA, false);
-    expect((await as(O, ws, (tx) => lookupAccessCode(tx, codeA))).ok).toBe(false);
-    await setApiClientActive(adminDb, adminId, clientA, true);
-    expect((await as(O, ws, (tx) => lookupAccessCode(tx, codeA))).ok).toBe(true);
+    ).rejects.toSatisfy((e) => pgErrorInfo(e).code === "42883");
+    // İzin ve API görünürlüğü değişmedi.
+    expect(await as(O, ws, (tx) => listPropertyApiGrants(tx, asya))).toMatchObject([
+      { id: g!.id, grantedVia: "owner" },
+    ]);
     expect(ids((await call("/api/v1/properties", keyA)).body)).toEqual([mavi, asya].sort());
   });
 
   it("izin kaldırılınca bir sonraki istekte villa görünmez", async () => {
     const [g] = await as(O, ws, (tx) => listPropertyApiGrants(tx, asya));
     expect((await call(`/api/v1/properties/${asya}`, keyA)).status).toBe(200);
-    await expect(as(S, ws, (tx) => revokePropertyAccess(tx, g!.id))).rejects.toSatisfy(
-      (e) => pgErrorInfo(e).code === "42501",
-    );
-    expect(await as(O, ws, (tx) => revokePropertyAccess(tx, g!.id))).toBe("revoked");
-    expect(await as(O, ws, (tx) => revokePropertyAccess(tx, g!.id))).toBe("not_found");
+    // Kodla verilmiş eski izni de yalnız Super Admin kaldırır.
+    await revokeApiAccess(adminDb, adminId, g!.id);
+    await expect(revokeApiAccess(adminDb, adminId, g!.id)).rejects.toMatchObject({
+      reason: "not_found",
+    });
     expect((await call(`/api/v1/properties/${asya}`, keyA)).status).toBe(404);
     expect((await call(`/api/v1/properties/${asya}/availability`, keyA)).status).toBe(404);
     expect(ids((await call("/api/v1/properties", keyA)).body)).toEqual([mavi]);
-    // Yeniden izin verilebilir (yeni kayıt).
-    expect(await ownerGrant(O, asya, codeA)).toBe("granted");
+    // Yeniden izni yalnız Super Admin verir (yeni kayıt).
+    await grantApiAccess(adminDb, adminId, clientA, asya);
     expect(ids((await call("/api/v1/properties", keyA)).body)).toEqual([mavi, asya].sort());
   });
 
@@ -492,25 +503,28 @@ describe("villa izinleri", () => {
     expect((await call("/api/v1/properties?limit=0", keyA)).status).toBe(400);
   });
 
-  it("denetim kaydı: yalnız kimlikler (kod/anahtar yok)", async () => {
+  it("denetim kaydı: yalnız kimlikler (anahtar yok)", async () => {
     const rows = (
       await admin.query(
         "select action, actor_user_id, metadata from audit_log where workspace_id = $1 and action like 'api.%' order by occurred_at",
         [ws],
       )
     ).rows;
+    // Eski (kodla verilmiş) izin doğrudan eklendiği için denetim satırı yok; kaldırılması var.
     expect(rows.map((r) => r.action)).toEqual([
-      "api.access_granted",
       "api.access_granted",
       "api.access_revoked",
       "api.access_granted",
       "api.access_granted",
     ]);
     expect(rows[0]).toMatchObject({
-      actor_user_id: O.id,
-      metadata: { property: mavi, client: clientA, via: "owner" },
+      actor_user_id: null,
+      metadata: { property: mavi, client: clientA, via: "admin" },
     });
-    expect(rows[2]).toMatchObject({ metadata: { property: asya, client: clientA, by: "owner" } });
+    expect(rows[1]).toMatchObject({
+      actor_user_id: null,
+      metadata: { property: asya, client: clientA, by: "admin" },
+    });
     expect(rows.at(-1)).toMatchObject({ actor_user_id: null, metadata: { via: "admin" } });
     const adminRows = (
       await admin.query(
@@ -523,7 +537,6 @@ describe("villa izinleri", () => {
         "api.client_created",
         "api.key_created",
         "api.key_revoked",
-        "api.access_code_created",
         "api.client_disabled",
         "api.client_enabled",
         "api.access_granted",
@@ -531,7 +544,6 @@ describe("villa izinleri", () => {
       ]),
     );
     const dump = JSON.stringify(rows) + JSON.stringify(adminRows);
-    expect(dump).not.toContain(codeA);
     expect(dump).not.toContain(keyA);
     expect(dump).not.toContain(hashApiKey(keyA));
   });

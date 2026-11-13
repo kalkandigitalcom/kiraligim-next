@@ -7,7 +7,7 @@ info:
   version: "1.1.0"
   description: |
     API for agencies. Returns only property id, property name and busy date ranges for
-    properties whose owners granted access, and lets agencies keep a calendar in sync
+    properties the agency was granted access to (granted by Kiraligim), and lets agencies keep a calendar in sync
     (connections, snapshot + cursor, change feeds, signed webhooks). The API never writes to the
     Kiraligim calendar. Busy ranges are half-open [start_date, end_date): end_date is the
     check-out day and is NOT busy.
@@ -520,7 +520,7 @@ components:
           enum: [active, paused, disconnected, revoked]
           description: |
             paused = property or business temporarily inactive (computed, resumes by itself);
-            disconnected = ended by the agency; revoked = access removed by the owner/Kiraligim
+            disconnected = ended by the agency; revoked = access removed by Kiraligim
         created_at: { type: string, format: date-time }
         ended_at: { type: [string, "null"], format: date-time }
         last_synced_at:

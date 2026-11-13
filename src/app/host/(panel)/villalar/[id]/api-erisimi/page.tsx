@@ -3,36 +3,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Alert } from "@/components/ui/alert";
-import {
-  canManageApiAccess,
-  listPropertyApiConnections,
-  listPropertyApiGrants,
-} from "@/server/api/grants";
+import { listPropertyApiConnections, listPropertyApiGrants } from "@/server/api/grants";
 import { getProperty } from "@/server/properties/service";
 import { withPanelTenant } from "@/server/workspaces/panel-tenant";
 
 import { StatusBadge } from "../../_components/property-bits";
 import { PropertyTabs } from "../../_components/property-tabs";
-import { confirmGrantAction, lookupCodeAction, revokeGrantAction } from "./actions";
-import { GrantFlow, RevokeButton } from "./api-access-components";
 
 export const metadata: Metadata = { title: "API erişimi" };
 
-type Props = {
-  params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-};
-
-const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
-
-const NOTICES: Record<string, { tone: "success" | "info"; text: string }> = {
-  verildi: { tone: "success", text: "Acenteye bu villa için erişim verildi." },
-  "zaten-var": { tone: "info", text: "Bu acentenin bu villaya zaten erişimi var." },
-  kaldirildi: {
-    tone: "success",
-    text: "Erişim kaldırıldı. Acente bu villanın bilgilerini artık göremez.",
-  },
-};
+type Props = { params: Promise<{ id: string }> };
 
 const DATE = new Intl.DateTimeFormat("tr-TR", {
   day: "numeric",
@@ -43,8 +23,8 @@ const DATE = new Intl.DateTimeFormat("tr-TR", {
 
 /**
  * Villa sayfası — API erişimi (1. aşama). Acenteler bu villanın yalnız adını ve dolu tarihlerini
- * okuyabilir. Tüm üyeler erişimi olan acenteleri görür; kod girme, onay ve kaldırma işletme sahibi
- * ve yöneticilerdedir (sunucuda ve veritabanında yeniden denetlenir).
+ * okuyabilir. İzinleri yalnız Kiraligim ekibi (Super Admin) ekler ve kaldırır; bu sayfa salt
+ * okunurdur. Tüm üyeler erişimi olan acenteleri ve takvim bağlantılarını görür.
  */
 /** Acentenin bu villa için takvim bağlantısı (2. aşama): bağlı / duraklatıldı / yok. */
 function ConnectionNote({
@@ -67,21 +47,19 @@ function ConnectionNote({
   );
 }
 
-export default async function PropertyApiAccessPage({ params, searchParams }: Props) {
-  const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const view = await withPanelTenant(async (tx, ctx) => {
+export default async function PropertyApiAccessPage({ params }: Props) {
+  const { id } = await params;
+  const view = await withPanelTenant(async (tx) => {
     const property = await getProperty(tx, id);
     if (!property) return null;
     return {
       property,
       grants: await listPropertyApiGrants(tx, property.id),
       connections: await listPropertyApiConnections(tx, property.id),
-      canManage: canManageApiAccess(ctx.role),
     };
   });
   if (!view) notFound();
-  const { property: p, grants, connections, canManage } = view;
-  const notice = NOTICES[one(sp.durum) ?? ""];
+  const { property: p, grants, connections } = view;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -99,13 +77,10 @@ export default async function PropertyApiAccessPage({ params, searchParams }: Pr
       </div>
       <PropertyTabs propertyId={p.id} active="api" />
 
-      {notice ? <Alert tone={notice.tone}>{notice.text}</Alert> : null}
-      {!canManage ? (
-        <Alert tone="info">
-          Erişimi olan acenteleri görüntüleyebilirsiniz; erişim verme ve kaldırma işletme sahibi ve
-          yöneticilerdedir.
-        </Alert>
-      ) : null}
+      <Alert tone="info">
+        Acente erişimlerini Kiraligim ekibi yönetir. Bir izin eklenmesini veya kaldırılmasını
+        istiyorsanız Kiraligim ekibiyle iletişime geçin.
+      </Alert>
 
       <section
         aria-labelledby="api-grants-title"
@@ -119,8 +94,8 @@ export default async function PropertyApiAccessPage({ params, searchParams }: Pr
           <p className="mt-1 text-sm text-muted-foreground">
             Acenteler bu villanın yalnız adını ve dolu tarihlerini görebilir. Fiyat, misafir
             bilgisi, açıklama, fotoğraf, adres ve rezervasyon ayrıntısı paylaşılmaz. Villa pasif
-            olduğunda acenteler villayı göremez ve takvim bağlantısı duraklatılır. Erişimi
-            kaldırdığınızda takvim bağlantısı da sona erer.
+            olduğunda acenteler villayı göremez ve takvim bağlantısı duraklatılır. Erişim
+            kaldırıldığında takvim bağlantısı da sona erer.
           </p>
         </div>
         {grants.length === 0 ? (
@@ -146,38 +121,11 @@ export default async function PropertyApiAccessPage({ params, searchParams }: Pr
                   </p>
                   <ConnectionNote connection={connections.find((c) => c.grantId === g.id)} />
                 </div>
-                {canManage ? (
-                  <RevokeButton
-                    clientName={g.clientName}
-                    action={revokeGrantAction.bind(null, g.id, p.id)}
-                  />
-                ) : null}
               </li>
             ))}
           </ul>
         )}
       </section>
-
-      {canManage ? (
-        <section
-          aria-labelledby="api-grant-title"
-          className="flex flex-col gap-4 rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6"
-        >
-          <div>
-            <h2 id="api-grant-title" className="font-semibold text-navy-900">
-              Acenteye erişim ver
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Acentenin size verdiği erişim kodunu girin. Acentenin adını görüp onayladığınızda
-              erişim başlar.
-            </p>
-          </div>
-          <GrantFlow
-            lookup={lookupCodeAction.bind(null, p.id)}
-            confirm={confirmGrantAction.bind(null, p.id)}
-          />
-        </section>
-      ) : null}
     </div>
   );
 }

@@ -20,14 +20,13 @@ import { listAdminProperties, searchAdminWorkspaces } from "@/server/admin/whats
 
 import { ago, fmt } from "../../whatsapp/format";
 import {
-  createAccessCodeAction,
   createKeyAction,
   grantAction,
   revokeGrantAction,
   revokeKeyAction,
   setClientActiveAction,
 } from "../actions";
-import { AccessCodeForm, CreateKeyForm } from "../secret-forms";
+import { CreateKeyForm } from "../secret-forms";
 
 export const metadata: Metadata = { title: "API hesabı" };
 
@@ -40,7 +39,8 @@ const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : "
 const CARD = "flex flex-col gap-4 rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6";
 
 const NOTICES: Record<string, string> = {
-  olusturuldu: "API hesabı oluşturuldu. Şimdi bir anahtar ve erişim kodu oluşturabilirsiniz.",
+  olusturuldu:
+    "API hesabı oluşturuldu. Şimdi bir anahtar oluşturup villa izinlerini ekleyebilirsiniz.",
   etkin: "Hesap etkinleştirildi.",
   pasif: "Hesap pasifleştirildi; anahtarları bir sonraki istekte reddedilir.",
   "anahtar-geri-alindi": "Anahtar geri alındı; bir sonraki istekte reddedilir.",
@@ -64,7 +64,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-/** API hesabı: durum, anahtarlar, erişim kodu, villa izinleri ve son 30 günlük kullanım. */
+/** API hesabı: durum, anahtarlar, villa izinleri ve son 30 günlük kullanım. */
 export default async function AdminApiClientPage({ params, searchParams }: Props) {
   const admin = await requireAdmin();
   const { id } = await params;
@@ -166,25 +166,6 @@ export default async function AdminApiClientPage({ params, searchParams }: Props
           action={createKeyAction.bind(null, c.id)}
           errors={errors}
           disabled={!active}
-        />
-      </section>
-
-      <section className={CARD} aria-labelledby="code-title">
-        <div>
-          <h2 id="code-title" className="font-semibold text-navy-900">
-            Acente erişim kodu
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {c.accessCodeHint
-              ? `Geçerli kod …${c.accessCodeHint} ile biter (oluşturma ${fmt(c.accessCodeCreatedAt)}). Kodun tamamı saklanmaz.`
-              : "Henüz kod yok."}
-          </p>
-        </div>
-        <AccessCodeForm
-          action={createAccessCodeAction.bind(null, c.id)}
-          errors={errors}
-          disabled={!active}
-          hasCode={c.accessCodeHint !== null}
         />
       </section>
 

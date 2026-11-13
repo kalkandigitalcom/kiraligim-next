@@ -41,7 +41,6 @@ describe("fonksiyonlar", () => {
       "app_api_admin_keys",
       "app_api_admin_revoke_grant",
       "app_api_admin_revoke_key",
-      "app_api_admin_set_access_code",
       "app_api_admin_set_client_status",
       "app_api_admin_usage",
       "app_api_begin",
@@ -69,9 +68,7 @@ describe("fonksiyonlar", () => {
       "app_api_disconnect",
       "app_api_end_grant_connections",
       "app_api_finish_delivery", // 0061
-      "app_api_grant_property",
       "app_api_hmac_sha256", // 0059 (iç)
-      "app_api_lookup_access_code",
       "app_api_note_error",
       "app_api_process_changes", // 0059
       "app_api_properties",
@@ -81,7 +78,6 @@ describe("fonksiyonlar", () => {
       "app_api_prune_changes", // 0059
       "app_api_prune_deliveries", // 0061
       "app_api_resolve_key",
-      "app_api_revoke_property_grant",
       "app_api_snapshot", // 0058
       // 0061: webhook (yapılandırma, teslim) — iç iptal yardımcısı kimsede
       "app_api_webhook_delete",
@@ -185,7 +181,6 @@ describe("fonksiyonlar", () => {
       "app_api_admin_keys",
       "app_api_admin_revoke_grant",
       "app_api_admin_revoke_key",
-      "app_api_admin_set_access_code",
       "app_api_admin_set_client_status",
       "app_api_admin_usage",
       "app_api_begin",
@@ -204,8 +199,6 @@ describe("fonksiyonlar", () => {
       "app_api_connections",
       "app_api_disconnect",
       "app_api_finish_delivery", // 0061
-      "app_api_grant_property",
-      "app_api_lookup_access_code",
       "app_api_note_error",
       "app_api_process_changes", // 0059
       "app_api_properties",
@@ -214,7 +207,6 @@ describe("fonksiyonlar", () => {
       "app_api_property_grants",
       "app_api_prune_changes", // 0059
       "app_api_prune_deliveries", // 0061
-      "app_api_revoke_property_grant",
       "app_api_snapshot", // 0058
       // 0061: webhook
       "app_api_webhook_delete",
@@ -398,10 +390,6 @@ describe("fonksiyonlar", () => {
       { proname: "app_api_admin_revoke_grant", args: "p_admin uuid, p_grant uuid" },
       { proname: "app_api_admin_revoke_key", args: "p_admin uuid, p_key uuid" },
       {
-        proname: "app_api_admin_set_access_code",
-        args: "p_admin uuid, p_client uuid, p_hash text, p_hint text",
-      },
-      {
         proname: "app_api_admin_set_client_status",
         args: "p_admin uuid, p_client uuid, p_active boolean",
       },
@@ -432,11 +420,6 @@ describe("fonksiyonlar", () => {
         proname: "app_api_finish_delivery",
         args: "p_id uuid, p_token uuid, p_ok boolean, p_status integer, p_error text",
       },
-      {
-        proname: "app_api_grant_property",
-        args: "p_property uuid, p_code_hash text, p_client uuid",
-      },
-      { proname: "app_api_lookup_access_code", args: "p_code_hash text" },
       { proname: "app_api_note_error", args: "p_hash text" },
       // 0059: işlemci ve saklama (kimlik/villa parametresi almaz; tüm işi veritabanı seçer)
       { proname: "app_api_process_changes", args: "p_max_properties integer" },
@@ -446,7 +429,6 @@ describe("fonksiyonlar", () => {
       { proname: "app_api_property_grants", args: "p_property uuid" },
       { proname: "app_api_prune_changes", args: "" },
       { proname: "app_api_prune_deliveries", args: "" }, // 0061
-      { proname: "app_api_revoke_property_grant", args: "p_grant uuid" },
       // 0058: snapshot ve cursor (hesap anahtar özetinden; bağlantı yalnız kendi hesabınınsa)
       { proname: "app_api_snapshot", args: "p_hash text, p_connection uuid" },
       // 0061: webhook yapılandırması (hesap anahtar özetinden)
@@ -506,7 +488,6 @@ describe("fonksiyonlar", () => {
       app_api_admin_keys: ["app_admin"],
       app_api_admin_revoke_grant: ["app_admin"],
       app_api_admin_revoke_key: ["app_admin"],
-      app_api_admin_set_access_code: ["app_admin"],
       app_api_admin_set_client_status: ["app_admin"],
       app_api_admin_usage: ["app_admin"],
       app_api_begin: ["app_user"],
@@ -533,9 +514,7 @@ describe("fonksiyonlar", () => {
       app_api_disconnect: ["app_user"],
       app_api_end_grant_connections: [],
       app_api_finish_delivery: ["app_user"],
-      app_api_grant_property: ["app_user"],
       app_api_hmac_sha256: [],
-      app_api_lookup_access_code: ["app_user"],
       app_api_note_error: ["app_user"],
       app_api_process_changes: ["app_user"],
       app_api_properties: ["app_user"],
@@ -545,7 +524,6 @@ describe("fonksiyonlar", () => {
       app_api_prune_changes: ["app_user"],
       app_api_prune_deliveries: ["app_user"],
       app_api_resolve_key: [],
-      app_api_revoke_property_grant: ["app_user"],
       app_api_snapshot: ["app_user"],
       // 0061: webhook
       app_api_webhook_delete: ["app_user"],

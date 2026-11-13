@@ -13,9 +13,43 @@
 --       (2) yedek alın, (3) bu betiği app_migrator (veya süper kullanıcı) ile tek transaction'da
 --       çalıştırın: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f rollback-0053-0061.sql
 --
+-- 0062 (erişim kodunun ve işletme tarafında izin kaldırmanın kaldırılması) UYGULANMIŞSA bu betik
+-- ÇALIŞMAZ: 0. adım hiçbir değişiklik yapmadan hata verir. Aksi hâlde 2. adım, 0062'nin kaldırdığı
+-- app_api_revoke_property_grant'ı yeniden oluştururdu (süper kullanıcıyla PUBLIC'e açık olarak) ve
+-- 6. adım 0062'nin migration kaydını da silerdi. Önce 0062 geri alınmalıdır (docs/deployment.md).
+--
 -- Bu betik test ortamında doğrulanmıştır: 0052'ye kadar migrate edilmiş, veri eklenmiş, 0061'e
 -- yükseltilmiş ve kullanılmış veritabanında çalıştırıldıktan sonra şema (tablo, kolon, kısıt,
 -- indeks, fonksiyon gövdesi ve yetkileri, tetikleyici, politika) temiz 0052 kurulumuyla aynıdır.
+
+-- 0. Güvenlik kontrolü: yalnız 0061 sonundaki (0062 uygulanmamış) veritabanında devam edilir.
+--    Koşullardan biri sağlanmazsa hiçbir değişiklik yapılmadan hata verilir (ON_ERROR_STOP + -1).
+DO $$
+DECLARE
+  v_after_0061 boolean := false;
+BEGIN
+  -- Migration kaydı (created_at = journal "when", 0062 = 1794608103216). Tablo yoksa dinamik
+  -- sorgu çalıştırılmaz (PL/pgSQL statik sorguyu tablo olmadan planlayamaz).
+  IF pg_catalog.to_regclass('drizzle.__migrations') IS NOT NULL THEN
+    EXECUTE 'SELECT EXISTS (SELECT 1 FROM drizzle.__migrations WHERE created_at >= $1)'
+      INTO v_after_0061 USING 1794608103216::bigint;
+  END IF;
+  IF v_after_0061 THEN
+    RAISE EXCEPTION 'rollback_0053_0061_blocked: 0062 veya sonrası uygulanmış; önce 0062 geri alınmalı'
+      USING ERRCODE = 'object_not_in_prerequisite_state';
+  END IF;
+  IF pg_catalog.to_regprocedure('public.app_api_revoke_property_grant(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'rollback_0053_0061_blocked: app_api_revoke_property_grant yok (0062 uygulanmış olabilir)'
+      USING ERRCODE = 'object_not_in_prerequisite_state';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'api_clients'
+                    AND column_name = 'access_code_hash') THEN
+    RAISE EXCEPTION 'rollback_0053_0061_blocked: api_clients.access_code_hash yok (0062 uygulanmış olabilir)'
+      USING ERRCODE = 'object_not_in_prerequisite_state';
+  END IF;
+END
+$$;
 
 -- 1. Tetikleyiciler (0054): takvim yazmaları artık "değişti" satırı bırakmaz.
 DROP TRIGGER IF EXISTS external_calendar_events_api_capture_del ON public.external_calendar_events;
@@ -101,6 +135,26 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   PERFORM pg_catalog.set_config('app.api_fn', coalesce(v_prev, ''), true);
   RAISE;
+END
+$$;
+
+-- 2b. Yetki denetimi: CREATE OR REPLACE mevcut yetkileri korur; iki fonksiyon da PUBLIC'e açık
+--     olamaz ve Super Admin fonksiyonu app_user tarafından çalıştırılamaz (0052 yetki modeli).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p, pg_catalog.aclexplode(p.proacl) a
+              WHERE p.oid IN ('public.app_api_revoke_property_grant(uuid)'::regprocedure,
+                              'public.app_api_admin_revoke_grant(uuid, uuid)'::regprocedure)
+                AND a.grantee = 0 AND a.privilege_type = 'EXECUTE')
+     OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+                 WHERE p.oid IN ('public.app_api_revoke_property_grant(uuid)'::regprocedure,
+                                 'public.app_api_admin_revoke_grant(uuid, uuid)'::regprocedure)
+                   AND p.proacl IS NULL)
+     OR pg_catalog.has_function_privilege('app_user',
+          'public.app_api_admin_revoke_grant(uuid, uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'rollback_0053_0061_blocked: izin kaldırma fonksiyonlarının yetkileri beklenenden geniş'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
 END
 $$;
 

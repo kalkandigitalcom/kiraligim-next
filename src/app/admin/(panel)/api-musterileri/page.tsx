@@ -23,7 +23,7 @@ const CARD = "flex flex-col gap-4 rounded-2xl border border-border bg-white p-5 
 
 /**
  * Super Admin — API müşterileri (acente okuma API'si, 1. aşama). Hesap oluşturma burada; anahtar,
- * erişim kodu, villa izinleri ve kullanım hesap detayında.
+ * villa izinleri ve kullanım hesap detayında.
  */
 export default async function AdminApiClientsPage({ searchParams }: Props) {
   const admin = await requireAdmin();
