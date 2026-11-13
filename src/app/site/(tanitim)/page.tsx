@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { SITE_COPY } from "@/config/marketing";
+import { SITE_COPY, SITE_MAINTENANCE } from "@/config/marketing";
 import { getBrand } from "@/config/brand";
 
 import { FaqSection, FinalCta, PricingSection, RoadmapSection } from "./_components/closing";
@@ -18,6 +18,7 @@ import {
   ValueStrip,
 } from "./_components/features";
 import { Hero } from "./_components/hero";
+import { MaintenanceScreen } from "./_components/maintenance";
 import { siteLinks } from "./_components/site-links";
 
 export function generateMetadata(): Metadata {
@@ -30,6 +31,7 @@ export function generateMetadata(): Metadata {
  * özellikler anlatılır; geliştirilenler "Geliştiriliyor" bölümündedir.
  */
 export default function SiteHomePage() {
+  if (SITE_MAINTENANCE) return <MaintenanceScreen />;
   const { trial } = siteLinks();
   return (
     <>

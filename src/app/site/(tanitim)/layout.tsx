@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { INDEXING_ENABLED, SITE_COPY } from "@/config/marketing";
+import { INDEXING_ENABLED, SITE_COPY, SITE_MAINTENANCE } from "@/config/marketing";
 import { getBrand } from "@/config/brand";
 
 import { MotionRoot } from "./_components/motion-root";
@@ -33,6 +33,8 @@ export async function generateMetadata(): Promise<Metadata> {
  * dışında kalır; üst bar ve alt bilgi yalnız tanıtım sayfalarındadır.
  */
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
+  // Bakım ekranı kendi üst ve alt bilgisini taşır; tanıtım menüsü ve hareket betiği yüklenmez.
+  if (SITE_MAINTENANCE) return <>{children}</>;
   const links = siteLinks();
   return (
     <div className="flex flex-1 flex-col overflow-x-clip bg-white text-navy-900">

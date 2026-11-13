@@ -17,6 +17,21 @@
 
 export const INDEXING_ENABLED = false as const;
 
+/**
+ * Geçici bakım ekranı. true iken kök alan adının ana sayfası (/) tanıtım içeriği yerine yalnız
+ * MAINTENANCE_COPY'yi gösterir. Yalnız tanıtım grubunu etkiler: /villa/* sayfaları, app.* ve
+ * admin.* yüzeyleri, /api/* ve arka plan işleri değişmez. Geri almak için false yapın.
+ */
+export const SITE_MAINTENANCE: boolean = true;
+
+export const MAINTENANCE_COPY = {
+  badge: "Yenileniyoruz",
+  title: "Daha iyisi için hazırlanıyoruz.",
+  description:
+    "Kiraligim çok yakında yeni yüzüyle sizlerle. Villa takvim yönetimini daha kolay ve güçlü hale getirmek için çalışmalarımıza devam ediyoruz.",
+  footnote: "Çok yakında tekrar görüşmek üzere.",
+} as const;
+
 /** Deneme süresi (gün). Plan kaydındaki trial_days ile aynı tutulmalı (başlangıç planı). */
 export const TRIAL_DAYS = 14;
 
