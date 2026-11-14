@@ -497,8 +497,8 @@ describe("sözleşme", () => {
   it("sabitler ve sürüm", () => {
     expect(WA_CALENDAR_ACTIONS).toEqual(["close", "reserve", "open", "cancel", "change"]);
     expect(new Set(WA_CALENDAR_FLAGS).size).toBe(WA_CALENDAR_FLAGS.length);
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(7);
-    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 7, items: [] });
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(8);
+    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 8, items: [] });
   });
 
   it("bayraklar her zaman WA_CALENDAR_FLAGS sırasıyla ve tekil", () => {
@@ -823,8 +823,8 @@ describe("grup dışı villa (A2b)", () => {
     expect(n.reasons).toEqual(["villa_needs_review", "sender_unverified"]);
   });
 
-  it("ayrıştırıcı sürümü 7", () => {
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(7);
+  it("ayrıştırıcı sürümü 8", () => {
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(8);
   });
 });
 

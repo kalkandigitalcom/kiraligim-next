@@ -1,0 +1,3300 @@
+{
+  "aciklama": "Aşama 1 regresyon seti (ayrıştırıcı v8). NL-*: WhatsApp doğal dil analizinin 219 senaryosu; OP-*: opsiyon analizinin mesaj içeren 138 senaryosu (panel / worker / iCal olayı olan 18 senaryo sonraki aşamalarda test edilir). Beklenen değerler: otomatik işlem (close/open/change/null), tarihler ve tepki. Bugün 2026-11-15, grup villası Villa Mavi, gönderen yetkili katılımcı. Değerler v7 davranışıyla karşılaştırıldı: yalnız opsiyon / vazgeçme mesajları değişti ve tümü işlemsiz yöne değişti. NL senaryolarında 'hedef' analizdeki hedef davranıştır; hedefle_uyumlu=false olanlar (bilinen farklar) WhatsApp doğal dil planında ayrıca ele alınacaktır. Bu test, bunların da sessizce değişmesini engeller.",
+  "bugun": "2026-11-15",
+  "senaryolar": [
+    {
+      "id": "NL-A01",
+      "mesaj": "15-18 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A02",
+      "mesaj": "15 Nisan ile 18 Nisan arası kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A03",
+      "mesaj": "15 Nisan'dan 18 Nisan'a kadar kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A04",
+      "mesaj": "15 Nisan - 18 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A05",
+      "mesaj": "Nisan 15-18 kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A06",
+      "mesaj": "Nisan'da 15-18 kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A07",
+      "mesaj": "15.04-18.04 kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A08",
+      "mesaj": "15/04-18/04 kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A09",
+      "mesaj": "15-18.04 kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A10",
+      "mesaj": "15 Nisan'dan itibaren 3 gece kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A11",
+      "mesaj": "15 Nisan 3 gece kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A12",
+      "mesaj": "15 Nisan giriş 18 Nisan çıkış kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A13",
+      "mesaj": "Nisan 15'inde giriş 18'inde çıkış kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A14",
+      "mesaj": "15-18 Nisan 2027 kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A15",
+      "mesaj": "15.04.2027-18.04.2027 kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A16",
+      "mesaj": "15/04/2027 - 18/04/2027 kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A17",
+      "mesaj": "15 Nisan giriş 18 Nisan çıkış",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-A18",
+      "mesaj": "15 Nisan giriş 3 gece",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-A19",
+      "mesaj": "15 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A20",
+      "mesaj": "15 Nisan 2027 kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A21",
+      "mesaj": "15.04 kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A22",
+      "mesaj": "15/04/2027 kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A23",
+      "mesaj": "15'inde giriş 18'inde çıkış",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-A24",
+      "mesaj": "15-18 Nisan dahil kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-19",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A25",
+      "mesaj": "28 Aralık - 3 Ocak kapat",
+      "islem": "close",
+      "giris": "2026-12-28",
+      "cikis": "2027-01-03",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-A26",
+      "mesaj": "20-25 Aralık kapat",
+      "islem": "close",
+      "giris": "2026-12-20",
+      "cikis": "2026-12-25",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B01",
+      "mesaj": "15-18 Nisan dolu",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B02",
+      "mesaj": "15-18 Nisan doluyuz",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B03",
+      "mesaj": "15-18 Nisan villamız doldu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B04",
+      "mesaj": "15-18 Nisan bu günleri kapatalım",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B05",
+      "mesaj": "15-18 Nisan misafir geliyor",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B06",
+      "mesaj": "15-18 Nisan müsait değiliz",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B07",
+      "mesaj": "15-18 Nisan tarihlerinde müsait değiliz",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B08",
+      "mesaj": "15-18 Nisan müşteri aldık",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B09",
+      "mesaj": "15-18 Nisan rezervasyon geldi",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B10",
+      "mesaj": "15-18 Nisan rezervasyon aldık",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B11",
+      "mesaj": "15-18 Nisan'ı kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B12",
+      "mesaj": "15-18 Nisan kapalı olsun",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B13",
+      "mesaj": "15-18 Nisan'ı doldur",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B14",
+      "mesaj": "15-18 Nisan yer yok",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B15",
+      "mesaj": "15-18 Nisan tamamen dolu",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B16",
+      "mesaj": "O gün doluyuz",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B17",
+      "mesaj": "Müşteri aldık",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B18",
+      "mesaj": "Rezervasyon geldi",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B19",
+      "mesaj": "Villamız doldu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B20",
+      "mesaj": "O tarihler dolu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-B21",
+      "mesaj": "Bu günleri kapatalım",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B22",
+      "mesaj": "Misafir geliyor",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-B23",
+      "mesaj": "Bu tarihlerde müsait değiliz",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C01",
+      "mesaj": "15-18 Nisan rezervasyon var",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C02",
+      "mesaj": "15-18 Nisan müşteri var",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-C03",
+      "mesaj": "15-18 Nisan misafir var",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C04",
+      "mesaj": "15-18 Nisan ayırdık",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-C05",
+      "mesaj": "15-18 Nisan tuttuk",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-C06",
+      "mesaj": "15-18 Nisan tutuldu",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C07",
+      "mesaj": "15-18 Nisan kiralandı",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C08",
+      "mesaj": "15-18 Nisan kiraladık",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C09",
+      "mesaj": "15-18 Nisan satıldı",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C10",
+      "mesaj": "15-18 Nisan müsait değil",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C11",
+      "mesaj": "15-18 Nisan boş değil",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C12",
+      "mesaj": "15-18 Nisan blokla",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C13",
+      "mesaj": "15-18 Nisan rezerve edildi",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C14",
+      "mesaj": "15-18 Nisan kapalı",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C15",
+      "mesaj": "15-18 Nisan dolu yapalım",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C16",
+      "mesaj": "15-18 Nisan başkasına verdik",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C17",
+      "mesaj": "15-18 Nisan konaklama var",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-C18",
+      "mesaj": "15-18 Nisan girişli rezervasyon onaylandı",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C19",
+      "mesaj": "15-18 Nisan opsiyonlu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C20",
+      "mesaj": "15-18 Nisan rezervasyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C21",
+      "mesaj": "15-18 Nisan aç",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C22",
+      "mesaj": "15-18 Nisan'ı müsait yap",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C23",
+      "mesaj": "15-18 Nisan iptal oldu",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C24",
+      "mesaj": "15-18 Nisan rezervasyonu iptal",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C25",
+      "mesaj": "15-18 Nisan boşalt",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-C26",
+      "mesaj": "15-18 Nisan rezervasyonu 16-19 Nisan'a alındı",
+      "islem": "change",
+      "giris": "2027-04-16",
+      "cikis": "2027-04-19",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-D01",
+      "mesaj": "15-18 Nisan ve 20-23 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-D02",
+      "mesaj": "15-18 Nisan kapat / 20-23 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-D03",
+      "mesaj": "15-18 Nisan ve 20-23 Mayıs dolu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-D04",
+      "mesaj": "15-18 Nisan, 1-5 Mayıs, 10-12 Haziran kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-D05",
+      "mesaj": "15-18 Nisan ve 18-21 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-D06",
+      "mesaj": "15-18 Nisan ve 17-20 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-D07",
+      "mesaj": "15 ve 18 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-D08",
+      "mesaj": "15, 18 ve 22 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-D09",
+      "mesaj": "Nisan'ın 15'i, Mayıs'ın 2'si kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-D10",
+      "mesaj": "15, 16, 17 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-D11",
+      "mesaj": "Villa Mavi 15-18 Nisan, Villa Asya 20-23 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-D12",
+      "mesaj": "15-18 Nisan kapat, 20-23 Nisan aç",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-D13",
+      "mesaj": "15-18 Nisan kapat ama 20-23 Nisan kapatmayalım",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-D14",
+      "mesaj": "15-18 Nisan kapat 20-23",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E01",
+      "mesaj": "yarından itibaren 2 gece kapat",
+      "islem": "close",
+      "giris": "2026-11-16",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E02",
+      "mesaj": "bu gece kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-16",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E03",
+      "mesaj": "cumartesi gecesi kapat",
+      "islem": "close",
+      "giris": "2026-11-21",
+      "cikis": "2026-11-22",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E04",
+      "mesaj": "gelecek ayın 5-8'i kapat",
+      "islem": "close",
+      "giris": "2026-12-05",
+      "cikis": "2026-12-08",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E05",
+      "mesaj": "bu ayın sonuna kadar kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-12-01",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E06",
+      "mesaj": "önümüzdeki 3 gece kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E07",
+      "mesaj": "gelecek hafta pazartesi-cuma kapat",
+      "islem": "close",
+      "giris": "2026-11-16",
+      "cikis": "2026-11-20",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E08",
+      "mesaj": "yarın kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E09",
+      "mesaj": "öbür gün kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E10",
+      "mesaj": "haftaya cuma kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E11",
+      "mesaj": "önümüzdeki hafta kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E12",
+      "mesaj": "gelecek ayın 5'i kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E13",
+      "mesaj": "bayram boyunca kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E14",
+      "mesaj": "hafta sonu kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E15",
+      "mesaj": "yılbaşına kadar kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E16",
+      "mesaj": "10 gün sonra kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-E17",
+      "mesaj": "ayın sonu kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F01",
+      "mesaj": "Rezervasyon aldım.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F02",
+      "mesaj": "Kapat.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F03",
+      "mesaj": "O tarihler dolu.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F04",
+      "mesaj": "Aynı müşteriye tekrar ayır.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F05",
+      "mesaj": "15'inden sonra boş.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F06",
+      "mesaj": "Nisan ortası dolu.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F07",
+      "mesaj": "Ayın 15'i.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F08",
+      "mesaj": "Giriş cuma çıkış pazartesi.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F09",
+      "mesaj": "Ayın 20'si kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F10",
+      "mesaj": "15-18 kapat 20 kişi",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F11",
+      "mesaj": "Haziran kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F12",
+      "mesaj": "Yaz boyu dolu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F13",
+      "mesaj": "15-18 Nisan",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F14",
+      "mesaj": "15 Nisan - 18 Nisan",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F15",
+      "mesaj": "Pazartesi kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F16",
+      "mesaj": "16-19 Nisan olacak",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F17",
+      "mesaj": "pardon 16-19 olacak",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F18",
+      "mesaj": "yanlış yazdım 16-19 Nisan",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-F19",
+      "mesaj": "onu iptal et",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-F20",
+      "mesaj": "aynı tarihleri Villa Asya için de kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G01",
+      "mesaj": "nisanda 15 18 doluyuz",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G02",
+      "mesaj": "15 nisandan 18 nisana kadar kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G03",
+      "mesaj": "15 nisan giris 18 nisan cikis",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G04",
+      "mesaj": "15 nisan giris 18 nisan cikis kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G05",
+      "mesaj": "nisan 15 ten 18 e kadar kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G06",
+      "mesaj": "15-18 nisan kapatın lütfen",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G07",
+      "mesaj": "15-18 Nisan kapatalim",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G08",
+      "mesaj": "15 18 nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G09",
+      "mesaj": "15 18 arası kapatırmısın",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G10",
+      "mesaj": "15ine müşteri aldım",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G11",
+      "mesaj": "15-18 nisna kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G12",
+      "mesaj": "15-18 haizran kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G13",
+      "mesaj": "15-18 ağs kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G14",
+      "mesaj": "15-18 mays kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G15",
+      "mesaj": "15-18 ekm kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G16",
+      "mesaj": "15-18 april kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G17",
+      "mesaj": "15-18 nisn kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G18",
+      "mesaj": "15-18 Nsian kapat",
+      "islem": "close",
+      "giris": "2026-11-15",
+      "cikis": "2026-11-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-G19",
+      "mesaj": "15-18 nis kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G20",
+      "mesaj": "15-18 Nisanda kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G21",
+      "mesaj": "15 18 nisan kpat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G22",
+      "mesaj": "15-18 Nisan KAPAT",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G23",
+      "mesaj": "15–18 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-G24",
+      "mesaj": "15 - 18 nisan kapat 🙏",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-H01",
+      "mesaj": "15-18 Nisan dolu gibi",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H02",
+      "mesaj": "15-18 Nisan dolu galiba",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H03",
+      "mesaj": "15-18 Nisan kapatabiliriz belki",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H04",
+      "mesaj": "15-18 Nisan kapatacağız ama emin değilim",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H05",
+      "mesaj": "15-18 Nisan için müşteri kapatalım diyor, bekleyelim",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H06",
+      "mesaj": "15-18 Nisan dolu olabilir, bakacağım",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H07",
+      "mesaj": "15-18 Nisan kapatalım mı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-H08",
+      "mesaj": "15-18 Nisan'ı kapatmıştık değil mi",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-H09",
+      "mesaj": "15-18 Nisan boş kalsın",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H10",
+      "mesaj": "15-18 Nisan boş",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H11",
+      "mesaj": "müşteri 15-18 Nisan boş dedi",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H12",
+      "mesaj": "15-18 Nisan boş günler var",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H13",
+      "mesaj": "15-18 Nisan doluymuş",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-H14",
+      "mesaj": "15-18 Nisan kapatmadan önce bana sor",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-H15",
+      "mesaj": "15-18 Nisan'ı yarın kapatırız",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X01",
+      "mesaj": "yarın havuz temizliği var",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X02",
+      "mesaj": "15-20 kişilik grup soruyor",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X03",
+      "mesaj": "fiyat 15-20 bin",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X04",
+      "mesaj": "kapıyı kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X05",
+      "mesaj": "yarın 10'da görüşelim",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X06",
+      "mesaj": "15 Nisan müsait mi?",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X07",
+      "mesaj": "15-18 Nisan fiyatı nedir",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X08",
+      "mesaj": "Villa Mavi çok güzel",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X09",
+      "mesaj": "20-25 Aralık kapatmayalım",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X10",
+      "mesaj": "saat 10.15'te geliyorum",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X11",
+      "mesaj": "telefon 0532 123 45 67",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X12",
+      "mesaj": "geçen yıl 15-18 Nisan doluydu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X13",
+      "mesaj": "geçen sene 15-18 Nisan kapattık",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X14",
+      "mesaj": "Ahmet bey 15-18 Nisan için sordu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X15",
+      "mesaj": "15-18 Nisan için teklif gönderdim",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X16",
+      "mesaj": "misafir 15'inde 3 kişi gelecek mi soruyor",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X17",
+      "mesaj": "havuzu 20-25 Aralık doldurun",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X18",
+      "mesaj": "klimayı kapat 15'inde",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X19",
+      "mesaj": "15-18 Nisan uçak bileti aldım",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X20",
+      "mesaj": "faturayı 15-18 Nisan arası öderiz",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X21",
+      "mesaj": "15 Nisan doğum günüm",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X22",
+      "mesaj": "2-3 kişi 15 gece kalmak istiyor",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X23",
+      "mesaj": "15.000 TL kapora geldi",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X24",
+      "mesaj": "Kapat şu konuyu artık 😂",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X25",
+      "mesaj": "15-18 Nisan boş mu acaba?",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X26",
+      "mesaj": "WiFi şifresi 15182027",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X27",
+      "mesaj": "15:30'da temizlikçi gelecek",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X28",
+      "mesaj": "15-18 Nisan hava nasıl olur",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-X29",
+      "mesaj": "15 Nisan'da bayram mı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-X30",
+      "mesaj": "Tamam 👍",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok",
+      "hedef": "ilgisiz yok",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R01",
+      "mesaj": "10-14 Kasım kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R02",
+      "mesaj": "5-8 kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R03",
+      "mesaj": "10-20 Kasım kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R04",
+      "mesaj": "20-25 Ekim kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R05",
+      "mesaj": "28 Şubat - 1 Mart kapat",
+      "islem": "close",
+      "giris": "2027-02-28",
+      "cikis": "2027-03-01",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R06",
+      "mesaj": "28 Şubat - 1 Mart 2028 kapat",
+      "islem": "close",
+      "giris": "2028-02-28",
+      "cikis": "2028-03-01",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R07",
+      "mesaj": "29 Şubat - 2 Mart 2028 kapat",
+      "islem": "close",
+      "giris": "2028-02-29",
+      "cikis": "2028-03-02",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R08",
+      "mesaj": "29 Şubat - 2 Mart kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R09",
+      "mesaj": "31 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R10",
+      "mesaj": "20-20 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R11",
+      "mesaj": "18-15 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R12",
+      "mesaj": "1 Nisan - 15 Haziran kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R13",
+      "mesaj": "1-28 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-01",
+      "cikis": "2027-04-28",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R14",
+      "mesaj": "10-15 Kasım 2027 kapat",
+      "islem": "close",
+      "giris": "2027-11-10",
+      "cikis": "2027-11-15",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R15",
+      "mesaj": "20-25 dolu",
+      "islem": "close",
+      "giris": "2026-11-20",
+      "cikis": "2026-11-25",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R16",
+      "mesaj": "30 Kasım - 2 Aralık kapat",
+      "islem": "close",
+      "giris": "2026-11-30",
+      "cikis": "2026-12-02",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R17",
+      "mesaj": "31 Aralık - 1 Ocak kapat",
+      "islem": "close",
+      "giris": "2026-12-31",
+      "cikis": "2027-01-01",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-R18",
+      "mesaj": "15-18 Nisan kapat (mevcut 16-20 Nisan rezervasyonu var)",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": null
+    },
+    {
+      "id": "NL-R19",
+      "mesaj": "15-18 Nisan kapat (mevcut 18-21 Nisan rezervasyonu var)",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-V01",
+      "mesaj": "Villa Mavi 15-18 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-V02",
+      "mesaj": "Villa Asya 15-18 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "NL-V03",
+      "mesaj": "Mavi 15-18 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-V04",
+      "mesaj": "Villa Mavi ve Villa Asya 15-18 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "belirsiz ⚠️",
+      "hedefle_uyumlu": true
+    },
+    {
+      "id": "NL-V05",
+      "mesaj": "Villa Boş Koy 15-18 Nisan kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️",
+      "hedef": "uygulanabilir ✅",
+      "hedefle_uyumlu": false
+    },
+    {
+      "id": "OP-O01",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O02",
+      "mesaj": "15-18 Nisan opsiyona al",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O03",
+      "mesaj": "15-18 Nisan müşteriye opsiyonlandı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O04",
+      "mesaj": "15-18 Nisan için opsiyon verdik",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O05",
+      "mesaj": "15-18 Nisan geçici ayırdık",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O06",
+      "mesaj": "15 Nisan giriş 18 Nisan çıkış opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O07",
+      "mesaj": "15-18 nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O08",
+      "mesaj": "15-18 Nisan opsiyonlu",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O09",
+      "mesaj": "Villa Mavi 15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O10",
+      "mesaj": "15-18 Nisan opsiyonlu kapat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O11",
+      "mesaj": "15-18 Nisan kapora bekliyoruz, opsiyona al",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O12",
+      "mesaj": "15.04-18.04 opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O13",
+      "mesaj": "15-18 Nisan opsiyon süresi 24 saat",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O14",
+      "mesaj": "15-18 Nisan 48 saatlik opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O15",
+      "mesaj": "15-18 Nisan 2 gün opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O16",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O17",
+      "mesaj": "15-18 Nisan yarın akşama kadar opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O18",
+      "mesaj": "15-18 Nisan opsiyon süresi 30 gün",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O19",
+      "mesaj": "15-18 Nisan opsiyon süresi 30 dakika",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O20",
+      "mesaj": "15-18 Nisan beklemede",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O21",
+      "mesaj": "15-18 Nisan müşteri düşünüyor",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O22",
+      "mesaj": "15-18 Nisan ödeme bekliyoruz",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O23",
+      "mesaj": "15-18 Nisan kapora bekliyoruz",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O24",
+      "mesaj": "Opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O25",
+      "mesaj": "15 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O26",
+      "mesaj": "15-18 opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O27",
+      "mesaj": "15-18 nisna opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O28",
+      "mesaj": "15-18 Nisan opsiyon olabilir",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O29",
+      "mesaj": "15-18 Nisan opsiyon verelim mi?",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-O30",
+      "mesaj": "15-18 Nisan opsiyon vermeyelim",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O31",
+      "mesaj": "15-18 Nisan ve 20-23 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-O32",
+      "mesaj": "15-18 Nisan ve 17-20 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-C01",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-C02",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-C03",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-C04",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-C05",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-C06",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-C07",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-C08",
+      "mesaj": "15-18 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-C09",
+      "mesaj": "15-18 Nisan aç",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-C10",
+      "mesaj": "20-23 Nisan aç",
+      "islem": "open",
+      "giris": "2027-04-20",
+      "cikis": "2027-04-23",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-K01",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K02",
+      "mesaj": "Ödemeyi aldık.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K03",
+      "mesaj": "Kapora geldi.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K04",
+      "mesaj": "Kapora alındı, kapatalım.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K05",
+      "mesaj": "Müşteri ödemeyi yaptı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K06",
+      "mesaj": "Rezervasyon kesinleşti.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K07",
+      "mesaj": "Kesin rezervasyon oldu.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K08",
+      "mesaj": "Opsiyon kesinleşti.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K09",
+      "mesaj": "Parayı gönderdi, tarihleri kapat.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K10",
+      "mesaj": "Müşteri onayladı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K11",
+      "mesaj": "Opsiyon tamam.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K12",
+      "mesaj": "Önceki opsiyon kesinleşti.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K13",
+      "mesaj": "15-18 Nisan kapora geldi",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K14",
+      "mesaj": "15-18 Nisan opsiyon kesinleşti",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K15",
+      "mesaj": "15-18 Nisan ödeme alındı kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-K16",
+      "mesaj": "15-18 Nisan ödeme alındı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K17",
+      "mesaj": "Ödeme geldi",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K18",
+      "mesaj": "Ödeme geldi",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K19",
+      "mesaj": "20-23 Nisan kapora geldi",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K20",
+      "mesaj": "15-17 Nisan ödeme alındı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K21",
+      "mesaj": "16-19 Nisan ödeme alındı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K22",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K23",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K24",
+      "mesaj": "15-18 Nisan ödeme alındı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-K25",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K26",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-K27",
+      "mesaj": "15-18 Nisan ödeme alındı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-B01",
+      "mesaj": "Ödeme alındı, kapatalım.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B02",
+      "mesaj": "Ödeme geldi.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B03",
+      "mesaj": "Kapora geldi.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B04",
+      "mesaj": "Parayı gönderdi.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B05",
+      "mesaj": "Opsiyon kesinleşti.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-B06",
+      "mesaj": "Müşteri onayladı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B07",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B08",
+      "mesaj": "Opsiyon kesinleşti.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-B09",
+      "mesaj": "Tamamdır.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B10",
+      "mesaj": "Tamam",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B11",
+      "mesaj": "Kapatalım.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B12",
+      "mesaj": "Süper 👍",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B13",
+      "mesaj": "Tamamdır, kapatalım.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B14",
+      "mesaj": "Satıldı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B15",
+      "mesaj": "Müşteri aldı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B16",
+      "mesaj": "Diğer tarih de satıldı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B17",
+      "mesaj": "Kapora bekliyoruz.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B18",
+      "mesaj": "Ödeme henüz gelmedi.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B19",
+      "mesaj": "Ödeme gelir herhalde",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-B20",
+      "mesaj": "15-18 Nisan kapandı.",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-I01",
+      "mesaj": "Opsiyon iptal.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I02",
+      "mesaj": "Müşteri vazgeçti.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I03",
+      "mesaj": "Opsiyon düştü.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I04",
+      "mesaj": "Opsiyonu kaldır.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I05",
+      "mesaj": "Müşteri almadı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-I06",
+      "mesaj": "Opsiyon vermekten vazgeçtik.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I07",
+      "mesaj": "Ödeme gelmedi, opsiyonu kaldır.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I08",
+      "mesaj": "Opsiyon süresi doldu.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I09",
+      "mesaj": "15-18 Nisan opsiyon iptal",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I10",
+      "mesaj": "15-18 Nisan müşteri vazgeçti",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I11",
+      "mesaj": "15-18 Nisan opsiyon iptal",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I12",
+      "mesaj": "15-18 Nisan opsiyon iptal",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I13",
+      "mesaj": "Opsiyon iptal.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I14",
+      "mesaj": "20-23 Nisan opsiyon iptal",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I15",
+      "mesaj": "15-18 Nisan artık müsait.",
+      "islem": "open",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-I16",
+      "mesaj": "Tarihleri boşa çıkar.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I17",
+      "mesaj": "Opsiyon iptal.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-I18",
+      "mesaj": "Müşteri vazgeçmedi",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-I19",
+      "mesaj": "Müşteri vazgeçer mi acaba",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-I20",
+      "mesaj": "Opsiyon iptal.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-S07",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-S08",
+      "mesaj": "15-18 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-S09",
+      "mesaj": "20-23 Kasım opsiyon süresi 10 gün",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-V01",
+      "mesaj": "Villa Asya 15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-V02",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-V03",
+      "mesaj": "Villa Mavi 15-18 Nisan ödeme alındı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-V04",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-V05",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-T01",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-T02",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-T03",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-T04",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-T05",
+      "mesaj": "Opsiyon iptal.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-R01",
+      "mesaj": "15-18 Nisan rezervasyon aldık",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-R02",
+      "mesaj": "15-18 Nisan kesin rezervasyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-R03",
+      "mesaj": "15-18 Nisan rezervasyon geldi, ödeme alındı",
+      "islem": "close",
+      "giris": "2027-04-15",
+      "cikis": "2027-04-18",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-R04",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-R05",
+      "mesaj": "15-18 Nisan rezervasyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-R06",
+      "mesaj": "15-18 Nisan rezervasyon beklemede",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-D05",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-D06",
+      "mesaj": "Opsiyon iptal.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-D08",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-D12",
+      "mesaj": "16-20 Nisan kapat",
+      "islem": "close",
+      "giris": "2027-04-16",
+      "cikis": "2027-04-20",
+      "tepki": "✅"
+    },
+    {
+      "id": "OP-D13",
+      "mesaj": "15-18 Nisan ödeme alındı",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-D14",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-D15",
+      "mesaj": "15-18 Nisan opsiyon",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "⚠️"
+    },
+    {
+      "id": "OP-T07",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-T08",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    },
+    {
+      "id": "OP-T09",
+      "mesaj": "Ödeme alındı.",
+      "islem": null,
+      "giris": null,
+      "cikis": null,
+      "tepki": "yok"
+    }
+  ]
+}

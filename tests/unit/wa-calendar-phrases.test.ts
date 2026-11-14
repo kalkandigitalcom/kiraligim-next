@@ -114,6 +114,15 @@ describe("kapatma ifadeleri", () => {
 });
 
 describe("açma ifadeleri", () => {
+  // v8 (Aşama 1): vazgeçme bildirimi (müşteri / misafir / kiralama) opsiyon özelliği gelene kadar
+  // takvimi AÇMAZ: hangi kaydın düştüğü belirsizdir (opsiyon olabilir). İşlem yok, ⚠️.
+  it.each(["20-25 Aralık kiralamadan vazgeçildi", "20-25 Aralık misafir vazgeçti"])(
+    "v8: %s → işlem yok, ⚠️",
+    (m) => {
+      expect(run(m)).toEqual(noAction("⚠️"));
+    },
+  );
+
   it.each([
     "20-25 Aralık aç",
     "20-25 Aralık açıyoruz",
@@ -124,8 +133,6 @@ describe("açma ifadeleri", () => {
     "20-25 Aralık rezervasyonu kaldır",
     "20-25 Aralık bloğu kaldıralım",
     "20-25 Aralık kapatmayı kaldır",
-    "20-25 Aralık kiralamadan vazgeçildi",
-    "20-25 Aralık misafir vazgeçti",
     "20-25 Aralık iptal oldu",
     "20-25 Aralık rezervasyon iptal oldu",
     "20-25 Aralık rezervasyonu iptal edildi",

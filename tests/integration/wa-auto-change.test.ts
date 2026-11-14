@@ -616,6 +616,48 @@ describe("v6: WhatsApp üzerinden tarih değiştirme", () => {
     expect(await statusOf(blockId)).toBe("cancelled");
   });
 
+  it("Aşama 1: opsiyon iptali / müşteri vazgeçmesi manuel bloğu açmaz, kesin kaydı taşımaz; ⚠️", async () => {
+    const c = await send(`${tr2(md(11, 12), md(11, 15))} kapatalım.`, { pn: PN_STRANGER });
+    expect(c.proposals[0]).toMatchObject({ status: "applied", action: "close" });
+    const blockId = c.proposals[0].applied_reservation_ids[0] as string;
+    const resId = await reservationAt(mavi, md(11, 20), md(11, 24));
+    const before = await calendarDigest();
+    const ext = await externalDigest();
+    for (const body of [
+      `${tr2(md(11, 12), md(11, 15))} opsiyon iptal`,
+      `Villa Mavi ${tr2(md(11, 12), md(11, 15))} müşteri vazgeçti`,
+      `${tr2(md(11, 12), md(11, 15))} opsiyon düştü, tekrar açalım`,
+      `${tr2(md(11, 20), md(11, 24))} opsiyon iptal`,
+      `${tr2(md(11, 20), md(11, 24))} müşteri vazgeçti, tarihleri boşa çıkar`,
+      `${tr2(md(11, 20), md(11, 24))} opsiyonu ${tr2(md(11, 21), md(11, 25))} olarak değiştirdik`,
+      `${tr2(md(11, 26), md(11, 28))} opsiyonlu kapat`,
+      "Opsiyon iptal.",
+      "Müşteri vazgeçti.",
+    ]) {
+      const r = await send(body, { pn: PN_STRANGER });
+      expect(r.proposals.length, body).toBeGreaterThan(0);
+      for (const p of r.proposals) {
+        expect([body, p.action, p.status]).toEqual([body, null, "pending"]);
+        expect(p.flags, body).toContain("option_unsupported");
+      }
+      expect([r.summary.autoClosed, r.summary.autoOpened, r.summary.autoChanged], body).toEqual([
+        0, 0, 0,
+      ]);
+      expect(await reactionOf(r.message!.id), body).toEqual([{ kind: "warning", emoji: "⚠️" }]);
+      expect(await calendarDigest(), body).toEqual(before);
+    }
+    expect(await externalDigest()).toBe(ext);
+    expect(await statusOf(blockId)).toBe("confirmed");
+    expect(await rowOf(resId)).toMatchObject({ status: "confirmed", check_in: md(11, 20) });
+    // Korunan davranış: açık iptal talimatı bloğu yine açar.
+    const o = await send(`${tr2(md(11, 12), md(11, 15))} rezervasyon iptal oldu`, {
+      pn: PN_STRANGER,
+    });
+    expect(o.proposals[0]).toMatchObject({ status: "applied", action: "open" });
+    expect(await statusOf(blockId)).toBe("cancelled");
+    expect(await statusOf(resId)).toBe("confirmed");
+  });
+
   it("veritabanı: eski aralık yalnız 'change' için; uygulanmış değiştirmede zorunlu", async () => {
     // Çakışan kapatma önerisi bekler (ilk testin rezervasyonu): bekleyen öneri güncellenebilir.
     const r = await send(`${tr2(md(2, 20), md(2, 22))} kapatalım.`);

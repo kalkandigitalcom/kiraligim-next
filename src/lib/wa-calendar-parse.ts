@@ -52,8 +52,12 @@ import {
  *     rezervasyon önerisi DEĞİLDİR: eylemsiz öneri + option_unsupported (⚠️). Beklemede kayıt
  *     merkezi takvimde, iCal'de ve API'de dolu görünür; opsiyon ise yalnız Kiraligim içinde
  *     izlenecektir (ayrı opsiyon modeli gelene kadar takvime hiçbir işlem yapılmaz).
+ *  8: "opsiyon" sözcüğü geçen ya da müşterinin vazgeçtiğini bildiren MESAJ hiçbir takvim işlemi
+ *     üretmez (kapatma, açma, tarih değiştirme dahil): tüm öğeler eylemsiz + option_unsupported
+ *     (⚠️). Tarihsiz "Opsiyon iptal." / "Müşteri vazgeçti." de ⚠️ alır. Soru ve olumsuz
+ *     ifadeler eskisi gibi tepkisizdir. "Opsiyonel" opsiyon sayılmaz.
  */
-export const WA_CALENDAR_PARSER_VERSION = 7;
+export const WA_CALENDAR_PARSER_VERSION = 8;
 
 /** change (v6): mevcut kaydın tarihleri eski aralıktan yeni aralığa taşınır (oldCheckIn/Out). */
 export const WA_CALENDAR_ACTIONS = ["close", "reserve", "open", "cancel", "change"] as const;
@@ -367,7 +371,19 @@ const OPERATIONAL_CONTEXT = {
 /** Tarihi anlaşılamayan takvim komutu ⚠️ alır; tarih izi yoksa ("kapıyı kapat") sohbettir. */
 const DATE_TRACE =
   /\d|\btarih\w*|\bhafta\w*|\bgece\w*|\byarin\w*|\bbugun\w*|\bbayram\w*|\byil\s*basi\w*|\b(?:pazartesi|sali|carsamba|persembe|cuma|cumartesi|pazar)\w*/;
-const OPTION = /\bopsiyon\w*/;
+const OPTION = /\bopsiyon(?!el)\w*/;
+/** v8: müşteri / misafir vazgeçmesi (olumsuz biçimler hariç: "vazgeçmedi", "vazgeçmeyin"). */
+const WITHDRAWAL = /\bvazgec\w*/;
+const WITHDRAWAL_NEGATED = /\bvazgec(?:me(?!k)|mey|mem|ilme)\w*/g;
+/**
+ * v8: mesaj opsiyonla ya da müşteri vazgeçmesiyle ilgili mi? Opsiyon özelliği henüz yok; böyle
+ * bir mesaj hiçbir takvim kaydını değiştirmemeli (opsiyon iptali manuel bloğu açmamalı,
+ * "opsiyonlu kapat" kesin blok oluşturmamalı). Olumsuz sözcük ("opsiyon vermeyelim") de sayılır:
+ * aynı mesajdaki başka bir talimat da bu durumda işlenmez.
+ */
+function optionRelated(folded: string): boolean {
+  return OPTION.test(folded) || WITHDRAWAL.test(folded.replace(WITHDRAWAL_NEGATED, " "));
+}
 const CHECK_IN_OUT = /\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
 /** Açık kapatma TALİMATI ("kapat", "kapatalım", "kapatın"); "kapalı"/"dolu" durum bildirir. */
 const CLOSE_COMMAND = /\bkapat\w*/;
@@ -830,12 +846,17 @@ function resolveChange(
 export function parseCalendarMessage(text: string, today: string): WaCalendarParseResult {
   if (!isIsoDate(today)) throw new Error("today: YYYY-MM-DD bekleniyor");
   const drafts: Draft[] = [];
+  // v8: opsiyon / müşteri vazgeçmesi mesajı: hiçbir öğe takvim işlemi üretmez (aşağıda).
+  const optionMessage = optionRelated(foldTr(text.slice(0, MAX_INPUT)));
 
   for (const seg of joinDateAndAction(splitSegments(text.slice(0, MAX_INPUT)), today)) {
     const { folded, spans, actionText, act } = analyseSegment(seg);
     const villas = spans.map((v) => v.name);
     // Yalnız olumsuz eylem ("kapatmayalım", "açmayın"): işlem de tepki de yok.
     if (act.negatedOnly) continue;
+    // v8: tarihsiz opsiyon / vazgeçme bildirimi ("Opsiyon iptal.", "Müşteri vazgeçti.") sohbet
+    // sayılmaz: işlem yapılmadığı ⚠️ ile bildirilir. Soru tepkisiz kalır.
+    const optionNotice = optionRelated(folded) && !act.flags.includes("question");
     // Tarihler YALNIZ merkezi modülden; ay yazılmamış sayılar ve göreli ifadeler yalnız takvim
     // komutu bağlamında tarih sayılır.
     const dates = findDateMentions(folded, {
@@ -851,7 +872,12 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
       !act.weak &&
       DATE_TRACE.test(actionText);
     // Ne tarih ne de (villa + eylem) varsa sohbet mesajıdır.
-    if (dates.length === 0 && !(villas.length > 0 && act.action !== null) && !commandWithoutDate) {
+    if (
+      dates.length === 0 &&
+      !(villas.length > 0 && act.action !== null) &&
+      !commandWithoutDate &&
+      !optionNotice
+    ) {
       continue;
     }
 
@@ -929,6 +955,20 @@ export function parseCalendarMessage(text: string, today: string): WaCalendarPar
         excerpt: seg.slice(0, WA_CALENDAR_EXCERPT_MAX),
         flags,
       });
+    }
+  }
+
+  // v8: opsiyon özelliği gelene kadar opsiyonla ilgili mesaj takvime dokunmaz. Soru öğeleri
+  // soru olarak kalır (tepki yok); diğer her öğe eylemsiz olur ve option_unsupported alır (⚠️).
+  if (optionMessage) {
+    for (const d of drafts) {
+      if (d.action === null && d.flags.has("question")) continue;
+      d.action = null;
+      d.oldRange = undefined;
+      d.reservationStatus = null;
+      d.actionClear = false;
+      d.flags.delete("guest_name_missing");
+      d.flags.add("option_unsupported");
     }
   }
 
