@@ -371,6 +371,12 @@ async function mapWriteError(
         checkIn: ["Giriş tarihi en fazla 1 yıl geçmişte ve 3 yıl ileride olabilir."],
       });
   }
+  if (pg.code === PG.CHECK_VIOLATION && pg.constraint === "reservations_whatsapp_not_pending") {
+    throw validationError(
+      { status: ["WhatsApp kaynaklı kayıt beklemede olamaz."] },
+      "WhatsApp kaynaklı kayıt beklemede olarak oluşturulamaz.",
+    );
+  }
   if (pg.code === PG.FOREIGN_KEY_VIOLATION) throw notFoundProperty();
   if (pg.code === PG.CHECK_VIOLATION) {
     throw validationError({}, "Girilen değerlerden biri geçerli aralıkta değil.");

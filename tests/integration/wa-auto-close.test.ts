@@ -800,6 +800,35 @@ describe("B aşaması: bağlı grubun katılımcıları operasyonel komut verebi
     expect(submitted.rowCount).toBe(0);
   });
 
+  it("Aşama 0: opsiyon mesajı takvime dokunmaz, beklemede öneri üretmez ve ⚠️ alır (çoklu aralık dahil)", async () => {
+    const before = await calendarDigest();
+    for (const body of [
+      `Villa Mavi ${tr(day(250))}–${tr(day(253))} opsiyon`,
+      `Villa Mavi ${tr(day(255))}–${tr(day(258))} opsiyonlu rezervasyon alındı`,
+      `${tr(day(260))}–${tr(day(262))} ve ${tr(day(264))}–${tr(day(266))} opsiyon`,
+    ]) {
+      const r = await send(body, { pn: PN_STRANGER });
+      expect(r.proposals.length, body).toBeGreaterThan(0);
+      for (const p of r.proposals) {
+        expect([body, p.action, p.reservation_status]).toEqual([body, null, null]);
+        expect(p.flags, body).toContain("option_unsupported");
+        expect(p.status, body).toBe("pending");
+      }
+      const rx = (
+        await admin.query("select kind, emoji from wa_message_reactions where message_id = $1", [
+          r.message!.id,
+        ])
+      ).rows;
+      expect(rx, body).toEqual([{ kind: "warning", emoji: "⚠️" }]);
+    }
+    expect(await calendarDigest()).toEqual(before);
+    const pend = await admin.query(
+      "select count(*)::int n from reservations where workspace_id = $1 and source = 'whatsapp' and status = 'pending'",
+      [ws],
+    );
+    expect(pend.rows[0].n).toBe(0);
+  });
+
   it("Super Admin engel listesi: numara saklanmaz; yalnız özet ve son 4 hane; geçersiz numara reddedilir", async () => {
     const rows = (
       await admin.query(

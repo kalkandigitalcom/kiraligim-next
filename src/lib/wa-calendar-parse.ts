@@ -48,8 +48,12 @@ import {
  *  5: günlük dil ifadeleri ("kiralandı", "rezervasyon alındı" → kapat; "iptal oldu" → aç).
  *  6: tarih değiştirme (action = "change"): eski ve yeni aralık ("20-25 Temmuz rezervasyonu
  *     22-27 Temmuz'a alındı"); yeni aralığın ayı yazılmamışsa eski aralığın ayı.
+ *  7: opsiyon ("15-18 Nisan opsiyon", "opsiyonlu rezervasyon") artık beklemede (pending)
+ *     rezervasyon önerisi DEĞİLDİR: eylemsiz öneri + option_unsupported (⚠️). Beklemede kayıt
+ *     merkezi takvimde, iCal'de ve API'de dolu görünür; opsiyon ise yalnız Kiraligim içinde
+ *     izlenecektir (ayrı opsiyon modeli gelene kadar takvime hiçbir işlem yapılmaz).
  */
-export const WA_CALENDAR_PARSER_VERSION = 6;
+export const WA_CALENDAR_PARSER_VERSION = 7;
 
 /** change (v6): mevcut kaydın tarihleri eski aralıktan yeni aralığa taşınır (oldCheckIn/Out). */
 export const WA_CALENDAR_ACTIONS = ["close", "reserve", "open", "cancel", "change"] as const;
@@ -114,6 +118,12 @@ export const WA_CALENDAR_FLAGS = [
   "date_unclear",
   /** Eylem olumsuz ("kapatmayalım", "açmayın"): işlem yok. */
   "action_negated",
+  // --- Sürüm 7 ------------------------------------------------------------------------------
+  /**
+   * Opsiyon (kesinleşmemiş rezervasyon) bildirimi: henüz desteklenmiyor. Eylem boş bırakılır,
+   * takvime işlem yapılmaz ve beklemede rezervasyon önerisi üretilmez (⚠️).
+   */
+  "option_unsupported",
 ] as const;
 export type WaCalendarFlag = (typeof WA_CALENDAR_FLAGS)[number];
 
@@ -133,7 +143,10 @@ export type WaCalendarItem = {
   checkIn: string | null;
   checkOut: string | null;
   nights: number | null;
-  /** Yalnız reserve için: "opsiyon" → pending, diğerleri → confirmed. */
+  /**
+   * Yalnız reserve için. v7'den beri ayrıştırıcı her zaman "confirmed" üretir: opsiyon mesajı
+   * eylemsiz öneri olur (option_unsupported). "pending" türü eski kayıtlarla uyum için kalır.
+   */
   reservationStatus: "confirmed" | "pending" | null;
   flags: WaCalendarFlag[];
   /** İki uç tarih eksiksiz ve tarih bayrağı yok (güven puanı bileşeni). */
@@ -469,6 +482,11 @@ function detectAction(folded: string): ActionResult {
   if (found.size === 0) return { action: null, clear: false, flags: ["action_missing"], pending };
   if (found.size > 1) return { action: null, clear: false, flags: ["action_ambiguous"], pending };
   const [action] = [...found] as [WaCalendarAction];
+  // v7: opsiyonlu rezervasyon bildirimi beklemede (pending) rezervasyon önerisine çevrilmez;
+  // beklemede kayıt dış takvimlerde dolu görünür. Ayrı opsiyon modeli gelene kadar işlem yok (⚠️).
+  if (pending && action === "reserve") {
+    return { action: null, clear: false, flags: ["option_unsupported"], pending: false };
+  }
   const weak = action === "close" && !negatedState && !STRONG_CLOSE.test(rest);
   return { action, clear: true, flags: [], pending, strictDates: openPhrase, weak };
 }

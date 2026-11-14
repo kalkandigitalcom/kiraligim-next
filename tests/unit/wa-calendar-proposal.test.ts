@@ -61,7 +61,7 @@ describe("öğe (app_wa_store_proposals girdisi)", () => {
   it("owner, adlı villa, çakışmasız kapatma: nedensiz; alanlar veritabanı adlarıyla", () => {
     expect(build("Villa Mavi 15-20 Haziran kapalı")).toEqual({
       item_no: 0,
-      parser_version: 6,
+      parser_version: 7,
       message_excerpt: "Villa Mavi 15-20 Haziran kapalı",
       action: "close",
       villa_name_raw: "Mavi",
@@ -125,8 +125,11 @@ describe("öğe (app_wa_store_proposals girdisi)", () => {
   });
 
   it("rezervasyon durumu yalnız reserve için", () => {
+    expect(build("Villa Mavi 22-29 Haziran rezervasyon").reservation_status).toBe("confirmed");
+    // Aşama 0 (v7): opsiyon eylemsiz öneridir; beklemede rezervasyon önerisi üretilmez.
     const r = build("Villa Mavi 22-29 Haziran opsiyonlu, cumaya kadar cevap verecekler");
-    expect([r.action, r.reservation_status]).toEqual(["reserve", "pending"]);
+    expect([r.action, r.reservation_status]).toEqual([null, null]);
+    expect(r.flags).toContain("option_unsupported");
     expect(build("Villa Mavi 15-20 Haziran kapalı").reservation_status).toBeNull();
   });
 

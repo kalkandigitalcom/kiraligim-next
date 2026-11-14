@@ -221,7 +221,6 @@ describe("eylem", () => {
     ["Villa A 15-20 Haziran rezervasyon", "reserve", ["guest_name_missing"]],
     // v5: "kiralandı" yalnız takvimi kapatır; iptal takvimi açar (yalnız bloklar).
     ["Villa A 15-20 Haziran kiralandı", "close", []],
-    ["Villa A 15-20 Haziran opsiyon", "reserve", ["guest_name_missing"]],
     ["Villa A 15-20 Haziran rezervasyon iptal oldu", "open", []],
     ["Villa A 15-20 Haziran iptal, tekrar açalım", "open", []],
   ];
@@ -238,10 +237,38 @@ describe("eylem", () => {
     }
   });
 
-  it("opsiyon → beklemede, diğer rezervasyon → onaylı; diğer eylemlerde durum yok", () => {
-    expect(one("Villa A 15-20 Haziran opsiyon").reservationStatus).toBe("pending");
+  it("rezervasyon → onaylı; diğer eylemlerde durum yok", () => {
     expect(one("Villa A 15-20 Haziran rezervasyon").reservationStatus).toBe("confirmed");
     expect(one("Villa A 15-20 Haziran kapalı").reservationStatus).toBeNull();
+  });
+
+  // Aşama 0 (v7): opsiyon beklemede rezervasyon önerisi DEĞİLDİR; eylemsiz öneri, ⚠️.
+  it.each([
+    "Villa A 15-20 Haziran opsiyon",
+    "Villa A 15-20 Haziran opsiyona al",
+    "Villa A 15-20 Haziran opsiyonlu rezervasyon alındı",
+    "Villa A 15 Haziran giriş 20 Haziran çıkış opsiyon",
+    "Villa A 15-20 Haziran müşteriye opsiyonlandı",
+  ])("v7: %s → eylem yok, option_unsupported, beklemede yok", (text) => {
+    const i = one(text);
+    expect([i.action, i.actionClear, i.reservationStatus]).toEqual([null, false, null]);
+    expect(i.flags).toContain("option_unsupported");
+    expect(i.flags).not.toContain("guest_name_missing");
+  });
+
+  it("v7: hiçbir opsiyon mesajı 'pending' üretmez (çoklu aralık dahil)", () => {
+    for (const text of [
+      "Villa A 15-18 Nisan ve 20-23 Nisan opsiyon",
+      "15-18 Nisan opsiyon, 20-23 Nisan opsiyon",
+      "Villa A 15-20 Haziran opsiyon, misafir Ayşe Hanım 2 kişi",
+    ]) {
+      const items = parseCalendarMessage(text, TODAY).items;
+      expect(items.length, text).toBeGreaterThan(0);
+      for (const i of items) {
+        expect([text, i.action, i.reservationStatus]).toEqual([text, null, null]);
+        expect(i.flags, text).toContain("option_unsupported");
+      }
+    }
   });
 
   it("soru → eylem yok, question", () => {
@@ -470,8 +497,8 @@ describe("sözleşme", () => {
   it("sabitler ve sürüm", () => {
     expect(WA_CALENDAR_ACTIONS).toEqual(["close", "reserve", "open", "cancel", "change"]);
     expect(new Set(WA_CALENDAR_FLAGS).size).toBe(WA_CALENDAR_FLAGS.length);
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(6);
-    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 6, items: [] });
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(7);
+    expect(parseCalendarMessage("", TODAY)).toEqual({ parserVersion: 7, items: [] });
   });
 
   it("bayraklar her zaman WA_CALENDAR_FLAGS sırasıyla ve tekil", () => {
@@ -679,11 +706,8 @@ describe("v2 güvenlik: puan güvenlik kurallarını aşamaz", () => {
     expect(o).toEqual({ quickApprove: true, score: 100, band: "high", reasons: [] });
   });
 
-  it("rezervasyon (giriş/çıkış, opsiyon), puan 100 olsa bile elle incelenir", () => {
-    for (const text of [
-      "Villa B 5 Temmuz giriş, 12 Temmuz çıkış",
-      "Villa B 5-12 Temmuz opsiyonlu rezervasyon alındı",
-    ]) {
+  it("rezervasyon (giriş/çıkış), puan 100 olsa bile elle incelenir", () => {
+    for (const text of ["Villa B 5 Temmuz giriş, 12 Temmuz çıkış"]) {
       const i = one(text);
       const d = reviewRequirement(i, ok);
       expect([text, d.quickApprove]).toEqual([text, false]);
@@ -799,8 +823,8 @@ describe("grup dışı villa (A2b)", () => {
     expect(n.reasons).toEqual(["villa_needs_review", "sender_unverified"]);
   });
 
-  it("ayrıştırıcı sürümü 6", () => {
-    expect(WA_CALENDAR_PARSER_VERSION).toBe(6);
+  it("ayrıştırıcı sürümü 7", () => {
+    expect(WA_CALENDAR_PARSER_VERSION).toBe(7);
   });
 });
 

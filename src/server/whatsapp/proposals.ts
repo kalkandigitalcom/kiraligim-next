@@ -318,12 +318,18 @@ export async function approveProposal(
   const note = noteOf(input.note);
   if (!isUuid(propertyId)) throw validationError({ propertyId: ["Villa seçin."] });
 
-  const status: ReservationStatus =
-    input.status === "pending"
-      ? "pending"
-      : input.status === "confirmed"
-        ? "confirmed"
-        : "confirmed";
+  // Aşama 0: WhatsApp önerisinden beklemede (pending) rezervasyon oluşturulmaz. Beklemede kayıt
+  // merkezi takvimde, iCal'de ve API'de dolu görünür; opsiyon ayrı modelde izlenecektir.
+  // Veritabanı da reddeder (reservations_whatsapp_not_pending, drizzle/0063).
+  if (action === "reserve" && input.status === "pending") {
+    throw validationError(
+      {
+        status: ["WhatsApp önerisi beklemede olarak onaylanamaz; yalnız onaylı kayıt oluşturulur."],
+      },
+      "WhatsApp önerisi beklemede olarak onaylanamaz.",
+    );
+  }
+  const status: ReservationStatus = "confirmed";
   const reservationId =
     action === "reserve"
       ? await createReservation(
@@ -407,6 +413,7 @@ export function approvalDefaults(p: WaProposalView) {
     checkOut: p.checkOut ?? "",
     adults: p.guests.adults ?? null,
     children: p.guests.children ?? 0,
-    status: p.reservationStatus ?? "confirmed",
+    // Aşama 0: WhatsApp önerisi yalnız onaylı kayıt olarak onaylanır ("Beklemede" seçeneği yok).
+    status: "confirmed" as const,
   };
 }

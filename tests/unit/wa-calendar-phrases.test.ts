@@ -294,6 +294,16 @@ describe("ilgisiz sohbet ve belirsiz bildirimler", () => {
     expect(run("20-25 Aralık opsiyonlu rezervasyon alındı")).toEqual(noAction("⚠️"));
   });
 
+  // Aşama 0 (v7): opsiyon mesajı takvime hiçbir işlem yapmaz ve ⚠️ alır; çoklu aralık dahil.
+  it.each([
+    "20-25 Aralık opsiyon",
+    "20-25 Aralık opsiyona alalım",
+    "20-25 Aralık müşteriye opsiyonlandı",
+    "20-25 Aralık ve 27-30 Aralık opsiyon",
+  ])("v7: %s → işlem yok, ⚠️", (m) => {
+    expect(run(m)).toEqual(noAction("⚠️"));
+  });
+
   it("çıplak 'rezervasyon' / 'misafir' (fiilsiz) kapatma değildir: ⚠️", () => {
     expect(run("20-25 Aralık rezervasyon")).toEqual(noAction("⚠️"));
     expect(run("20-25 Aralık misafir")).toEqual(noAction("⚠️"));

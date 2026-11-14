@@ -104,6 +104,14 @@ export const reservations = pgTable(
       "reservations_dates",
       sql`${t.checkOut} > ${t.checkIn} and ${t.checkOut} - ${t.checkIn} <= ${sql.raw(String(L.maxNights))}`,
     ),
+    // Aşama 0 (drizzle/0063): WhatsApp kaynaklı kayıt beklemede (pending) olamaz. Beklemede kayıt
+    // merkezi takvimde, iCal'de ve API'de dolu görünür; WhatsApp opsiyonları ayrı modelde
+    // izlenecektir. Web talepleri ve paneldeki elle girişler ("whatsapp" kaynağı seçilemez)
+    // etkilenmez.
+    check(
+      "reservations_whatsapp_not_pending",
+      sql`${t.source} is distinct from 'whatsapp' or ${t.status} <> 'pending'`,
+    ),
     // Rezervasyon: misafir adı, kaynak ve yetişkin sayısı zorunlu.
     check(
       "reservations_reservation_fields",

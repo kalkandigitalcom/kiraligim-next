@@ -321,6 +321,61 @@ describe("uçtan uca: WhatsApp mesajı → öneri → yönetici onayı → rezer
     expect((await proposalRow(proposalId)).status).toBe("pending");
   });
 
+  it("Aşama 0: beklemede (pending) onay reddedilir; hiçbir şey yazılmaz, öneri bekler", async () => {
+    const before = await reservationCount();
+    const p = await as(M, ws, (tx, ctx) => getProposal(tx, ctx, proposalId));
+    expect(approvalDefaults(p).status).toBe("confirmed");
+    const err = await expectCode(
+      as(M, ws, (tx, ctx) =>
+        approveProposal(tx, ctx, proposalId, {
+          version: p.version,
+          propertyId: mavi,
+          checkIn: day(20),
+          checkOut: day(23),
+          guestName: "Ayşe Deneme",
+          adults: "3",
+          status: "pending",
+        }),
+      ),
+      "VALIDATION",
+    );
+    expect(err).toHaveProperty("fieldErrors.status");
+    expect(await reservationCount()).toBe(before);
+    expect((await proposalRow(proposalId)).status).toBe("pending");
+  });
+
+  it("Aşama 0: veritabanı WhatsApp kaynaklı beklemede kaydı reddeder; web ve elle beklemede etkilenmez", async () => {
+    const ins = (status: string, source: string, from: number) =>
+      admin.query(
+        `insert into reservations (id, workspace_id, property_id, kind, status, source, check_in,
+           check_out, guest_name, adults, children, created_by)
+         values ($1,$2,$3,'reservation',$4,$5,$6,$7,'Deneme Misafir',2,0,$8)`,
+        [uuidv7(), ws, mavi, status, source, day(from), day(from + 3), O.id],
+      );
+    await admin.query("begin");
+    try {
+      await admin.query("savepoint s");
+      const err = await ins("pending", "whatsapp", 300).then(
+        () => null,
+        (e: unknown) => e as { code?: string; constraint?: string },
+      );
+      expect(err?.code).toBe("23514");
+      expect(err?.constraint).toBe("reservations_whatsapp_not_pending");
+      await admin.query("rollback to savepoint s");
+      await ins("pending", "web", 310);
+      await ins("pending", "direct", 320);
+      await ins("confirmed", "whatsapp", 330);
+      const n = await admin.query(
+        `select count(*)::int n from reservations
+          where workspace_id = $1 and check_in in ($2, $3, $4)`,
+        [ws, day(310), day(320), day(330)],
+      );
+      expect(n.rows[0].n).toBe(3);
+    } finally {
+      await admin.query("rollback");
+    }
+  });
+
   it("yönetici onaylar: rezervasyon oluşur (whatsapp, origin_proposal_id), öneri 'applied'", async () => {
     const before = await reservationCount();
     const p = await as(M, ws, (tx, ctx) => getProposal(tx, ctx, proposalId));
