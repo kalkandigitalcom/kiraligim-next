@@ -399,6 +399,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_proposals_guard",
       "app_wa_sender_role",
       "app_wa_store_option_shadow", // 0065: opsiyon gölge modu (rezervasyon / harici olayları OKUR)
+      "app_wa_option_apply", // 0069 (opsiyon 3a): rezervasyon / harici olayları OKUR, yalnız opsiyon tablolarına yazar
       "app_wa_store_proposals",
     ];
     // 0044 (Aşama 2): Super Admin grup yönetimi; YALNIZ app_admin çağırır.
@@ -441,6 +442,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_message_actor", // 0047
       "app_wa_message_context", // 0036
       "app_wa_message_sender", // 0038
+      "app_wa_option_apply", // 0069 (opsiyon 3a; yalnız app_user)
       "app_wa_pending_groups", // 0034
       "app_wa_phone_hash", // 0034 (yalnız fonksiyonlar içinden)
       "app_wa_proposals_guard", // 0036 (tetikleyici)
@@ -504,6 +506,7 @@ describe("veritabanı güvenliği", () => {
         "wa_calendar_proposals", // 0035 (A2)
         "wa_calendar_worker_state", // 0037 (A2c)
         "wa_connections",
+        "wa_group_option_settings", // 0066/0067 (opsiyon 3a: grup anahtarı)
         "wa_groups",
         "wa_inbound_messages",
         "wa_link_codes",

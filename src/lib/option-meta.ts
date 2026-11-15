@@ -1,5 +1,5 @@
 /**
- * Opsiyon (kesinleşmemiş rezervasyon) — Aşama 2: veri modeli ve gölge mod sabitleri.
+ * Opsiyon (kesinleşmemiş rezervasyon) — Aşama 2 / 3a: veri modeli, gölge mod, ayar ve işlem sabitleri.
  * Bağımlılıksız: şema, veritabanı fonksiyonları, worker ve testler aynı değerleri kullanır.
  *
  * DEĞİŞMEZ: opsiyon yalnız Kiraligim içinde izlenir. reservation_options hiçbir doluluk
@@ -17,7 +17,8 @@ export type OptionSource = (typeof OPTION_SOURCES)[number];
 /** Sona eriş nedeni; durumla uyumu veritabanı denetler (reservation_options_end_state). */
 export const OPTION_END_REASONS = {
   converted: ["payment_received", "confirmed_in_panel"],
-  cancelled: ["customer_withdrew", "cancelled_by_owner", "cancelled_in_panel"],
+  // Aşama 3 kararı (15 Kasım 2026): müşteri vazgeçti, sahip iptal etti, panelden iptal.
+  cancelled: ["customer_declined", "owner_cancelled", "panel_cancel"],
   expired: ["expired"],
 } as const;
 export type OptionEndReason = (typeof OPTION_END_REASONS)[keyof typeof OPTION_END_REASONS][number];
@@ -90,3 +91,68 @@ export const OPTION_SHADOW_ENV = "WA_OPTION_SHADOW";
 export function optionShadowEnabled(env: Record<string, string | undefined>): boolean {
   return env[OPTION_SHADOW_ENV] === "on";
 }
+
+// ---------------------------------------------------------------------------------------------
+// Aşama 3a: otomasyon ayarları ve işlem kayıtları (option_automation_global,
+// workspace_option_settings, wa_group_option_settings, option_operations, option_conflict_alerts)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Opsiyon süresi ayarları (dakika). Varsayılan ve seçenekler YALNIZ Super Admin tarafından girilir;
+ * hazır liste tohumlanmaz. Sınırlar opsiyon süresi sınırlarıyla aynı (1 saat – 14 gün).
+ */
+export const OPTION_SETTINGS_LIMITS = {
+  minMinutes: OPTION_LIMITS.minHours * 60,
+  maxMinutes: OPTION_LIMITS.maxHours * 60,
+  maxChoices: 12,
+  noteMax: 500,
+} as const;
+
+/** İşlem türü: oluştur, iptal, kesin rezervasyona dönüştür. */
+export const OPTION_OPERATION_KINDS = ["create", "cancel", "convert"] as const;
+export type OptionOperationKind = (typeof OPTION_OPERATION_KINDS)[number];
+
+/** auto: kural gereği otomatik; needs_approval: Super Admin onayı bekler. */
+export const OPTION_OPERATION_MODES = ["auto", "needs_approval"] as const;
+export type OptionOperationMode = (typeof OPTION_OPERATION_MODES)[number];
+
+/**
+ * pending → approved | rejected; approved → applied | stale | failed. Otomatik uygulanan işlem
+ * doğrudan applied (veya failed) olarak yazılır. Son durumlar (applied, rejected, stale, failed)
+ * değiştirilemez.
+ */
+export const OPTION_OPERATION_STATUSES = [
+  "pending",
+  "approved",
+  "applied",
+  "rejected",
+  "stale",
+  "failed",
+] as const;
+export type OptionOperationStatus = (typeof OPTION_OPERATION_STATUSES)[number];
+export const OPTION_OPERATION_FINAL = ["applied", "rejected", "stale", "failed"] as const;
+
+/** İşlemin onaya düşme / başarısızlık nedenleri (kısa kodlar; mesaj içeriği yazılmaz). */
+export const OPTION_OPERATION_REASONS = [
+  ...SHADOW_REASONS,
+  "duration_missing",
+  "guest_info_missing",
+  "automation_off",
+  "property_inactive",
+] as const;
+export type OptionOperationReason = (typeof OPTION_OPERATION_REASONS)[number];
+
+/** WhatsApp'tan iptal nedeni yalnız bu ikisi olabilir; panel_cancel yalnız Super Admin'den. */
+export const OPTION_WHATSAPP_CANCEL_REASONS = ["customer_declined", "owner_cancelled"] as const;
+
+/** Çakışma uyarısının kaynağı: Kiraligim kaydı (rezervasyon / blok) veya harici takvim olayı. */
+export const OPTION_ALERT_SOURCES = ["reservation", "external_event"] as const;
+export type OptionAlertSource = (typeof OPTION_ALERT_SOURCES)[number];
+
+/** Super Admin panelindeki durum rozeti (WhatsApp'a GÖNDERİLMEZ; K-A / K-B). */
+export const OPTION_STATUS_BADGES: Record<OptionStatus, string> = {
+  open: "\u{1F7E1}",
+  converted: "\u2705",
+  cancelled: "\u274C",
+  expired: "\u274C",
+};

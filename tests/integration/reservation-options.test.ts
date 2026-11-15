@@ -344,7 +344,7 @@ describe("takvim değişmezliği: opsiyon hiçbir dış görünümü etkilemez",
     expect(await outside(mavi, day(30), day(60))).toEqual(before);
 
     await admin.query(
-      "update reservation_options set status = 'cancelled', end_reason = 'customer_withdrew' where id = $1",
+      "update reservation_options set status = 'cancelled', end_reason = 'customer_declined' where id = $1",
       [cancelled],
     );
     await admin.query(
@@ -382,7 +382,19 @@ describe("takvim değişmezliği: opsiyon hiçbir dış görünümü etkilemez",
             and p.prosrc ~* 'reservation_option' order by 1`,
       )
     ).rows.map((r) => r.proname);
-    expect(refs).toEqual(["app_reservation_options_history", "app_wa_store_option_shadow"]);
+    // Aşama 3a: opsiyon tablosunu okuyan / yazan fonksiyonların HEPSİ opsiyon fonksiyonudur;
+    // doluluk, iCal, API, webhook, worker veya rezervasyon fonksiyonları arasında yoktur.
+    expect(refs.length).toBeGreaterThan(0);
+    for (const f of refs) {
+      expect(f).toMatch(
+        /^app_(option_|reservation_options_history$|wa_option_apply$|wa_store_option_shadow$)/,
+      );
+    }
+    expect(refs).not.toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/busy|ical|api|webhook|public_villa|wa_calendar|reaction/),
+      ]),
+    );
     const trg = (
       await admin.query<{ t: string }>(
         `select c.relname || '.' || t.tgname t from pg_trigger t join pg_class c on c.oid = t.tgrelid
@@ -409,6 +421,7 @@ describe("takvim değişmezliği: opsiyon hiçbir dış görünümü etkilemez",
       )
     ).rows;
     expect(pol.map((p) => p.policyname)).toEqual([
+      "reservation_options_option_fn", // Aşama 3a: yalnız app.option_fn bayrağıyla opsiyon fonksiyonları
       "reservation_options_select",
       "reservation_options_wa_calendar_read",
     ]);
@@ -677,7 +690,7 @@ describe("durum geçişleri ve geçmiş", () => {
       await errCode(
         admin.query(
           `insert into reservation_options (id, workspace_id, property_id, source, check_in, check_out, status, ended_at, end_reason)
-           values ($1, $2, $3, 'panel', $4, $5, 'cancelled', now(), 'cancelled_in_panel')`,
+           values ($1, $2, $3, 'panel', $4, $5, 'cancelled', now(), 'panel_cancel')`,
           [uuidv7(), ws, mavi, day(170), day(172)],
         ),
       ),
@@ -714,11 +727,11 @@ describe("durum geçişleri ve geçmiş", () => {
       ),
     ).toBe("23514");
     await admin.query(
-      "update reservation_options set status = 'cancelled', end_reason = 'cancelled_by_owner', ended_by_user_id = $2 where id = $1",
+      "update reservation_options set status = 'cancelled', end_reason = 'owner_cancelled', ended_by_user_id = $2 where id = $1",
       [id, O.id],
     );
     const r1 = await optionRow(id);
-    expect([r1.status, r1.version, r1.end_reason]).toEqual(["cancelled", 2, "cancelled_by_owner"]);
+    expect([r1.status, r1.version, r1.end_reason]).toEqual(["cancelled", 2, "owner_cancelled"]);
     expect(r1.ended_at).toBeInstanceOf(Date);
     // 8. İptal edilmiş opsiyon tekrar açılamaz / kesinleşemez.
     expect(
@@ -754,7 +767,7 @@ describe("durum geçişleri ve geçmiş", () => {
         event: "cancelled",
         from_status: "open",
         to_status: "cancelled",
-        reason: "cancelled_by_owner",
+        reason: "owner_cancelled",
         actor_user_id: O.id,
         version: 2,
       },
@@ -794,7 +807,7 @@ describe("durum geçişleri ve geçmiş", () => {
     expect(
       await errCode(
         admin.query(
-          "update reservation_options set status = 'cancelled', end_reason = 'customer_withdrew', converted_reservation_id = null where id = $1",
+          "update reservation_options set status = 'cancelled', end_reason = 'customer_declined', converted_reservation_id = null where id = $1",
           [a],
         ),
       ),
@@ -812,7 +825,7 @@ describe("durum geçişleri ve geçmiş", () => {
       [id, ws, mavi, G.id, r.message.id, r.mid, day(180), day(182), O.id],
     );
     await admin.query(
-      "update reservation_options set status = 'cancelled', end_reason = 'customer_withdrew', ended_by_message_id = $2 where id = $1",
+      "update reservation_options set status = 'cancelled', end_reason = 'customer_declined', ended_by_message_id = $2 where id = $1",
       [id, r.message.id],
     );
     await admin.query("delete from wa_inbound_messages where id = $1", [r.message.id]);

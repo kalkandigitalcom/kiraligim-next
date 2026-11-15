@@ -95,6 +95,29 @@ describe("fonksiyonlar", () => {
       "app_ical_claim_sources",
       "app_ical_export",
       "app_ical_sources_before_write",
+      // 0067 / 0069 (opsiyon Aşama 3a): ayarlar, işlemler, Super Admin
+      "app_option_admin_alerts",
+      "app_option_admin_cancel",
+      "app_option_admin_check",
+      "app_option_admin_decide",
+      "app_option_admin_operations",
+      "app_option_admin_option_events",
+      "app_option_admin_options",
+      "app_option_admin_set_global",
+      "app_option_admin_set_group",
+      "app_option_admin_set_workspace",
+      "app_option_admin_settings",
+      "app_option_apply_operation",
+      "app_option_automation_enabled",
+      "app_option_automation_since",
+      "app_option_claim_messages",
+      "app_option_claim_operations",
+      "app_option_conflict_count",
+      "app_option_expire_due",
+      "app_option_fingerprint",
+      "app_option_finish_operation",
+      "app_option_operations_guard",
+      "app_option_scan_conflicts",
       "app_properties_enforce_limit",
       "app_property_photos_before_insert",
       "app_property_rates_currency_guard",
@@ -148,6 +171,7 @@ describe("fonksiyonlar", () => {
       "app_wa_message_actor", // 0047 (B): kilitli mesajın işletme sahibi
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e)
+      "app_wa_option_apply", // 0069 (opsiyon Aşama 3a)
       "app_wa_pending_groups",
       "app_wa_phone_hash",
       "app_wa_proposals_guard",
@@ -224,6 +248,26 @@ describe("fonksiyonlar", () => {
       "app_ical_apply_sync",
       "app_ical_claim_sources",
       "app_ical_export",
+      // 0067 / 0069 (opsiyon Aşama 3a): app.option_fn bayrağıyla yalnız opsiyon tabloları
+      "app_option_admin_alerts",
+      "app_option_admin_cancel",
+      "app_option_admin_check",
+      "app_option_admin_decide",
+      "app_option_admin_operations",
+      "app_option_admin_option_events",
+      "app_option_admin_options",
+      "app_option_admin_set_global",
+      "app_option_admin_set_group",
+      "app_option_admin_set_workspace",
+      "app_option_admin_settings",
+      "app_option_apply_operation",
+      "app_option_automation_enabled",
+      "app_option_automation_since",
+      "app_option_claim_messages",
+      "app_option_claim_operations",
+      "app_option_expire_due",
+      "app_option_finish_operation",
+      "app_option_scan_conflicts",
       // 0027 (F3): yayındaki villaya beklemede web talebi yazan tek fonksiyon
       "app_public_reservation_request",
       // 0024 (F2a): yalnız yayındaki villaların sabit kolonlarını döndüren okuma fonksiyonları
@@ -266,6 +310,7 @@ describe("fonksiyonlar", () => {
       "app_wa_message_actor", // 0047 (B): kilitli mesajın işletme sahibi
       "app_wa_message_context",
       "app_wa_message_sender", // 0038 (A2e)
+      "app_wa_option_apply", // 0069
       "app_wa_pending_groups",
       "app_wa_purge_messages",
       "app_wa_queue_reaction", // 0040 (A2f)
@@ -290,6 +335,7 @@ describe("fonksiyonlar", () => {
          and proname not like 'app\\_ical\\_%'
          and proname not like 'app\\_wa\\_%'
          and proname not like 'app\\_api\\_%'
+         and proname not like 'app\\_option\\_%'
        order by 1`);
     expect(r.rows).toEqual([
       { proname: "app_current_membership_role", pronargs: 0 },
@@ -354,6 +400,8 @@ describe("fonksiyonlar", () => {
       { proname: "app_wa_message_actor", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_message_context", args: "p_message uuid, p_token uuid" },
       { proname: "app_wa_message_sender", args: "p_message uuid, p_token uuid" },
+      // 0069 (opsiyon 3a): mesaj kimliği + görevin öğeleri; işletme ve grup mesajdan bulunur
+      { proname: "app_wa_option_apply", args: "p_message uuid, p_items jsonb" },
       { proname: "app_wa_pending_groups", args: "" },
       { proname: "app_wa_purge_messages", args: "p_days integer" },
       { proname: "app_wa_queue_reaction", args: "p_message uuid, p_kind text" },
@@ -550,6 +598,29 @@ describe("fonksiyonlar", () => {
       app_ical_claim_sources: ["app_user"],
       app_ical_export: ["app_user"],
       app_ical_sources_before_write: [],
+      // 0067 / 0069 (opsiyon 3a): Super Admin yalnız app_admin; görev yalnız app_user; iç yardımcılar ve tetikleyici kimsede
+      app_option_admin_alerts: ["app_admin"],
+      app_option_admin_cancel: ["app_admin"],
+      app_option_admin_check: [],
+      app_option_admin_decide: ["app_admin"],
+      app_option_admin_operations: ["app_admin"],
+      app_option_admin_option_events: ["app_admin"],
+      app_option_admin_options: ["app_admin"],
+      app_option_admin_set_global: ["app_admin"],
+      app_option_admin_set_group: ["app_admin"],
+      app_option_admin_set_workspace: ["app_admin"],
+      app_option_admin_settings: ["app_admin"],
+      app_option_apply_operation: ["app_user"],
+      app_option_automation_enabled: ["app_user"],
+      app_option_automation_since: ["app_user"],
+      app_option_claim_messages: ["app_user"],
+      app_option_claim_operations: ["app_user"],
+      app_option_conflict_count: [],
+      app_option_expire_due: ["app_user"],
+      app_option_fingerprint: [],
+      app_option_finish_operation: ["app_user"],
+      app_option_operations_guard: [],
+      app_option_scan_conflicts: ["app_user"],
       app_properties_enforce_limit: [],
       app_property_photos_before_insert: [],
       app_property_rates_currency_guard: [],
@@ -598,6 +669,7 @@ describe("fonksiyonlar", () => {
       app_wa_message_actor: ["app_user"], // 0047 (B)
       app_wa_message_context: ["app_user"],
       app_wa_message_sender: ["app_user"],
+      app_wa_option_apply: ["app_user"], // 0069: option-maintenance; ağ geçidi rolüne verilmez
       app_wa_pending_groups: [], // 0044: işletme rolünden kaldırıldı
       app_wa_phone_hash: [],
       app_wa_proposals_guard: [],
@@ -677,6 +749,8 @@ describe("RLS", () => {
       // 0052: yalnız app.api_fn açıkken ve yalnız api.* eylemleri (villa erişim izni)
       ["audit_log", "audit_log_api_fn", "INSERT", ["app_migrator"]],
       ["audit_log", "audit_log_insert", "INSERT", ["app_user"]],
+      // 0067 (opsiyon 3a): yalnız app.option_fn açıkken ve yalnız option.* eylemleri
+      ["audit_log", "audit_log_option_fn", "INSERT", ["app_migrator"]],
       ["audit_log", "audit_log_select", "SELECT", ["app_user"]],
       // 0031 (A1): yalnız app.wa_fn açıkken ve yalnız whatsapp.* eylemleri
       ["audit_log", "audit_log_wa_insert", "INSERT", ["app_migrator"]],
