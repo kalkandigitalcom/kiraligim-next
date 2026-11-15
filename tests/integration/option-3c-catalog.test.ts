@@ -29,6 +29,8 @@ const { migratorPassword, appPassword } = inject("testDb");
 const folder = path.resolve(__dirname, "../../drizzle");
 const rollback = path.resolve(__dirname, "../../docs/rollback-0071.sql");
 let tmp: string;
+/** 0071'e kadar (Aşama 3c'nin son migration'ı): sonraki aşamalar bu dosyanın kanıtını değiştirmez. */
+let tmp3c: string;
 
 const withDb = (url: string, db: string, user?: { name: string; password: string }) => {
   const u = new URL(url);
@@ -139,9 +141,10 @@ beforeAll(async () => {
   const res = runBootstrap({ dbName, migratorPassword, appPassword });
   if (res.status !== 0) throw new Error(`db-bootstrap.sql başarısız:\n${res.output}`);
   tmp = truncatedFolder(70);
+  tmp3c = truncatedFolder(71);
   await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: tmp });
   S1 = await snapshot();
-  await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: folder });
+  await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: tmp3c });
   S2 = await snapshot();
 }, 180_000);
 
@@ -151,6 +154,7 @@ afterAll(async () => {
   await c.query(`drop database if exists "${dbName}" with (force)`);
   await c.end();
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  if (tmp3c) fs.rmSync(tmp3c, { recursive: true, force: true });
 });
 
 describe("Aşama 3c (0071): yalnız yeni fonksiyon", () => {
@@ -196,7 +200,7 @@ describe("Aşama 3c: geri alma ve yeniden migration", () => {
     expect(minus(await snapshot(), S1)).toEqual([]);
     expect(runRollback()).toBe("ok");
     expect(minus(await snapshot(), S1)).toEqual([]);
-    await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: folder });
+    await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: tmp3c });
     const S3 = await snapshot();
     expect(minus(S2, S3)).toEqual([]);
     expect(minus(S3, S2)).toEqual([]);

@@ -125,6 +125,7 @@ describe("fonksiyonlar", () => {
       "app_option_expire_due",
       "app_option_fingerprint",
       "app_option_finish_operation",
+      "app_option_message_items",
       "app_option_operations_guard",
       "app_option_scan_conflicts",
       "app_properties_enforce_limit",
@@ -285,6 +286,7 @@ describe("fonksiyonlar", () => {
       "app_option_claim_operations",
       "app_option_expire_due",
       "app_option_finish_operation",
+      "app_option_message_items",
       "app_option_scan_conflicts",
       // 0027 (F3): yayındaki villaya beklemede web talebi yazan tek fonksiyon
       "app_public_reservation_request",
@@ -646,6 +648,7 @@ describe("fonksiyonlar", () => {
       app_option_expire_due: ["app_user"],
       app_option_fingerprint: [],
       app_option_finish_operation: ["app_user"],
+      app_option_message_items: ["app_user"],
       app_option_operations_guard: [],
       app_option_scan_conflicts: ["app_user"],
       app_properties_enforce_limit: [],

@@ -8,8 +8,10 @@
  *
  * Yapılanlar (ayrıntı: ./run.ts): süresi dolan opsiyonları expired yapar; Super Admin'in onayladığı
  * oluşturma / iptal işlemlerini (yalnız global + işletme + grup anahtarı açıkken; Aşama 3c) uygular;
- * açık opsiyonla çakışan kesin kayıtlar için Super Admin uyarısı yazar. Mesaj imleci Aşama 3b'de KAPALIDIR (mesaj
- * işleyicisi Aşama 3d'de eklenir). WhatsApp'a tepki göndermez (K-A, K-B); rezervasyon, blok,
+ * açık opsiyonla çakışan kesin kayıtlar için Super Admin uyarısı yazar; (Aşama 3d) worker'ın işlediği
+ * WhatsApp mesajlarından opsiyon oluşturur / iptal eder ya da Super Admin onayına düşürür. Mesaj
+ * imleci YALNIZ global + işletme + grup anahtarının üçü açıkken mesaj verir; varsayılan hepsi
+ * KAPALI. WhatsApp'a tepki göndermez (K-A, K-B); rezervasyon, blok,
  * harici takvim, API, iCal ve webhook verisine YAZMAZ; opsiyon müsaitliği hiçbir koşulda kapatmaz.
  *
  * Uygulamanın kendi bağlantısını (DATABASE_URL, app_user, RLS) kullanır; ek sır ve ortam değişkeni
@@ -20,6 +22,7 @@
 import { createStandaloneDb } from "../../db/standalone";
 import { APP_ENVS, type AppEnv, checkDatabaseName } from "../../lib/env";
 import { createLogger } from "../../lib/logger";
+import { createOptionMessageHandler } from "./message-handler";
 import { runOptionMaintenance } from "./run";
 
 const log = createLogger({ service: "option-maintenance" });
@@ -44,8 +47,11 @@ async function main(): Promise<number> {
   });
   try {
     const started = Date.now();
-    // Aşama 3b: mesaj işleyicisi YOK → imleç okunmaz (Aşama 3d'de bağlanır).
-    const summary = await runOptionMaintenance(db, { log });
+    // Aşama 3d: mesaj işleyicisi bağlı. Anahtarlar kapalıyken imleç hiçbir mesaj döndürmez.
+    const summary = await runOptionMaintenance(db, {
+      log,
+      handleMessage: createOptionMessageHandler({ log }),
+    });
     log.info("option_maintenance_finished", { ...summary, ms: Date.now() - started });
     return summary.locked && summary.failedSteps.length > 0 ? 1 : 0;
   } finally {

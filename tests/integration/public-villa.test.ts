@@ -942,6 +942,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_option_claim_operations",
       "app_option_expire_due",
       "app_option_finish_operation",
+      "app_option_message_items",
       "app_option_scan_conflicts",
       "app_public_reservation_request",
       "app_public_villa",
@@ -1036,6 +1037,8 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_admin uuid, p_workspace uuid, p_enabled boolean, p_default_minutes integer, p_choices integer[]": `gen_random_uuid(), gen_random_uuid(), false, null, '{}'::integer[]`,
         "p_op uuid, p_token uuid": `gen_random_uuid(), gen_random_uuid()`,
         "p_op uuid, p_token uuid, p_outcome text, p_code text": `gen_random_uuid(), gen_random_uuid(), 'release', null`,
+        // 0072: opsiyon Aşama 3d
+        "p_message uuid": `gen_random_uuid()`,
         // 0071: opsiyon Aşama 3c
         "p_admin uuid, p_op uuid": `gen_random_uuid(), gen_random_uuid()`,
         "p_admin uuid, p_alert uuid": `gen_random_uuid(), gen_random_uuid()`,
