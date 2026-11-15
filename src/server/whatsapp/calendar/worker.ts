@@ -28,6 +28,11 @@
  *      app_wa_queue_reaction ile kuyruğa yazılır (veritabanı kararı yeniden doğrular; mesaj başına
  *      tek tepki). Ağ geçidi gönderir. Kuyruğa yazılamazsa yalnız log: takvim ve öneri etkilenmez.
  *
+ *   7. (Opsiyon Aşama 2) Gölge mod: deps.optionShadow (merkezi ayar WA_OPTION_SHADOW=on) açıksa,
+ *      tepki yazıldıktan SONRA opsiyonla ilgili mesajın "opsiyon özelliği açık olsaydı" kararı
+ *      (option-shadow.ts) YALNIZ wa_option_shadow_decisions'a yazılır. Kapalıyken hiçbir sorgu
+ *      yapılmaz; açıkken de öneri, takvim, tepki ve mesaj durumu değişmez, hata yalnız log'dur.
+ *
  * GÜVENLİK: worker kendisi rezervasyon veya harici takvim tablosuna yazan hiçbir kodu import
  * etmez (eslint sınırı); takvime giden TEK yol enjekte edilen AutoCloser'dır (cron.ts bağlar).
  * Kullanıcısız bağlantı öneriyi onaylayamaz (veritabanı).
@@ -57,6 +62,7 @@ import type { AutoCloser } from "../auto-close";
 import type { AutoChanger } from "../auto-change";
 import type { AutoOpener } from "../auto-open";
 import { autoChangeCandidate, autoCloseCandidate, autoOpenCandidate } from "./auto-close-rule";
+import { analyzeOptionShadow } from "./option-shadow";
 import { decideReaction } from "./reaction";
 import { type BusyRow, buildStoreItem, busyRange, type StoreItem } from "./proposal";
 import { type ResolverVilla, resolveProposal } from "./resolve";
@@ -79,6 +85,11 @@ export type WorkerDeps = {
   autoOpen?: AutoOpener;
   /** v6: tarih değiştirme talimatıyla tek kaydın tarihlerini taşıyan servis (verilmezse yalnız öneri). */
   autoChange?: AutoChanger;
+  /**
+   * Opsiyon Aşama 2: gölge mod (yalnız analiz kaydı). Varsayılan KAPALI; cron.ts merkezi ayardan
+   * (WA_OPTION_SHADOW=on) açar.
+   */
+  optionShadow?: boolean;
 };
 
 export type ClaimedMessage = {
@@ -104,6 +115,8 @@ export type ProcessOutcome =
       autoChange?: "applied" | "failed";
       /** Kuyruğa yazılan tepki (yazılmadıysa veya tepki yoksa null). */
       reaction?: WaReactionKind | null;
+      /** Gölge mod açıksa yazılan gölge karar sayısı. */
+      shadow?: number;
     }
   | { outcome: "lock_lost" }
   | { outcome: "retry" | "failed"; code: WaWorkerError };
@@ -123,6 +136,8 @@ export type WorkerSummary = {
   autoChanged: number;
   autoChangeFailed: number;
   reactions: number;
+  /** Yalnız gölge mod açıkken: yazılan gölge karar sayısı. */
+  shadowDecisions?: number;
 };
 
 /** Log'a güvenle yazılabilecek hata özeti: SQLSTATE ve yalnız bizim kısa kodlarımız. */
@@ -309,7 +324,8 @@ export async function processClaimed(
   if (!stored.ok) return stored.out;
   if (!candidate || !owner || stored.value === 0) {
     const reaction = await queueReaction(db, c, items, stored.value, undefined, log);
-    return { outcome: "stored", proposals: stored.value, reaction };
+    const shadow = await storeOptionShadow(db, c, items, deps);
+    return { outcome: "stored", proposals: stored.value, reaction, ...shadow };
   }
 
   // Öneri kaydedildi ve mesaj işlendi; otomatik işlem başarısız olursa takvim değişmez (⚠️).
@@ -344,9 +360,43 @@ export async function processClaimed(
     log?.error(`wa_calendar_auto_${kind}_error`, { message: c.messageId, ...safeError(err) });
   }
   const reaction = await queueReaction(db, c, items, stored.value, auto, log);
-  if (closeItem) return { outcome: "stored", proposals: stored.value, autoClose: auto, reaction };
-  if (openItem) return { outcome: "stored", proposals: stored.value, autoOpen: auto, reaction };
-  return { outcome: "stored", proposals: stored.value, autoChange: auto, reaction };
+  const shadow = await storeOptionShadow(db, c, items, deps);
+  if (closeItem)
+    return { outcome: "stored", proposals: stored.value, autoClose: auto, reaction, ...shadow };
+  if (openItem)
+    return { outcome: "stored", proposals: stored.value, autoOpen: auto, reaction, ...shadow };
+  return { outcome: "stored", proposals: stored.value, autoChange: auto, reaction, ...shadow };
+}
+
+/**
+ * Opsiyon gölge modu (Aşama 2). Kapalıyken HİÇBİR şey yapmaz ve alan döndürmez (çıktı birebir
+ * aynı). Açıkken yalnız wa_option_shadow_decisions'a yazar; hiçbir zaman fırlatmaz: hata öneriyi,
+ * takvimi, tepkiyi ve mesaj durumunu etkilemez, yalnız içeriksiz log.
+ */
+async function storeOptionShadow(
+  db: Executor,
+  c: ClaimedMessage,
+  items: StoreItem[],
+  deps: WorkerDeps,
+): Promise<{ shadow?: number }> {
+  if (!deps.optionShadow) return {};
+  try {
+    const shadow = analyzeOptionShadow({
+      body: c.body,
+      sentAt: c.sentAt,
+      items,
+      groupPropertyId: c.groupPropertyId,
+    });
+    if (shadow.length === 0) return { shadow: 0 };
+    const res = await db.execute<{ n: number }>(
+      sql`select public.app_wa_store_option_shadow(${c.messageId}::uuid,
+                                                   ${JSON.stringify(shadow)}::jsonb) as n`,
+    );
+    return { shadow: Number(res.rows[0]?.n ?? 0) };
+  } catch (err) {
+    deps.log?.warn("wa_option_shadow_failed", { message: c.messageId, ...safeError(err) });
+    return { shadow: 0 };
+  }
 }
 
 /**
@@ -404,6 +454,8 @@ export async function runCalendarWorker(
     autoChanged: 0,
     autoChangeFailed: 0,
     reactions: 0,
+    // Gölge mod kapalıyken özet alanları birebir aynı kalır.
+    ...(deps.optionShadow ? { shadowDecisions: 0 } : {}),
   };
   const batch = Math.min(Math.max(1, deps.batchSize ?? WL.batchSize), PL.claimBatchMax);
   const maxMessages = deps.maxMessages ?? WL.maxMessagesPerRun;
@@ -422,6 +474,7 @@ export async function runCalendarWorker(
         summary.stored++;
         summary.proposals += r.proposals;
         if (r.reaction) summary.reactions++;
+        if (summary.shadowDecisions !== undefined) summary.shadowDecisions += r.shadow ?? 0;
         if (r.autoClose === "applied") summary.autoClosed++;
         else if (r.autoClose === "failed") summary.autoCloseFailed++;
         if (r.autoOpen === "applied") summary.autoOpened++;

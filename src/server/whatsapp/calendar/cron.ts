@@ -19,6 +19,7 @@ import { createLogger } from "../../../lib/logger";
 import { createAutoChanger } from "../auto-change";
 import { createAutoCloser } from "../auto-close";
 import { createAutoOpener } from "../auto-open";
+import { optionShadowEnabled } from "../../../lib/option-meta";
 import { runCalendarWorker, safeError } from "./worker";
 
 const log = createLogger({ service: "wa-calendar" });
@@ -45,6 +46,8 @@ async function main() {
       autoClose: createAutoCloser(db),
       autoOpen: createAutoOpener(db),
       autoChange: createAutoChanger(db),
+      // Opsiyon gölge modu: yalnız WA_OPTION_SHADOW=on ile açılır (varsayılan kapalı).
+      optionShadow: optionShadowEnabled(process.env),
     });
     log.info("wa_calendar_finished", { ...summary, ms: Date.now() - started });
   } finally {
