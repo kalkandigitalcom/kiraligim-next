@@ -106,6 +106,10 @@ describe("fonksiyonlar", () => {
       "app_public_villa_photos",
       "app_public_villa_rates",
       "app_public_villa_visible",
+      // 0065 (opsiyon Aşama 2): durum geçişi ve geçmiş tetikleyicileri
+      "app_reservation_option_events_guard",
+      "app_reservation_options_guard",
+      "app_reservation_options_history",
       // 0029 (3.1): harici (iCal) doluluk çakışma tetikleyicisi
       "app_reservations_external_guard",
       "app_reservations_guard",
@@ -152,6 +156,7 @@ describe("fonksiyonlar", () => {
       "app_wa_redeem_link_code",
       "app_wa_sender_block", // 0047 (B): gönderen engel denetimi (invoker, yalnız fonksiyonlardan)
       "app_wa_sender_role",
+      "app_wa_store_option_shadow", // 0065 (opsiyon gölge modu)
       "app_wa_store_proposals",
       "app_wa_sync_group",
       "app_wa_sync_group",
@@ -227,6 +232,8 @@ describe("fonksiyonlar", () => {
       "app_public_villa_photos",
       "app_public_villa_rates",
       "app_public_villa_visible",
+      // 0065: opsiyon geçmişi tetikleyicisi (append-only tabloya yalnız o yazar)
+      "app_reservation_options_history",
       // 0029 (3.1): harici doluluk tetikleyicisi her bağlamda (F3 dahil) olayları okuyabilmeli
       "app_reservations_external_guard",
       // 0031 (A1): WhatsApp ağ geçidinin tek yazma yolu ve panelden bağlantı kesme (app.wa_fn)
@@ -263,6 +270,7 @@ describe("fonksiyonlar", () => {
       "app_wa_purge_messages",
       "app_wa_queue_reaction", // 0040 (A2f)
       "app_wa_redeem_link_code",
+      "app_wa_store_option_shadow", // 0065
       "app_wa_store_proposals",
       "app_wa_sync_group",
       "app_wa_sync_group",
@@ -353,6 +361,8 @@ describe("fonksiyonlar", () => {
         proname: "app_wa_redeem_link_code",
         args: "p_connection uuid, p_jid text, p_code text, p_sender_pn text",
       },
+      // 0065: gölge mod; işletme ve grup mesajdan bulunur (yalnız son 30 dakikada işlenmiş mesaj)
+      { proname: "app_wa_store_option_shadow", args: "p_message uuid, p_items jsonb" },
       { proname: "app_wa_store_proposals", args: "p_message uuid, p_token uuid, p_items jsonb" },
       {
         proname: "app_wa_sync_group",
@@ -549,6 +559,9 @@ describe("fonksiyonlar", () => {
       app_public_villa_photos: ["app_user"],
       app_public_villa_rates: ["app_user"],
       app_public_villa_visible: [],
+      app_reservation_option_events_guard: [], // 0065: tetikleyiciler kimsede
+      app_reservation_options_guard: [],
+      app_reservation_options_history: [],
       app_reservations_external_guard: [],
       app_reservations_guard: [],
       app_set_updated_at: [],
@@ -593,6 +606,7 @@ describe("fonksiyonlar", () => {
       app_wa_redeem_link_code: [], // 0044: işletme rolünden kaldırıldı
       app_wa_sender_block: [], // 0047 (B): yalnız fonksiyonların içinden
       app_wa_sender_role: [],
+      app_wa_store_option_shadow: ["app_user"], // 0065: worker; ağ geçidi rolüne verilmez
       app_wa_store_proposals: ["app_user"],
       app_wa_sync_group: ["app_user", "app_user"],
       app_wa_unlink_group: [], // 0044: işletme rolünden kaldırıldı

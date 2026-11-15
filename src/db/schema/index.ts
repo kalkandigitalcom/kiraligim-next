@@ -12,6 +12,7 @@ export * from "./photos";
 export * from "./properties";
 export * from "./tenancy";
 export * from "./reservations";
+export * from "./options";
 export * from "./rates";
 export * from "./ical";
 export * from "./whatsapp";

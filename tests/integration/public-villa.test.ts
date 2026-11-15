@@ -920,6 +920,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_public_villa_photos",
       "app_public_villa_rates",
       "app_public_villa_visible",
+      "app_reservation_options_history", // 0065: opsiyon geçmişi tetikleyicisi
       "app_reservations_external_guard",
       // 0031 (A1): WhatsApp ağ geçidi ve panelden bağlantı kesme; 0034 (A1.1): eşleştirme;
       // 0044 (Aşama 2): Super Admin grup yönetimi (yalnız app_admin)
@@ -954,6 +955,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_wa_purge_messages",
       "app_wa_queue_reaction",
       "app_wa_redeem_link_code",
+      "app_wa_store_option_shadow", // 0065: opsiyon gölge modu (worker)
       "app_wa_store_proposals",
       "app_wa_sync_group",
       "app_wa_sync_group",
@@ -990,6 +992,8 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_connection uuid, p_limit integer": `gen_random_uuid(), 1`,
         "p_message uuid, p_token uuid, p_ok boolean, p_error text": `gen_random_uuid(), gen_random_uuid(), true, null`,
         "p_message uuid, p_kind text": `gen_random_uuid(), 'done'`,
+        // 0065: opsiyon gölge modu
+        "p_message uuid, p_items jsonb": `gen_random_uuid(), '[]'::jsonb`,
         "p_admin uuid": `gen_random_uuid()`,
         "p_admin uuid, p_query text": `gen_random_uuid(), 'x'`,
         "p_admin uuid, p_workspace uuid": `gen_random_uuid(), gen_random_uuid()`,

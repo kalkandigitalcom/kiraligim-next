@@ -398,6 +398,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_queue_reaction", // 0040 (A2f): öneri durumunu okur (tepki kararı doğrulaması)
       "app_wa_proposals_guard",
       "app_wa_sender_role",
+      "app_wa_store_option_shadow", // 0065: opsiyon gölge modu (rezervasyon / harici olayları OKUR)
       "app_wa_store_proposals",
     ];
     // 0044 (Aşama 2): Super Admin grup yönetimi; YALNIZ app_admin çağırır.
@@ -448,6 +449,7 @@ describe("veritabanı güvenliği", () => {
       "app_wa_redeem_link_code",
       "app_wa_sender_block", // 0047 (yalnız fonksiyonlar içinden)
       "app_wa_sender_role", // 0036 (yalnız fonksiyonlar içinden)
+      "app_wa_store_option_shadow", // 0065
       "app_wa_store_proposals", // 0036
       "app_wa_sync_group",
       "app_wa_sync_group", // 0034: 9 parametreli (ekleyen/kurucu)
@@ -507,6 +509,7 @@ describe("veritabanı güvenliği", () => {
         "wa_link_codes",
         "wa_link_managers",
         "wa_message_reactions", // 0039/0040 (A2f)
+        "wa_option_shadow_decisions", // 0064/0065 (opsiyon gölge modu)
         "wa_phone_challenges", // 0033
         "wa_verified_phones", // 0033
       ].map((relname) => ({ relname, rls: true, force: true, worker: false, adm: false })),
