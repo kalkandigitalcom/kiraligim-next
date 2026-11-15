@@ -30,6 +30,9 @@ export default async function AdminPanelLayout({ children }: { children: React.R
               <Link href="/api-musterileri" className="rounded-lg px-2.5 py-1.5 hover:bg-white/10">
                 API müşterileri
               </Link>
+              <Link href="/opsiyonlar" className="rounded-lg px-2.5 py-1.5 hover:bg-white/10">
+                Opsiyonlar
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm">

@@ -1,8 +1,10 @@
 /**
- * Opsiyon Aşama 3b — option-maintenance orkestrasyonu (sahte veritabanı).
+ * Opsiyon Aşama 3b / 3c — option-maintenance orkestrasyonu (sahte veritabanı).
  * Kanıtlananlar: adım sırası; kilit alınamazsa hiçbir fonksiyon çağrılmaz; kilit her durumda
  * bırakılır; bir adımın hatası diğerini durdurmaz; işleyici yoksa mesaj imleci HİÇ okunmaz;
- * toplu turlar sınırlıdır; log'a mesaj içeriği yazılmaz; görev mevcut worker'ı içe aktarmaz.
+ * toplu turlar sınırlıdır; log'a mesaj içeriği yazılmaz; görev mevcut worker'ı içe aktarmaz;
+ * (3c) onaylı işlem adımı süre dolumundan sonra çalışır, her işlemi kendi kilit belirteciyle uygular,
+ * bir işlemin hatası diğerini durdurmaz.
  */
 import { readFileSync } from "node:fs";
 
@@ -20,6 +22,8 @@ type Script = {
   expire?: number[];
   alerts?: number[];
   messages?: object[][];
+  ops?: object[][];
+  outcomes?: string[];
   fail?: Partial<Record<string, string>>;
 };
 
@@ -29,7 +33,10 @@ function fakeDb(s: Script = {}) {
     expire: [...(s.expire ?? [])],
     alerts: [...(s.alerts ?? [])],
     messages: [...(s.messages ?? [])],
+    ops: [...(s.ops ?? [])],
+    outcomes: [...(s.outcomes ?? [])],
   };
+  const applied: unknown[][] = [];
   const db = {
     execute: async (q: SQL) => {
       const text = dialect.sqlToQuery(q).sql;
@@ -47,12 +54,21 @@ function fakeDb(s: Script = {}) {
           return { rows: [{ n: queues.alerts.shift() ?? 0 }] };
         case "app_option_claim_messages":
           return { rows: queues.messages.shift() ?? [] };
+        case "app_option_claim_approved_operations":
+          return { rows: queues.ops.shift() ?? [] };
+        case "app_option_apply_approved_operation": {
+          applied.push(dialect.sqlToQuery(q).params);
+          const out = queues.outcomes.shift() ?? "applied";
+          if (out === "throw")
+            throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+          return { rows: [{ out }] };
+        }
         default:
           throw new Error(`beklenmeyen sorgu: ${text}`);
       }
     },
   };
-  return { db: db as never, calls };
+  return { db: db as never, calls, applied };
 }
 
 function capture() {
@@ -78,12 +94,22 @@ describe("runOptionMaintenance", () => {
     expect(calls).toEqual([
       "pg_try_advisory_lock",
       "app_option_expire_due",
+      "app_option_claim_approved_operations",
       "app_option_scan_conflicts",
       "pg_advisory_unlock",
     ]);
     expect(out).toEqual({
       locked: true,
       expired: 2,
+      operations: {
+        claimed: 0,
+        applied: 0,
+        stale: 0,
+        failed: 0,
+        automationOff: 0,
+        lost: 0,
+        errors: 0,
+      },
       alerts: 1,
       messages: "disabled",
       failedSteps: [],
@@ -132,6 +158,7 @@ describe("runOptionMaintenance", () => {
     expect(calls).toEqual([
       "pg_try_advisory_lock",
       "app_option_expire_due",
+      "app_option_claim_approved_operations",
       "app_option_scan_conflicts",
       "pg_advisory_unlock",
     ]);
@@ -168,6 +195,46 @@ describe("runOptionMaintenance", () => {
     const { db, calls } = fakeDb({ fail: { app_option_claim_messages: "boom" } });
     const out = await runOptionMaintenance(db, { handleMessage: async () => {} });
     expect(out).toMatchObject({ failedSteps: ["messages"] });
+    expect(calls.at(-1)).toBe("pg_advisory_unlock");
+  });
+
+  it("onaylı işlemler: her biri kendi belirteciyle uygulanır; sonuçlar sayılır; hata diğerini durdurmaz", async () => {
+    const { log, lines } = capture();
+    const op = (i: number) => ({
+      id: `00000000-0000-4000-8000-00000000000${i}`,
+      lock_token: `t${i}`,
+    });
+    const { db, calls, applied } = fakeDb({
+      ops: [[op(1), op(2), op(3), op(4), op(5), op(6)]],
+      outcomes: ["applied", "stale", "failed", "automation_off", "throw", "lost"],
+    });
+    const out = await runOptionMaintenance(db, { log });
+    expect(out).toMatchObject({
+      operations: {
+        claimed: 6,
+        applied: 1,
+        stale: 1,
+        failed: 1,
+        automationOff: 1,
+        lost: 1,
+        errors: 1,
+      },
+      failedSteps: [],
+    });
+    expect(applied.map((p) => p[1])).toEqual(["t1", "t2", "t3", "t4", "t5", "t6"]);
+    expect(calls.filter((c) => c === "app_option_claim_approved_operations")).toHaveLength(1);
+    expect(calls.at(-1)).toBe("pg_advisory_unlock");
+    expect(lines.join("\n")).toContain('"code":"40P01"');
+  });
+
+  it("onaylı işlem alma sorgusu hata verirse yalnız o adım başarısız; uyarı adımı yine çalışır", async () => {
+    const { db, calls } = fakeDb({
+      alerts: [2],
+      fail: { app_option_claim_approved_operations: "boom" },
+    });
+    const out = await runOptionMaintenance(db);
+    expect(out).toMatchObject({ alerts: 2, failedSteps: ["operations"] });
+    expect(calls).toContain("app_option_scan_conflicts");
     expect(calls.at(-1)).toBe("pg_advisory_unlock");
   });
 

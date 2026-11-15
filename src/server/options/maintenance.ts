@@ -6,8 +6,9 @@
  * dokunmaz. Görev Coolify'da DEVRE DIŞI oluşturulur; production'da etkinleştirme yalnız açık
  * onayla (K-C). Görev hiç çalışmasa da mevcut sistem bundan etkilenmez.
  *
- * Yapılanlar (ayrıntı: ./run.ts): süresi dolan opsiyonları expired yapar, açık opsiyonla çakışan
- * kesin kayıtlar için Super Admin uyarısı yazar. Mesaj imleci Aşama 3b'de KAPALIDIR (mesaj
+ * Yapılanlar (ayrıntı: ./run.ts): süresi dolan opsiyonları expired yapar; Super Admin'in onayladığı
+ * oluşturma / iptal işlemlerini (yalnız global + işletme + grup anahtarı açıkken; Aşama 3c) uygular;
+ * açık opsiyonla çakışan kesin kayıtlar için Super Admin uyarısı yazar. Mesaj imleci Aşama 3b'de KAPALIDIR (mesaj
  * işleyicisi Aşama 3d'de eklenir). WhatsApp'a tepki göndermez (K-A, K-B); rezervasyon, blok,
  * harici takvim, API, iCal ve webhook verisine YAZMAZ; opsiyon müsaitliği hiçbir koşulda kapatmaz.
  *

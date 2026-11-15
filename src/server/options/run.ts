@@ -7,10 +7,16 @@
  *
  *   1. Süre dolumu   — app_option_expire_due: süresi dolan AÇIK opsiyon → expired. Kill switch'ten
  *                      bağımsızdır (opsiyon müsaitliği zaten etkilemez); FOR UPDATE SKIP LOCKED.
- *   2. Çakışma uyarısı — app_option_scan_conflicts: açık opsiyonla çakışan beklemede / onaylı kayıt
+ *   2. Onaylı işlem  — Aşama 3c: Super Admin'in onayladığı OLUŞTUR / İPTAL işlemleri
+ *                      (app_option_claim_approved_operations + app_option_apply_approved_operation,
+ *                      drizzle/0071). Global + işletme + grup anahtarı açık değilse hiçbiri alınmaz;
+ *                      uygulama anında anahtar satırları kilitlenip anahtarlar, grubun villası,
+ *                      takvim parmak izi ve hedef sürümü YENİDEN doğrulanır (tek transaction).
+ *                      Kesinleştirme 3e'ye kadar alınmaz.
+ *   3. Çakışma uyarısı — app_option_scan_conflicts: açık opsiyonla çakışan beklemede / onaylı kayıt
  *                      veya blok ve etkin harici olay için Super Admin uyarısı. Opsiyon ve
  *                      rezervasyon DEĞİŞMEZ; (opsiyon, kaynak) başına tek uyarı.
- *   3. Mesaj imleci  — app_option_claim_messages: YALNIZ bir mesaj işleyicisi verilmişse (Aşama 3d).
+ *   4. Mesaj imleci  — app_option_claim_messages: YALNIZ bir mesaj işleyicisi verilmişse (Aşama 3d).
  *                      İşleyici yoksa imleç HİÇ okunmaz: hiçbir mesaj "işlendi" sayılmaz, 3d
  *                      geldiğinde kayıp olmaz. Otomasyon (global + işletme + grup) kapalıysa
  *                      fonksiyon zaten hiçbir mesaj döndürmez. İşleyici hata verirse imleç "claimed"
@@ -35,6 +41,7 @@ export const OPTION_MAINTENANCE_LIMITS = {
   expireBatch: 100,
   alertBatch: 500,
   messageBatch: 20,
+  operationBatch: 20,
   /** Bir adımın en fazla tur sayısı (sonsuz döngüye karşı). */
   maxRounds: 20,
   /** Tüm çalıştırmanın süre bütçesi (ms); Coolify görevi her dakika. */
@@ -65,19 +72,32 @@ export type OptionMaintenanceDeps = {
   expireBatch?: number;
   alertBatch?: number;
   messageBatch?: number;
+  operationBatch?: number;
   maxRounds?: number;
   budgetMs?: number;
   /** Verilmezse mesaj adımı kapalıdır (Aşama 3b üretim davranışı). */
   handleMessage?: OptionMessageHandler;
 };
 
-export type OptionMaintenanceStep = "expire" | "alerts" | "messages";
+export type OptionMaintenanceStep = "expire" | "operations" | "alerts" | "messages";
+
+/** Onaylı işlem adımının sonuçları (app_option_apply_approved_operation dönüşleri). */
+export type OptionOperationCounts = {
+  claimed: number;
+  applied: number;
+  stale: number;
+  failed: number;
+  automationOff: number;
+  lost: number;
+  errors: number;
+};
 
 export type OptionMaintenanceSummary =
   | { locked: false }
   | {
       locked: true;
       expired: number;
+      operations: OptionOperationCounts;
       alerts: number;
       messages: "disabled" | { claimed: number; handled: number; failed: number };
       failedSteps: OptionMaintenanceStep[];
@@ -108,6 +128,7 @@ export async function runOptionMaintenance(
   const expireBatch = clamp(deps.expireBatch, L.expireBatch, 200);
   const alertBatch = clamp(deps.alertBatch, L.alertBatch, 500);
   const messageBatch = clamp(deps.messageBatch, L.messageBatch, 50);
+  const operationBatch = clamp(deps.operationBatch, L.operationBatch, 20);
   const maxRounds = clamp(deps.maxRounds, L.maxRounds, 100);
   const deadline = now() + (deps.budgetMs ?? L.budgetMs);
 
@@ -119,6 +140,15 @@ export async function runOptionMaintenance(
   const failedSteps: OptionMaintenanceStep[] = [];
   let expired = 0;
   let alerts = 0;
+  const operations: OptionOperationCounts = {
+    claimed: 0,
+    applied: 0,
+    stale: 0,
+    failed: 0,
+    automationOff: 0,
+    lost: 0,
+    errors: 0,
+  };
   let messages: "disabled" | { claimed: number; handled: number; failed: number } = "disabled";
   try {
     // 1. Süre dolumu (kill switch'ten bağımsız).
@@ -136,7 +166,42 @@ export async function runOptionMaintenance(
       log?.error("option_maintenance_step_failed", { step: "expire", ...errorCode(err) });
     }
 
-    // 2. Çakışma uyarısı (yalnız uyarı; opsiyon ve rezervasyon değişmez).
+    // 2. Super Admin onaylı oluşturma / iptal (anahtarlar kapalıysa hiçbiri alınmaz).
+    try {
+      for (let round = 0; round < maxRounds && now() < deadline; round++) {
+        const r = await db.execute<{ id: string; lock_token: string }>(
+          sql`select id, lock_token from public.app_option_claim_approved_operations(${operationBatch})`,
+        );
+        if (r.rows.length === 0) break;
+        operations.claimed += r.rows.length;
+        for (const row of r.rows) {
+          try {
+            const a = await db.execute<{ out: string }>(
+              sql`select public.app_option_apply_approved_operation(${row.id}::uuid, ${row.lock_token}::uuid) as out`,
+            );
+            const out = a.rows[0]?.out;
+            if (out === "applied") operations.applied++;
+            else if (out === "stale") operations.stale++;
+            else if (out === "failed") operations.failed++;
+            else if (out === "automation_off") operations.automationOff++;
+            else operations.lost++;
+          } catch (err) {
+            // Transaction geri alınır; kilit 2 dk sonra düşer, en fazla 5 deneme.
+            operations.errors++;
+            log?.warn("option_maintenance_operation_failed", {
+              operation: row.id,
+              ...errorCode(err),
+            });
+          }
+        }
+        if (r.rows.length < operationBatch) break;
+      }
+    } catch (err) {
+      failedSteps.push("operations");
+      log?.error("option_maintenance_step_failed", { step: "operations", ...errorCode(err) });
+    }
+
+    // 3. Çakışma uyarısı (yalnız uyarı; opsiyon ve rezervasyon değişmez).
     try {
       for (let round = 0; round < maxRounds && now() < deadline; round++) {
         const r = await db.execute<{ n: number }>(
@@ -151,7 +216,7 @@ export async function runOptionMaintenance(
       log?.error("option_maintenance_step_failed", { step: "alerts", ...errorCode(err) });
     }
 
-    // 3. Mesaj imleci: yalnız işleyici verilmişse (Aşama 3d). 3b üretiminde kapalı.
+    // 4. Mesaj imleci: yalnız işleyici verilmişse (Aşama 3d). 3b üretiminde kapalı.
     if (deps.handleMessage) {
       const m = { claimed: 0, handled: 0, failed: 0 };
       messages = m;
@@ -204,5 +269,5 @@ export async function runOptionMaintenance(
       .execute(sql`select pg_advisory_unlock(hashtextextended(${OPTION_MAINTENANCE_LOCK}, 0))`)
       .catch(() => undefined);
   }
-  return { locked: true, expired, alerts, messages, failedSteps };
+  return { locked: true, expired, operations, alerts, messages, failedSteps };
 }

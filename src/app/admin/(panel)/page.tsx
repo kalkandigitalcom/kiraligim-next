@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { getOptionCounts } from "@/server/admin/options";
 import { requireAdmin } from "@/server/admin/session";
 import { groupTab, listAdminConnections, listAdminGroups } from "@/server/admin/whatsapp";
 
@@ -15,9 +16,10 @@ const CONNECTION: Record<string, string> = {
 
 export default async function AdminHomePage() {
   const admin = await requireAdmin();
-  const [groups, connections] = await Promise.all([
+  const [groups, connections, options] = await Promise.all([
     listAdminGroups(admin.ctx.db, admin.adminId),
     listAdminConnections(admin.ctx.db, admin.adminId),
+    getOptionCounts(admin.ctx.db, admin.adminId),
   ]);
   const pending = groups.filter((g) => groupTab(g) === "bekleyen").length;
   const active = groups.filter((g) => groupTab(g) === "aktif").length;
@@ -54,6 +56,33 @@ export default async function AdminHomePage() {
             {conn ? (CONNECTION[conn.status] ?? conn.status) : "Kayıt yok"}
           </p>
         </div>
+      </section>
+      <section className="grid gap-4 sm:grid-cols-3" aria-label="Opsiyonlar">
+        <Link
+          href="/opsiyonlar?sekme=onay"
+          className="rounded-2xl border border-border bg-white p-5 shadow-sm hover:bg-mist/60"
+          data-testid="admin-option-pending-count"
+        >
+          <p className="text-sm text-muted-foreground">Onay bekleyen opsiyon işlemi</p>
+          <p className="mt-1 text-3xl font-bold text-navy-900">{options.pendingApproval}</p>
+        </Link>
+        <Link
+          href="/opsiyonlar?sekme=uyarilar"
+          className="rounded-2xl border border-border bg-white p-5 shadow-sm hover:bg-mist/60"
+          data-testid="admin-option-alert-count"
+        >
+          <p className="text-sm text-muted-foreground">Açık çakışma uyarısı</p>
+          <p className="mt-1 text-3xl font-bold text-navy-900">{options.openAlerts}</p>
+        </Link>
+        <Link
+          href="/opsiyonlar/ayarlar"
+          className="rounded-2xl border border-border bg-white p-5 shadow-sm hover:bg-mist/60"
+        >
+          <p className="text-sm text-muted-foreground">Opsiyon otomasyonu</p>
+          <p className="mt-1 text-lg font-semibold text-navy-900">
+            {options.globalEnabled ? "Açık" : "Kapalı (kill switch)"}
+          </p>
+        </Link>
       </section>
     </div>
   );

@@ -30,6 +30,8 @@ const folder = path.resolve(__dirname, "../../drizzle");
 const rollback3a = path.resolve(__dirname, "../../docs/rollback-0066-0069.sql");
 const rollbackFk = path.resolve(__dirname, "../../docs/rollback-0070.sql");
 let tmp: string;
+/** 0070'e kadar (Aşama 3a'nın son migration'ı): sonraki aşamalar bu dosyanın kanıtını değiştirmez. */
+let tmp3a: string;
 
 const withDb = (url: string, db: string, user?: { name: string; password: string }) => {
   const u = new URL(url);
@@ -128,9 +130,10 @@ beforeAll(async () => {
   const res = runBootstrap({ dbName, migratorPassword, appPassword });
   if (res.status !== 0) throw new Error(`db-bootstrap.sql başarısız:\n${res.output}`);
   tmp = truncatedFolder(65);
+  tmp3a = truncatedFolder(70);
   await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: tmp });
   S0 = await snapshot();
-  await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: folder });
+  await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: tmp3a });
   S1 = await snapshot();
 }, 180_000);
 
@@ -140,6 +143,7 @@ afterAll(async () => {
   await c.query(`drop database if exists "${dbName}" with (force)`);
   await c.end();
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  if (tmp3a) fs.rmSync(tmp3a, { recursive: true, force: true });
 });
 
 describe("Aşama 3a: mevcut şema değişmez (katalog kanıtı)", () => {
@@ -214,7 +218,7 @@ describe("Aşama 3a: geri alma ve yeniden migration", () => {
     expect(runRollback(rollback3a)).toBe("ok");
     expect(minus(await snapshot(), S0)).toEqual([]);
     expect(minus(S0, await snapshot())).toEqual([]);
-    await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: folder });
+    await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: tmp3a });
     const S3 = await snapshot();
     expect(minus(S1, S3)).toEqual([]);
     expect(minus(S3, S1)).toEqual([]);
@@ -234,7 +238,7 @@ describe("Aşama 3a: geri alma ve yeniden migration", () => {
     expect(runRollback(rollbackFk)).toBe("ok");
     expect(runRollback(rollback3a)).toMatch(/rollback_0066_0069_blocked/);
     expect(await migrationCount()).toBe(70);
-    await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: folder });
+    await runMigrations({ url: migratorUrl(), appEnv: "test", migrationsFolder: tmp3a });
     expect(minus(before, await snapshot())).toEqual([]);
     expect(await migrationCount()).toBe(71);
   });

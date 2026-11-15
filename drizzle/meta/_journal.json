@@ -498,6 +498,13 @@
       "when": 1794769971945,
       "tag": "0070_option_group_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794772800000,
+      "tag": "0071_option_admin_views",
+      "breakpoints": true
     }
   ]
 }
