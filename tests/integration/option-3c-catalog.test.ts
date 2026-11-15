@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { Client } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 
 import { runMigrations } from "../../src/db/migrate";
 import { runBootstrap } from "./psql";
@@ -22,8 +22,10 @@ import { runBootstrap } from "./psql";
  */
 const ADMIN_URL = process.env.TEST_ADMIN_DATABASE_URL ?? "";
 const dbName = `opt3c_${randomBytes(4).toString("hex")}_test`;
-const migratorPassword = randomBytes(24).toString("hex");
-const appPassword = randomBytes(24).toString("hex");
+// Roller (app_migrator, app_user) veritabanına değil KÜMEYE aittir: db-bootstrap.sql parolalarını
+// küme genelinde yeniler. Ana test kurulumunun parolaları kullanılmazsa diğer test dosyalarının
+// bağlantıları parola doğrulamasında reddedilir (CI: scram-sha-256).
+const { migratorPassword, appPassword } = inject("testDb");
 const folder = path.resolve(__dirname, "../../drizzle");
 const rollback = path.resolve(__dirname, "../../docs/rollback-0071.sql");
 let tmp: string;
