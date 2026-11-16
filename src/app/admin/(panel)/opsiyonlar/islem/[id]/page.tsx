@@ -147,6 +147,11 @@ export default async function AdminOptionOperationPage({ params, searchParams }:
             </Row>
           ) : null}
           {op.appliedAt ? <Row label="Uygulandı">{fmt(op.appliedAt)}</Row> : null}
+          {op.resultReservationId ? (
+            <Row label="Kesin rezervasyon">
+              <span className="font-mono text-sm">{op.resultReservationId}</span>
+            </Row>
+          ) : null}
           {op.failureCode ? (
             <Row label="Uygulanmama nedeni">{FAILURE_LABELS[op.failureCode] ?? op.failureCode}</Row>
           ) : null}
@@ -223,6 +228,16 @@ export default async function AdminOptionOperationPage({ params, searchParams }:
               reddedebilirsiniz.
             </Alert>
           ) : null}
+          {op.kind === "convert" && !convertLocked ? (
+            <Alert tone="info">
+              Onaylanırsa bakım görevi yaklaşık bir dakika içinde, işletme sahibi adına onaylı
+              (kesin) bir rezervasyon oluşturur (kaynak: WhatsApp). Uygulama anında anahtarlar,
+              takvim, opsiyonun durumu ve süresi yeniden denetlenir; çakışma, kapasite veya tarih
+              sorunu varsa rezervasyon oluşturulmaz. Misafir adı, yetişkin ve çocuk sayısı (çocuk
+              yoksa 0) zorunludur; boş alan doldurulmaz. Kesin rezervasyon API, iCal ve
+              webhook&apos;a yansır.
+            </Alert>
+          ) : null}
           <form action={decideAction.bind(null, op.id)} className="flex flex-col gap-4">
             <input type="hidden" name="version" value={op.version} />
             {op.kind === "create" ? (
@@ -273,7 +288,8 @@ export default async function AdminOptionOperationPage({ params, searchParams }:
                   id="children"
                   name="children"
                   inputMode="numeric"
-                  label="Çocuk"
+                  label="Çocuk (yoksa 0)"
+                  hint="Zorunlu; boş bırakılırsa onay verilmez."
                   defaultValue={op.children ?? ""}
                   disabled={convertLocked}
                 />

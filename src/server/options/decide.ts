@@ -10,7 +10,8 @@
  * 3d kuralları (16 Kasım 2026 kararları):
  *   - Yalnız DOĞRULANMIŞ sahip / yöneticinin mesajı işlem üretir. Personel, doğrulanmamış
  *     katılımcı veya worker'ın öğe kaydetmediği mesaj: işlem YOK (worker'ın ⚠️'si aynen kalır).
- *   - Yalnız oluşturma ve iptal. Kesinleştirme (convert) Aşama 3e'ye kadar işlem üretmez.
+ *   - Oluşturma ve iptal; (Aşama 3e) kesinleştirme ("ödeme alındı", "kesinleşti") HER ZAMAN Super
+ *     Admin onayına düşer (otomatik uygulanmaz; misafir bilgisi onayda girilir).
  *   - İptal nedeni: "vazgeçti", "müşteri almadı", "düştü" → customer_declined; "iptal", "kaldır" →
  *     owner_cancelled; ikisi birden ya da hiçbiri → belirsiz, otomatik uygulanmaz (onay).
  *     panel_cancel WhatsApp'tan gelemez.
@@ -42,7 +43,7 @@ export type OptionMessageItem = {
 /** app_wa_option_apply öğesi (JSON alan adları veritabanı fonksiyonuyla aynı). */
 export type OptionApplyItem = {
   item_no: number;
-  intent: "create" | "cancel";
+  intent: "create" | "cancel" | "convert";
   decision: "apply" | "ask" | "ignore";
   reasons: string[];
   check_in: string | null;
@@ -52,7 +53,7 @@ export type OptionApplyItem = {
 };
 
 export type OptionDecision =
-  | { kind: "none"; why: "sender_not_allowed" | "no_items" | "not_option" | "convert_disabled" }
+  | { kind: "none"; why: "sender_not_allowed" | "no_items" | "not_option" }
   | { kind: "items"; items: OptionApplyItem[] };
 
 const VERIFIED_ROLES = new Set(["owner", "manager"]);
@@ -120,8 +121,7 @@ export function decideOptionMessage(input: {
 
   const out: OptionApplyItem[] = [];
   for (const s of shadow) {
-    if (s.intent === "convert") return { kind: "none", why: "convert_disabled" };
-    if (s.intent !== "create" && s.intent !== "cancel") continue; // unknown: işlem yok
+    if (s.intent !== "create" && s.intent !== "cancel" && s.intent !== "convert") continue; // unknown
     const reasons = new Set<string>(s.reasons);
     let decision = s.decision;
     let endReason: OptionApplyItem["end_reason"] = null;
@@ -136,6 +136,8 @@ export function decideOptionMessage(input: {
       reasons.add("date_missing");
       decision = "ask";
     }
+    // Kesinleştirme (Aşama 3e): asla otomatik değil; Super Admin onayı (misafir bilgisi orada).
+    if (s.intent === "convert" && decision !== "ignore") decision = "ask";
     // İptal nedeni ("süresi doldu" iptalinde yazılmaz: onaya düşer).
     if (s.intent === "cancel" && decision !== "ignore" && !expiredPhrase) {
       endReason = cancelReasonOf(input.body);

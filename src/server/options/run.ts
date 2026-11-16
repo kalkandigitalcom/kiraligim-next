@@ -13,6 +13,9 @@
  *                      uygulama anında anahtar satırları kilitlenip anahtarlar, grubun villası,
  *                      takvim parmak izi ve hedef sürümü YENİDEN doğrulanır (tek transaction).
  *                      Kesinleştirme 3e'ye kadar alınmaz.
+ *   2b. Kesinleştirme — Aşama 3e: Super Admin onaylı kesinleştirme (./convert, drizzle/0073):
+ *                      işletme sahibi adına TEK transaction'da kesin rezervasyon; anahtarlar,
+ *                      takvim, opsiyon sürümü, villa ve misafir bilgisi yeniden doğrulanır.
  *   3. Çakışma uyarısı — app_option_scan_conflicts: açık opsiyonla çakışan beklemede / onaylı kayıt
  *                      veya blok ve etkin harici olay için Super Admin uyarısı. Opsiyon ve
  *                      rezervasyon DEĞİŞMEZ; (opsiyon, kaynak) başına tek uyarı.
@@ -32,7 +35,12 @@ import { sql } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import type { Logger } from "@/lib/logger";
 
+import type { ConvertOutcome, OptionConverter } from "./convert";
+
 type Executor = Pick<Database, "execute">;
+
+/** Bir turda alınan en fazla kesinleştirme (her biri ayrı transaction'da rezervasyon oluşturur). */
+const CONVERSION_BATCH = 10;
 
 /** Aynı anda tek option-maintenance süreci (oturum advisory lock'u). */
 export const OPTION_MAINTENANCE_LOCK = "kiraligim:option-maintenance";
@@ -77,9 +85,17 @@ export type OptionMaintenanceDeps = {
   budgetMs?: number;
   /** Verilmezse mesaj adımı kapalıdır (Aşama 3b üretim davranışı). */
   handleMessage?: OptionMessageHandler;
+  /**
+   * Aşama 3e: Super Admin onaylı kesinleştirmeyi uygular (./convert). Verilmezse kesinleştirme
+   * adımı kapalıdır (onaylı kesinleştirme alınmaz, bekler).
+   */
+  convert?: OptionConverter;
 };
 
-export type OptionMaintenanceStep = "expire" | "operations" | "alerts" | "messages";
+export type OptionMaintenanceStep = "expire" | "operations" | "conversions" | "alerts" | "messages";
+
+/** Kesinleştirme adımının sonuçları (ConvertOutcome başına sayı). */
+export type OptionConversionCounts = { claimed: number } & Record<ConvertOutcome, number>;
 
 /** Onaylı işlem adımının sonuçları (app_option_apply_approved_operation dönüşleri). */
 export type OptionOperationCounts = {
@@ -98,6 +114,7 @@ export type OptionMaintenanceSummary =
       locked: true;
       expired: number;
       operations: OptionOperationCounts;
+      conversions: "disabled" | OptionConversionCounts;
       alerts: number;
       messages: "disabled" | { claimed: number; handled: number; failed: number };
       failedSteps: OptionMaintenanceStep[];
@@ -140,6 +157,7 @@ export async function runOptionMaintenance(
   const failedSteps: OptionMaintenanceStep[] = [];
   let expired = 0;
   let alerts = 0;
+  let conversions: "disabled" | OptionConversionCounts = "disabled";
   const operations: OptionOperationCounts = {
     claimed: 0,
     applied: 0,
@@ -199,6 +217,50 @@ export async function runOptionMaintenance(
     } catch (err) {
       failedSteps.push("operations");
       log?.error("option_maintenance_step_failed", { step: "operations", ...errorCode(err) });
+    }
+
+    // 2b. Aşama 3e: Super Admin onaylı kesinleştirme (anahtarlar kapalıysa hiçbiri alınmaz).
+    if (deps.convert) {
+      const c: OptionConversionCounts = {
+        claimed: 0,
+        applied: 0,
+        stale: 0,
+        failed: 0,
+        automation_off: 0,
+        lost: 0,
+        retry: 0,
+      };
+      conversions = c;
+      try {
+        for (let round = 0; round < maxRounds && now() < deadline; round++) {
+          const r = await db.execute<{ id: string; lock_token: string; workspace_id: string }>(
+            sql`select id, lock_token, workspace_id from public.app_option_claim_approved_conversions(${CONVERSION_BATCH})`,
+          );
+          if (r.rows.length === 0) break;
+          c.claimed += r.rows.length;
+          for (const row of r.rows) {
+            try {
+              const out = await deps.convert({
+                id: row.id,
+                lockToken: row.lock_token,
+                workspaceId: row.workspace_id,
+              });
+              c[out]++;
+            } catch (err) {
+              // Kilit 2 dk sonra düşer, en fazla 5 deneme.
+              c.retry++;
+              log?.warn("option_maintenance_conversion_failed", {
+                operation: row.id,
+                ...errorCode(err),
+              });
+            }
+          }
+          if (r.rows.length < CONVERSION_BATCH) break;
+        }
+      } catch (err) {
+        failedSteps.push("conversions");
+        log?.error("option_maintenance_step_failed", { step: "conversions", ...errorCode(err) });
+      }
     }
 
     // 3. Çakışma uyarısı (yalnız uyarı; opsiyon ve rezervasyon değişmez).
@@ -269,5 +331,5 @@ export async function runOptionMaintenance(
       .execute(sql`select pg_advisory_unlock(hashtextextended(${OPTION_MAINTENANCE_LOCK}, 0))`)
       .catch(() => undefined);
   }
-  return { locked: true, expired, operations, alerts, messages, failedSteps };
+  return { locked: true, expired, operations, conversions, alerts, messages, failedSteps };
 }

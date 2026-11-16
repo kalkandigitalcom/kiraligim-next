@@ -790,7 +790,7 @@ describe("onay, ret ve onaylı işlemin uygulanması", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-describe("kesinleştirme 3e'ye kadar kapalı; onaylı iptal uygulanır", () => {
+describe("kesinleştirme onayı (3e) ve 3c görev adımı; onaylı iptal uygulanır", () => {
   let target: string;
   let convertOp: string;
 
@@ -808,26 +808,36 @@ describe("kesinleştirme 3e'ye kadar kapalı; onaylı iptal uygulanır", () => {
     )[0].operation_id;
   });
 
-  it("kesinleştirme onayı modülde reddedilir (convert_disabled); ret serbest", async () => {
+  it("kesinleştirme onayı misafir bilgisi tam değilse reddedilir (çocuk sayısı boş → 0 sayılmaz)", async () => {
     const v = (await getOperation(adminDb, adminId, convertOp)).version;
     const base = {
       operationId: convertOp,
       version: v,
+      approve: true,
       note: null,
       checkIn: null,
       checkOut: null,
       expiresMinutes: null,
       guestName: "Test Misafir",
       adults: 2,
-      children: 0,
+      children: 0 as number | null,
     };
-    expect(await errCode(decideOperation(adminDb, adminId, { ...base, approve: true }))).toBe(
-      "convert_disabled",
-    );
+    for (const bad of [
+      { children: null },
+      { adults: null },
+      { guestName: null },
+      { guestName: "X" },
+      { adults: 0 },
+    ]) {
+      expect(
+        await errCode(decideOperation(adminDb, adminId, { ...base, ...bad })),
+        JSON.stringify(bad),
+      ).toBe("guest_info_required");
+    }
     expect((await opRow(convertOp)).status).toBe("pending");
   });
 
-  it("veritabanında onaylanmış kesinleştirme bile görevce ALINMAZ (opsiyon açık kalır)", async () => {
+  it("onaylı kesinleştirme, kesinleştirme adımı verilmeyen görevde (3c girdisi) ve onaylı oluşturma / iptal adımında ALINMAZ", async () => {
     const v = (await opRow(convertOp)).version;
     const c = await adminRolePool.connect();
     try {

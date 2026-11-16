@@ -523,12 +523,27 @@ describe("oluşturma", () => {
     expect(await opsOf(m.id)).toEqual([]);
   });
 
-  it("kesinleştirme (ödeme alındı) 3e'ye kadar işlem üretmez; imleç kapanır", async () => {
+  it("kesinleştirme (ödeme alındı) otomatik uygulanmaz → Super Admin onayı; opsiyon açık, rezervasyon yok", async () => {
+    const reservations = (
+      await admin.query("select count(*)::int n from reservations where workspace_id = $1", [ws])
+    ).rows[0].n;
     const m = await send("10-14 Mart opsiyon ödeme alındı");
     await runTask();
     expect(await scan(m.id)).toMatchObject({ status: "done" });
-    expect(await opsOf(m.id)).toEqual([]);
+    expect(await opsOf(m.id)).toEqual([
+      expect.objectContaining({
+        kind: "convert",
+        mode: "needs_approval",
+        status: "pending",
+        target_option_id: created,
+        result_option_id: null,
+      }),
+    ]);
     expect((await opt(created)).status).toBe("open");
+    expect(
+      (await admin.query("select count(*)::int n from reservations where workspace_id = $1", [ws]))
+        .rows[0].n,
+    ).toBe(reservations);
   });
 });
 

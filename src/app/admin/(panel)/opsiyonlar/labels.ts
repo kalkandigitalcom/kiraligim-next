@@ -66,7 +66,7 @@ export const OP_KIND_LABELS: Record<string, string> = {
 
 export const OP_STATUS_LABELS: Record<string, string> = {
   pending: "Onay bekliyor",
-  approved: "Onaylandı — uygulanmayı bekliyor",
+  approved: "Onaylandı — bakım görevinin uygulaması bekleniyor",
   applied: "Uygulandı",
   rejected: "Reddedildi",
   stale: "Uygulanmadı (takvim veya hedef değişti)",
@@ -83,6 +83,17 @@ export const FAILURE_LABELS: Record<string, string> = {
   target_changed: "Hedef opsiyon değişti veya kapandı",
   group_changed: "WhatsApp grubunun villası / işletmesi değişti",
   not_applicable: "Koşullar uygun değil (villa pasif, süre dolmuş veya giriş tarihinden sonra)",
+  // Aşama 3e: kesinleştirme
+  owner_changed: "İşletme sahibi değişti",
+  owner_unavailable: "İşletme sahibi veya işletme artık uygun değil",
+  option_expired: "Opsiyonun süresi doldu (süre uzatılmaz)",
+  date_past: "Giriş tarihi geçmiş",
+  guest_info_missing: "Misafir bilgisi eksik",
+  property_inactive: "Villa pasif",
+  calendar_conflict: "Takvimde çakışan kayıt veya harici doluluk var",
+  capacity: "Misafir sayısı villa kapasitesini aşıyor",
+  invalid: "Rezervasyon kurallarına uymuyor",
+  reservation_mismatch: "Oluşan kayıt işlemle uyuşmadı (geri alındı)",
 };
 
 export const REASON_LABELS: Record<string, string> = {

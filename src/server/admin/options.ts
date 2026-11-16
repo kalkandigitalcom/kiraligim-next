@@ -21,8 +21,11 @@ import {
 } from "@/lib/option-meta";
 import { AppError } from "@/lib/errors";
 
-/** Kesin rezervasyona dönüştürme (kesinleştirme) onayı Aşama 3e'de açılır. */
-export const OPTION_CONVERT_ENABLED = false;
+/**
+ * Kesin rezervasyona dönüştürme (kesinleştirme) onayı — Aşama 3e'de açıldı. Yalnız WhatsApp kaynaklı
+ * kesinleştirme işlemleri; dönüşümü onaydan sonra option-maintenance görevi yapar.
+ */
+export const OPTION_CONVERT_ENABLED = true;
 
 export const ADMIN_OPTION_ERRORS = {
   not_found: "Kayıt bulunamadı.",
@@ -37,7 +40,9 @@ export const ADMIN_OPTION_ERRORS = {
   default_not_in_choices: "Varsayılan süre, süre seçenekleri arasında olmalı.",
   guests_invalid: "Misafir sayısı geçersiz.",
   note_invalid: "Not en fazla 500 karakter olabilir.",
-  convert_disabled: "Kesin rezervasyona dönüştürme Aşama 3e'de açılacak.",
+  convert_disabled: "Kesin rezervasyona dönüştürme şu anda kapalı.",
+  guest_info_required:
+    "Kesinleştirme için misafir adı, yetişkin sayısı ve çocuk sayısı (0 dahil) açıkça girilmeli.",
   not_available: "Bu grup şu anda opsiyon ayarı için uygun değil (bağlı değil veya villası yok).",
   confirm_required: "Onay kutusunu işaretleyin.",
   error: "İşlem tamamlanamadı. Yeniden deneyin.",
@@ -552,9 +557,25 @@ export async function decideOperation(
 ): Promise<DecisionOutcome> {
   if (!isUuid(input.operationId)) throw new AdminOptionError("not_found");
   if (!Number.isInteger(input.version) || input.version < 1) throw new AdminOptionError("invalid");
-  if (input.approve && !OPTION_CONVERT_ENABLED) {
+  if (input.approve) {
     const op = await getOperation(db, adminId, input.operationId);
-    if (op.kind === "convert") throw new AdminOptionError("convert_disabled");
+    if (op.kind === "convert") {
+      if (!OPTION_CONVERT_ENABLED) throw new AdminOptionError("convert_disabled");
+      // Misafir bilgisi otomatik tamamlanmaz: ad, yetişkin ve çocuk (0 dahil) açıkça girilmeli.
+      const name = input.guestName?.trim() ?? "";
+      if (
+        name.length < 2 ||
+        name.length > 120 ||
+        input.adults === null ||
+        !Number.isInteger(input.adults) ||
+        input.adults < 1 ||
+        input.children === null ||
+        !Number.isInteger(input.children) ||
+        input.children < 0
+      ) {
+        throw new AdminOptionError("guest_info_required");
+      }
+    }
   }
   const out = await scalar(
     db,

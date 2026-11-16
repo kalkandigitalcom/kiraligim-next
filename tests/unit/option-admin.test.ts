@@ -84,9 +84,9 @@ describe("kalan süre ve diğer alanlar", () => {
 });
 
 describe("panel sabitleri ve sınırlar", () => {
-  it("kesinleştirme 3e'ye kadar kapalı; hata mesajları tanımlı", () => {
-    expect(OPTION_CONVERT_ENABLED).toBe(false);
-    expect(ADMIN_OPTION_ERRORS.convert_disabled).toMatch(/3e/);
+  it("kesinleştirme Aşama 3e'de açık; misafir bilgisi zorunluluğu mesajı tanımlı", () => {
+    expect(OPTION_CONVERT_ENABLED).toBe(true);
+    expect(ADMIN_OPTION_ERRORS.guest_info_required).toMatch(/çocuk/);
   });
 
   it("panel kodu rezervasyon, worker, ayrıştırıcı, iCal ve API modüllerine YAZMAZ (yalnız opsiyon fonksiyonları)", () => {

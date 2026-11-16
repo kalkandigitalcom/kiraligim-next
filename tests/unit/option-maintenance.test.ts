@@ -13,6 +13,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import { createLogger } from "@/lib/logger";
+import { AppError, validationError } from "@/lib/errors";
+import { conversionFailure } from "@/server/options/convert";
 import { runOptionMaintenance } from "@/server/options/run";
 
 const dialect = new PgDialect();
@@ -23,6 +25,7 @@ type Script = {
   alerts?: number[];
   messages?: object[][];
   ops?: object[][];
+  convs?: object[][];
   outcomes?: string[];
   fail?: Partial<Record<string, string>>;
 };
@@ -34,6 +37,7 @@ function fakeDb(s: Script = {}) {
     alerts: [...(s.alerts ?? [])],
     messages: [...(s.messages ?? [])],
     ops: [...(s.ops ?? [])],
+    convs: [...(s.convs ?? [])],
     outcomes: [...(s.outcomes ?? [])],
   };
   const applied: unknown[][] = [];
@@ -56,6 +60,8 @@ function fakeDb(s: Script = {}) {
           return { rows: queues.messages.shift() ?? [] };
         case "app_option_claim_approved_operations":
           return { rows: queues.ops.shift() ?? [] };
+        case "app_option_claim_approved_conversions":
+          return { rows: queues.convs.shift() ?? [] };
         case "app_option_apply_approved_operation": {
           applied.push(dialect.sqlToQuery(q).params);
           const out = queues.outcomes.shift() ?? "applied";
@@ -110,6 +116,7 @@ describe("runOptionMaintenance", () => {
         lost: 0,
         errors: 0,
       },
+      conversions: "disabled",
       alerts: 1,
       messages: "disabled",
       failedSteps: [],
@@ -246,5 +253,77 @@ describe("runOptionMaintenance", () => {
         imports.filter((i) => /whatsapp|reservations|wa-calendar|ical|api\//.test(i!)),
       ).toEqual([]);
     }
+  });
+
+  it("kesinleştirme adımı: dönüştürücü verilmezse çağrılmaz; verilirse işlem süre dolumundan ve onaylı işlemden sonra, uyarıdan önce", async () => {
+    const off = fakeDb({ convs: [[{ id: "x", lock_token: "t", workspace_id: "w" }]] });
+    const r0 = await runOptionMaintenance(off.db);
+    expect(r0).toMatchObject({ conversions: "disabled" });
+    expect(off.calls).not.toContain("app_option_claim_approved_conversions");
+
+    const seen: string[] = [];
+    const outs = ["applied", "stale", "failed", "automation_off", "lost", "retry"] as const;
+    const rows = outs.map((_, i) => ({ id: `op${i}`, lock_token: `t${i}`, workspace_id: "w" }));
+    const on = fakeDb({ convs: [[...rows, { id: "boom", lock_token: "tb", workspace_id: "w" }]] });
+    const r = await runOptionMaintenance(on.db, {
+      convert: async (op) => {
+        seen.push(`${op.id}:${op.lockToken}`);
+        if (op.id === "boom") throw new Error("x");
+        return outs[Number(op.id.slice(2))]!;
+      },
+    });
+    expect(on.calls).toEqual([
+      "pg_try_advisory_lock",
+      "app_option_expire_due",
+      "app_option_claim_approved_operations",
+      "app_option_claim_approved_conversions",
+      "app_option_scan_conflicts",
+      "pg_advisory_unlock",
+    ]);
+    expect(seen).toEqual([...rows.map((x) => `${x.id}:${x.lock_token}`), "boom:tb"]);
+    expect(r).toMatchObject({
+      conversions: {
+        claimed: 7,
+        applied: 1,
+        stale: 1,
+        failed: 1,
+        automation_off: 1,
+        lost: 1,
+        retry: 2,
+      },
+      failedSteps: [],
+    });
+  });
+
+  it("kesinleştirme hatası eşleme: çakışma, pasif villa, kapasite, kural, sahip, uyuşmazlık; geçici hata yeniden denenir", () => {
+    expect(conversionFailure(new AppError("CONFLICT", "Bu tarihlerde çakışan kayıt var."))).toEqual(
+      {
+        outcome: "failed",
+        code: "calendar_conflict",
+      },
+    );
+    expect(
+      conversionFailure(
+        new AppError("CONFLICT", "Pasif mülke yeni rezervasyon veya blok eklenemez."),
+      ),
+    ).toEqual({ outcome: "failed", code: "property_inactive" });
+    expect(conversionFailure(validationError({ adults: ["kapasite"] }))).toEqual({
+      outcome: "failed",
+      code: "capacity",
+    });
+    expect(conversionFailure(validationError({ checkIn: ["tarih"] }))).toEqual({
+      outcome: "failed",
+      code: "invalid",
+    });
+    expect(conversionFailure(new AppError("NOT_FOUND", "İşletme bulunamadı."))).toEqual({
+      outcome: "stale",
+      code: "owner_unavailable",
+    });
+    expect(
+      conversionFailure(Object.assign(new Error("option_convert_mismatch"), { code: "23514" })),
+    ).toEqual({ outcome: "failed", code: "reservation_mismatch" });
+    expect(
+      conversionFailure(Object.assign(new Error("deadlock detected"), { code: "40P01" })),
+    ).toBeNull();
   });
 });

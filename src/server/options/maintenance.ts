@@ -9,10 +9,12 @@
  * Yapılanlar (ayrıntı: ./run.ts): süresi dolan opsiyonları expired yapar; Super Admin'in onayladığı
  * oluşturma / iptal işlemlerini (yalnız global + işletme + grup anahtarı açıkken; Aşama 3c) uygular;
  * açık opsiyonla çakışan kesin kayıtlar için Super Admin uyarısı yazar; (Aşama 3d) worker'ın işlediği
- * WhatsApp mesajlarından opsiyon oluşturur / iptal eder ya da Super Admin onayına düşürür. Mesaj
+ * WhatsApp mesajlarından opsiyon oluşturur / iptal eder ya da Super Admin onayına düşürür; (Aşama 3e)
+ * Super Admin'in onayladığı kesinleştirmeyi işletme sahibi adına kesin rezervasyona çevirir. Mesaj
  * imleci YALNIZ global + işletme + grup anahtarının üçü açıkken mesaj verir; varsayılan hepsi
- * KAPALI. WhatsApp'a tepki göndermez (K-A, K-B); rezervasyon, blok,
- * harici takvim, API, iCal ve webhook verisine YAZMAZ; opsiyon müsaitliği hiçbir koşulda kapatmaz.
+ * KAPALI. WhatsApp'a tepki göndermez (K-A, K-B). Kesin rezervasyon YALNIZ Super Admin onaylı
+ * kesinleştirmede, mevcut rezervasyon servisiyle oluşur; blok, harici takvim, API, iCal ve webhook
+ * verisine doğrudan YAZMAZ; opsiyon (kesinleşene kadar) müsaitliği hiçbir koşulda kapatmaz.
  *
  * Uygulamanın kendi bağlantısını (DATABASE_URL, app_user, RLS) kullanır; ek sır ve ortam değişkeni
  * gerekmez. Aynı anda ikinci süreç advisory lock'u alamaz ve hemen çıkar (çıkış 0).
@@ -22,6 +24,7 @@
 import { createStandaloneDb } from "../../db/standalone";
 import { APP_ENVS, type AppEnv, checkDatabaseName } from "../../lib/env";
 import { createLogger } from "../../lib/logger";
+import { createOptionConverter } from "./convert";
 import { createOptionMessageHandler } from "./message-handler";
 import { runOptionMaintenance } from "./run";
 
@@ -51,6 +54,8 @@ async function main(): Promise<number> {
     const summary = await runOptionMaintenance(db, {
       log,
       handleMessage: createOptionMessageHandler({ log }),
+      // Aşama 3e: Super Admin onaylı kesinleştirme (anahtarlar kapalıysa hiçbiri alınmaz).
+      convert: createOptionConverter(db, { log }),
     });
     log.info("option_maintenance_finished", { ...summary, ms: Date.now() - started });
     return summary.locked && summary.failedSteps.length > 0 ? 1 : 0;

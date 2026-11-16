@@ -206,9 +206,26 @@ describe("iptal", () => {
   });
 });
 
-describe("kesinleştirme 3e'ye kadar kapalı", () => {
-  it.each(["15-18 Nisan ödeme alındı", "15-18 Nisan opsiyon kesinleşti"])("%s → işlem YOK", (m) => {
-    expect(decide(m)).toEqual({ kind: "none", why: "convert_disabled" });
+describe("kesinleştirme (Aşama 3e): her zaman Super Admin onayına", () => {
+  it.each(["15-18 Nisan ödeme alındı", "15-18 Nisan opsiyon kesinleşti"])(
+    "%s → convert / ask (otomatik uygulanmaz)",
+    (m) => {
+      const r = only(m);
+      expect(r).toMatchObject({
+        intent: "convert",
+        decision: "ask",
+        end_reason: null,
+        expires_in_minutes: null,
+      });
+    },
+  );
+
+  it("tarihli kesinleştirmede tarih gönderilir; soru işlem üretmez", () => {
+    expect(only("15-18 Nisan ödeme alındı")).toMatchObject({
+      check_in: "2027-04-15",
+      check_out: "2027-04-18",
+    });
+    expect(only("15-18 Nisan ödeme alındı mı?").decision).toBe("ignore");
   });
 });
 
