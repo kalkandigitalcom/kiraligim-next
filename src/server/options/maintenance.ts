@@ -7,12 +7,12 @@
  * onayla (K-C). Görev hiç çalışmasa da mevcut sistem bundan etkilenmez.
  *
  * Yapılanlar (ayrıntı: ./run.ts): süresi dolan opsiyonları expired yapar; Super Admin'in onayladığı
- * oluşturma / iptal işlemlerini (yalnız global + işletme + grup anahtarı açıkken; Aşama 3c) uygular;
+ * oluşturma / iptal işlemlerini (yalnız otomasyon etkinken; Aşama 3c, 0074) uygular;
  * açık opsiyonla çakışan kesin kayıtlar için Super Admin uyarısı yazar; (Aşama 3d) worker'ın işlediği
  * WhatsApp mesajlarından opsiyon oluşturur / iptal eder ya da Super Admin onayına düşürür; (Aşama 3e)
  * Super Admin'in onayladığı kesinleştirmeyi işletme sahibi adına kesin rezervasyona çevirir. Mesaj
- * imleci YALNIZ global + işletme + grup anahtarının üçü açıkken mesaj verir; varsayılan hepsi
- * KAPALI. WhatsApp'a tepki göndermez (K-A, K-B). Kesin rezervasyon YALNIZ Super Admin onaylı
+ * imleci YALNIZ global anahtar (acil durum kill switch'i) açıkken ve yalnız bağlı, villası atanmış,
+ * işletmesi aktif gruplardan mesaj verir (tek ortak sistem, 0074); global varsayılan KAPALI. WhatsApp'a tepki göndermez (K-A, K-B). Kesin rezervasyon YALNIZ Super Admin onaylı
  * kesinleştirmede, mevcut rezervasyon servisiyle oluşur; blok, harici takvim, API, iCal ve webhook
  * verisine doğrudan YAZMAZ; opsiyon (kesinleşene kadar) müsaitliği hiçbir koşulda kapatmaz.
  *

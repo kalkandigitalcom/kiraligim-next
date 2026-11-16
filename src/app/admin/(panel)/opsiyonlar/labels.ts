@@ -146,7 +146,7 @@ export const ALERT_SOURCE_LABELS: Record<string, string> = {
 
 export const NOTICES: Record<string, string> = {
   onaylandi:
-    "İşlem onaylandı. Bakım görevi anahtarlar açıkken takvimi yeniden doğrulayıp uygular; takvim değişirse uygulanmaz.",
+    "İşlem onaylandı. Bakım görevi global anahtar açıkken takvimi yeniden doğrulayıp uygular; takvim değişirse uygulanmaz.",
   reddedildi: "İşlem reddedildi.",
   "iptal-edildi": "Opsiyon iptal edildi (panel_cancel). Kesin kayıtlara dokunulmadı.",
   goruldu: "Uyarı görüldü olarak işaretlendi.",

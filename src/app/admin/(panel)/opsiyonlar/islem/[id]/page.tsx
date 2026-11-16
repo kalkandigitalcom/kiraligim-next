@@ -218,8 +218,8 @@ export default async function AdminOptionOperationPage({ params, searchParams }:
               Karar
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Onay işlemi uygulanmaya hazır hâle getirir. Bakım görevi yalnız global, işletme ve
-              grup anahtarları açıkken uygular ve uygularken takvimi yeniden doğrular.
+              Onay işlemi uygulanmaya hazır hâle getirir. Bakım görevi yalnız global anahtar açıkken
+              ve grup hâlâ bağlıyken uygular ve uygularken takvimi yeniden doğrular.
             </p>
           </div>
           {convertLocked ? (

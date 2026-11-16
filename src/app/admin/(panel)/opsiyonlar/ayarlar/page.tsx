@@ -14,7 +14,7 @@ import {
 import { requireAdmin } from "@/server/admin/session";
 import { listAdminGroups, searchAdminWorkspaces } from "@/server/admin/whatsapp";
 
-import { setGlobalAction, setGroupAction, setWorkspaceAction } from "../actions";
+import { setGlobalAction, setWorkspaceAction } from "../actions";
 import { fmt } from "../format";
 import { NOTICES } from "../labels";
 
@@ -37,9 +37,11 @@ const OnOff = ({ on, label }: { on: boolean; label?: string }) => (
 );
 
 /**
- * Super Admin — opsiyon otomasyonu: global anahtar (kill switch), işletme ve WhatsApp grubu
- * anahtarları, varsayılan süre ve süre seçenekleri. Bir grupta otomasyon ancak ÜÇ anahtar birlikte
- * açıkken çalışır; varsayılan hepsi KAPALI. Mevcut WhatsApp grup sayfasına dokunulmaz.
+ * Super Admin — tek ve ortak opsiyon sistemi (0074): global anahtar (acil durum kill switch'i),
+ * işletmelerin varsayılan süre ve süre seçenekleri, bağlı WhatsApp gruplarının durumu (salt
+ * okunur). Global açıkken bağlı, villası atanmış ve işletmesi aktif her grupta otomasyon
+ * kendiliğinden çalışır; işletme veya grup başına açma yoktur. Mevcut WhatsApp grup sayfasına
+ * dokunulmaz.
  */
 export default async function AdminOptionSettingsPage({ searchParams }: Props) {
   const admin = await requireAdmin();
@@ -51,7 +53,7 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
     listAdminGroups(db, admin.adminId),
     query ? searchAdminWorkspaces(db, admin.adminId, query) : Promise.resolve([]),
   ]);
-  const linked = groups.filter((g) => g.status === "linked" || settings.groups.has(g.id));
+  const linked = groups.filter((g) => g.status === "linked");
   // İşletme adları: bağlı gruplardan ve aramadan; ayarı olup adı bilinmeyenler için tek arama.
   const names = new Map<string, string>();
   for (const g of groups)
@@ -80,8 +82,10 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-navy-900">Opsiyon otomasyonu</h1>
         <p className="mt-1 text-[15px] text-muted-foreground">
-          Bir WhatsApp grubunda opsiyon otomasyonu ancak global, işletme ve grup anahtarlarının üçü
-          birlikte açıkken çalışır. Varsayılan hepsi kapalı. Opsiyon müsaitliği kapatmaz.
+          Tek ve ortak opsiyon sistemi: global anahtar açıkken işletmeye ve villaya bağlı her
+          WhatsApp grubunda opsiyon otomasyonu kendiliğinden çalışır; işletme veya grup başına açma
+          gerekmez. Global anahtar yalnız acil durumda bütün sistemi durdurmak içindir. Opsiyon
+          müsaitliği kapatmaz.
         </p>
       </div>
       {notice ? <Alert tone="success">{notice}</Alert> : null}
@@ -100,7 +104,8 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
         </div>
         <p className="text-sm text-muted-foreground">
           Kapalıyken hiçbir grupta opsiyon mesajı okunmaz ve onaylanmış işlemler de uygulanmaz
-          (bekler). Süresi dolan opsiyonların kapanması ve çakışma uyarıları her durumda çalışır.
+          (bekler); kapalıyken gelen mesajlar yeniden açılınca geriye dönük işlenmez. Süresi dolan
+          opsiyonların kapanması ve çakışma uyarıları her durumda çalışır.
         </p>
         {g0.enabled ? (
           <form action={setGlobalAction.bind(null, false)}>
@@ -110,8 +115,8 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
           <form action={setGlobalAction.bind(null, true)} className="flex flex-col gap-3">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" name="confirm" value="evet" required /> Global opsiyon
-              otomasyonunun açılmasını onaylıyorum (yalnız işletme ve grup anahtarı açık olan
-              gruplarda çalışır).
+              otomasyonunun açılmasını onaylıyorum (işletmeye ve villaya bağlı BÜTÜN WhatsApp
+              gruplarında çalışır).
             </label>
             <div>
               <Button type="submit" variant="secondary">
@@ -128,9 +133,10 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
             İşletmeler
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Süreler saat (ör. 48) ya da gün (ör. 2g) olarak, 1 saat – 14 gün arasında. Süre
-            seçenekleri virgülle ayrılır (en fazla 12); varsayılan seçeneklerden biri olmalı. Süre
-            yazılmamış mesaj, varsayılan yoksa Super Admin onayına düşer.
+            Her işletmenin kendi varsayılan opsiyon süresi. Süreler saat (ör. 48) ya da gün (ör. 2g)
+            olarak, 1 saat – 14 gün arasında. Süre seçenekleri virgülle ayrılır (en fazla 12);
+            varsayılan seçeneklerden biri olmalı. Süre yazılmamış mesaj, varsayılan yoksa Super
+            Admin onayına düşer.
           </p>
         </div>
         <form method="get" className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -149,7 +155,7 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
         </form>
         {workspaceIds.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Henüz ayarı olan veya WhatsApp grubu bağlı işletme yok.
+            Henüz süre ayarı olan veya WhatsApp grubu bağlı işletme yok.
           </p>
         ) : (
           <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
@@ -159,7 +165,6 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
                 <li key={wid} className="flex flex-col gap-3 px-4 py-4">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
                     <span className="font-medium text-navy-900">{names.get(wid) ?? wid}</span>
-                    <OnOff on={Boolean(s?.enabled)} />
                     {s ? (
                       <span className="text-muted-foreground">
                         varsayılan {formatMinutes(s.defaultMinutes)} · seçenekler{" "}
@@ -167,17 +172,13 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
                         değişiklik {fmt(s.updatedAt)}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">ayar yok (kapalı)</span>
+                      <span className="text-muted-foreground">varsayılan süre yok</span>
                     )}
                   </div>
                   <form
                     action={setWorkspaceAction.bind(null, wid)}
-                    className="grid gap-3 sm:grid-cols-[auto_1fr_1fr_auto] sm:items-end"
+                    className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
                   >
-                    <label className="flex items-center gap-2 text-sm sm:pb-3">
-                      <input type="checkbox" name="enabled" defaultChecked={Boolean(s?.enabled)} />{" "}
-                      Otomasyon açık
-                    </label>
                     <Field
                       id={`def-${wid}`}
                       name="defaultDuration"
@@ -194,14 +195,9 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
                       placeholder="ör. 24, 48, 3g"
                       maxLength={120}
                     />
-                    <div className="flex flex-col gap-2">
-                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <input type="checkbox" name="confirm" value="evet" /> Açmayı onaylıyorum
-                      </label>
-                      <Button type="submit" variant="secondary" size="sm">
-                        Kaydet
-                      </Button>
-                    </div>
+                    <Button type="submit" variant="secondary" size="sm">
+                      Kaydet
+                    </Button>
                   </form>
                 </li>
               );
@@ -216,9 +212,10 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
             WhatsApp grupları
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Yalnız işletmeye ve villaya bağlı gruplar. Grubun bağlantısı kaldırılıp yeniden
-            bağlanırsa grup anahtarı geçersiz olur ve yeniden açılmalıdır. Grup yönetimi
-            (eşleştirme, villa değişikliği) WhatsApp grupları sayfasındadır.
+            İşletmeye bağlı gruplar (salt okunur). Global anahtar açıkken bağlı ve villası atanmış
+            her grupta opsiyon otomasyonu çalışır; grubun işletmesi askıdaysa çalışmaz. Opsiyon
+            işlemini yalnız doğrulanmış sahip veya yönetici telefonu başlatabilir. Grup yönetimi
+            (eşleştirme, villa değişikliği, askıya alma, engelleme) WhatsApp grupları sayfasındadır.
           </p>
         </div>
         {linked.length === 0 ? (
@@ -226,43 +223,23 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
         ) : (
           <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
             {linked.map((g) => {
-              const s = settings.groups.get(g.id);
-              const on = Boolean(s?.enabled);
+              const ready = Boolean(g.propertyId);
               return (
-                <li
-                  key={g.id}
-                  className="flex flex-col gap-2 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <span className="min-w-0">
-                    <span className="block font-medium text-navy-900">
-                      {g.subject ?? "Adsız grup"} <OnOff on={on} />{" "}
-                      {s?.effective ? <OnOff on label="ETKİN" /> : null}
-                    </span>
-                    <span className="block text-muted-foreground">
-                      {g.workspaceName ?? "—"} · {g.propertyName ?? "villa yok"}
-                      {g.status !== "linked" ? " · bağlı değil" : ""}
-                      {s ? ` · son değişiklik ${fmt(s.updatedAt)}` : ""}
-                    </span>
+                <li key={g.id} className="flex flex-col gap-1 px-4 py-3 text-sm">
+                  <span className="font-medium text-navy-900">
+                    {g.subject ?? "Adsız grup"}{" "}
+                    {!ready ? (
+                      <OnOff on={false} label="VİLLA YOK" />
+                    ) : g0.enabled ? (
+                      <OnOff on label="ETKİN" />
+                    ) : (
+                      <OnOff on={false} label="GLOBAL KAPALI" />
+                    )}
                   </span>
-                  {on ? (
-                    <form action={setGroupAction.bind(null, g.id, false)}>
-                      <Button type="submit" variant="secondary" size="sm">
-                        Kapat
-                      </Button>
-                    </form>
-                  ) : g.status === "linked" && g.propertyId ? (
-                    <form
-                      action={setGroupAction.bind(null, g.id, true)}
-                      className="flex items-center gap-3"
-                    >
-                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <input type="checkbox" name="confirm" value="evet" required /> Onaylıyorum
-                      </label>
-                      <Button type="submit" variant="secondary" size="sm">
-                        Aç
-                      </Button>
-                    </form>
-                  ) : null}
+                  <span className="text-muted-foreground">
+                    {g.workspaceName ?? "—"} · {g.propertyName ?? "villa yok"}
+                    {g.propertyActive === false ? " · villa pasif" : ""}
+                  </span>
                 </li>
               );
             })}

@@ -367,9 +367,8 @@ const resCount = async () =>
   );
 
 beforeAll(async () => {
+  // Tek ortak sistem (0074): yalnız global anahtar; işletme ve grup ayarı gerekmez.
   expect(await setGlobal(true)).toBe("changed");
-  expect(await setWorkspace(true)).toBe("changed");
-  expect(await setGroup(G.id, true)).toBe("changed");
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -695,19 +694,17 @@ describe("başarısız dönüşümler: rezervasyon oluşmaz", () => {
     expect(await resCount()).toBe(before);
   });
 
-  it("kill switch ve işletme anahtarı kapalıyken onaylı dönüşüm bekler; açılınca uygulanır", async () => {
+  it("kill switch kapalıyken onaylı dönüşüm bekler; açılınca uygulanır (eski işletme anahtarı belirleyici değil)", async () => {
     const { op } = await optionWithConvert("24-27 Mart");
     await approve(op);
     expect(await setGlobal(false)).toBe("changed");
     const before = await resCount();
     await runTask();
     expect(await opRow(op)).toMatchObject({ status: "approved", attempts: 0 });
-    expect(await setGlobal(true)).toBe("changed");
-    expect(await setWorkspace(false)).toBe("changed");
-    await runTask();
-    expect(await opRow(op)).toMatchObject({ status: "approved", attempts: 0 });
     expect(await resCount()).toBe(before);
-    expect(await setWorkspace(true)).toBe("changed");
+    // Tek ortak sistem (0074): işletme anahtarı kapalı olsa da global açılınca uygulanır.
+    expect(await setWorkspace(false)).toBe("changed");
+    expect(await setGlobal(true)).toBe("changed");
     await runTask();
     expect((await opRow(op)).status).toBe("applied");
     expect(await resCount()).toBe(before + 1);

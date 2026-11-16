@@ -9,7 +9,8 @@
  *                      bağımsızdır (opsiyon müsaitliği zaten etkilemez); FOR UPDATE SKIP LOCKED.
  *   2. Onaylı işlem  — Aşama 3c: Super Admin'in onayladığı OLUŞTUR / İPTAL işlemleri
  *                      (app_option_claim_approved_operations + app_option_apply_approved_operation,
- *                      drizzle/0071). Global + işletme + grup anahtarı açık değilse hiçbiri alınmaz;
+ *                      drizzle/0071). Otomasyon etkin değilse (global kapalı ya da grup bağlı /
+ *                      villalı / işletmesi aktif değil; 0074) hiçbiri alınmaz;
  *                      uygulama anında anahtar satırları kilitlenip anahtarlar, grubun villası,
  *                      takvim parmak izi ve hedef sürümü YENİDEN doğrulanır (tek transaction).
  *                      Kesinleştirme 3e'ye kadar alınmaz.
@@ -21,7 +22,7 @@
  *                      rezervasyon DEĞİŞMEZ; (opsiyon, kaynak) başına tek uyarı.
  *   4. Mesaj imleci  — app_option_claim_messages: YALNIZ bir mesaj işleyicisi verilmişse (Aşama 3d).
  *                      İşleyici yoksa imleç HİÇ okunmaz: hiçbir mesaj "işlendi" sayılmaz, 3d
- *                      geldiğinde kayıp olmaz. Otomasyon (global + işletme + grup) kapalıysa
+ *                      geldiğinde kayıp olmaz. Otomasyon (global; 0074) kapalıysa
  *                      fonksiyon zaten hiçbir mesaj döndürmez. İşleyici hata verirse imleç "claimed"
  *                      kalır; 5 dakika sonra en fazla 3 kez yeniden alınır.
  *

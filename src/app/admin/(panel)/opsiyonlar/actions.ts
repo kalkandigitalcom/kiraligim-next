@@ -18,8 +18,8 @@ import {
   type AdminOptionErrorCode,
   cancelOption,
   decideOperation,
+  getOptionSettings,
   setOptionGlobal,
-  setOptionGroup,
   setOptionWorkspace,
 } from "@/server/admin/options";
 import { requireAdmin } from "@/server/admin/session";
@@ -175,36 +175,24 @@ export async function setGlobalAction(enabled: boolean, fd: FormData): Promise<v
 }
 
 export async function setWorkspaceAction(workspaceId: string, fd: FormData): Promise<void> {
-  const enabled = text(fd, "enabled") === "on";
+  // Tek ortak opsiyon sistemi (0074): işletme başına otomasyon anahtarı yok; burada yalnız
+  // işletmenin varsayılan süresi ve süre seçenekleri kaydedilir. Eski anahtar değeri (artık
+  // kullanılmayan sütun) olduğu gibi korunur.
   const def = parseDurationMinutes(fd.get("defaultDuration"));
   if (def !== null && Number.isNaN(def)) fail(SETTINGS, "duration_invalid");
   const choices = parseDurationChoices(fd.get("choices"));
   if (choices === null) fail(SETTINGS, "choices_invalid");
-  if (enabled && text(fd, "confirm") !== "evet") fail(SETTINGS, "confirm_required");
   await run(
     SETTINGS,
-    (db, adminId) =>
+    async (db, adminId) =>
       setOptionWorkspace(db, adminId, {
         workspaceId,
-        enabled,
+        enabled:
+          (await getOptionSettings(db, adminId)).workspaces.get(workspaceId)?.enabled ?? false,
         defaultMinutes: def,
         choices: choices ?? [],
       }),
     SETTING_NOTICES,
     "workspace",
-  );
-}
-
-export async function setGroupAction(
-  groupId: string,
-  enabled: boolean,
-  fd: FormData,
-): Promise<void> {
-  if (enabled && text(fd, "confirm") !== "evet") fail(SETTINGS, "confirm_required");
-  await run(
-    SETTINGS,
-    (db, adminId) => setOptionGroup(db, adminId, groupId, enabled),
-    SETTING_NOTICES,
-    "group",
   );
 }

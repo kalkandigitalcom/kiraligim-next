@@ -798,17 +798,3 @@ export async function setOptionWorkspace(
   );
   return outcome(out, ["changed", "unchanged"] as const);
 }
-
-export async function setOptionGroup(
-  db: Database,
-  adminId: string,
-  groupId: string,
-  enabled: boolean,
-): Promise<SettingOutcome> {
-  if (!isUuid(groupId)) throw new AdminOptionError("not_found");
-  const out = await scalar(
-    db,
-    sql`select public.app_option_admin_set_group(${adminId}::uuid, ${groupId}::uuid, ${enabled}) as out`,
-  );
-  return outcome(out, ["changed", "unchanged"] as const);
-}

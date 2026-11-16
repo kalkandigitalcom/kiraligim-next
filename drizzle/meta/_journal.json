@@ -519,6 +519,13 @@
       "when": 1794880800000,
       "tag": "0073_option_convert",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794967200000,
+      "tag": "0074_option_shared_automation",
+      "breakpoints": true
     }
   ]
 }

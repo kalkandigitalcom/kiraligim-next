@@ -28,7 +28,6 @@ import {
   listOptionOperations,
   listOptions,
   setOptionGlobal,
-  setOptionGroup,
   setOptionWorkspace,
 } from "@/server/admin/options";
 import { setAdminGroupProperty } from "@/server/admin/whatsapp";
@@ -398,7 +397,7 @@ describe("ayarlar ve kill switch", () => {
     expect((await getOptionCounts(adminDb, adminId)).globalEnabled).toBe(false);
   });
 
-  it("işletme: varsayılan seçeneklerde olmalı; sıralı ve tekil saklanır; grup bağlı değilse not_available", async () => {
+  it("işletme: varsayılan seçeneklerde olmalı; sıralı ve tekil saklanır; işletme anahtarı otomasyonu belirlemez", async () => {
     expect(
       await errCode(
         setOptionWorkspace(adminDb, adminId, {
@@ -423,20 +422,10 @@ describe("ayarlar ve kill switch", () => {
       effective: false,
       choices: [1440, 2880],
     });
-    expect(await setOptionGroup(adminDb, adminId, G.id, true)).toBe("changed");
-    expect((await getOptionSettings(adminDb, adminId)).groups.get(G.id)).toMatchObject({
-      enabled: true,
-      effective: false, // global kapalı
-    });
-    const looseJid = newJid();
-    await appPool.query(
-      "select public.app_wa_sync_group($1, $2, 'Bağsız', 3, false, false, true)",
-      [conn, looseJid],
-    );
-    const loose = (await admin.query("select id from wa_groups where jid = $1", [looseJid])).rows[0]
-      .id as string;
-    expect(await errCode(setOptionGroup(adminDb, adminId, loose, true))).toBe("not_available");
-    expect(await errCode(setOptionGroup(adminDb, adminId, "x", true))).toBe("not_found");
+    // Tek ortak sistem (0074): grup başına anahtar yok; global kapalıyken hiçbir grupta etkin değil.
+    expect(
+      (await admin.query("select public.app_option_automation_enabled($1) as e", [G.id])).rows[0].e,
+    ).toBe(false);
   });
 
   it("global anahtar: açılır, kapanır (kill switch); her değişiklik admin_audit_log'a yazılır", async () => {
@@ -450,7 +439,10 @@ describe("ayarlar ve kill switch", () => {
     );
     expect(await setOptionGlobal(adminDb, adminId, true)).toBe("changed");
     expect((await getOptionCounts(adminDb, adminId)).globalEnabled).toBe(true);
-    expect((await getOptionSettings(adminDb, adminId)).groups.get(G.id)?.effective).toBe(true);
+    // Tek ortak sistem (0074): grup satırı olmadan bağlı grup etkin.
+    expect(
+      (await admin.query("select public.app_option_automation_enabled($1) as e", [G.id])).rows[0].e,
+    ).toBe(true);
     expect(await setOptionGlobal(adminDb, adminId, false)).toBe("changed");
     expect(await setOptionGlobal(adminDb, adminId, false)).toBe("unchanged");
     const after = Number(
@@ -555,23 +547,19 @@ describe("onay, ret ve onaylı işlemin uygulanması", () => {
     ).toBe(0);
   });
 
-  it("işletme anahtarı kapalıyken de alınmaz", async () => {
-    await setOptionGlobal(adminDb, adminId, true);
+  it("tek ortak sistem (0074): işletme anahtarı kapalı olsa da grup etkin; yalnız global kill switch durdurur", async () => {
     await setOptionWorkspace(adminDb, adminId, {
       workspaceId: ws,
       enabled: false,
       defaultMinutes: null,
       choices: [1440, 2880],
     });
-    await runTask();
-    expect((await opRow(opCreate)).status).toBe("approved");
-    await setOptionWorkspace(adminDb, adminId, {
-      workspaceId: ws,
-      enabled: true,
-      defaultMinutes: null,
-      choices: [1440, 2880],
-    });
-    // İşletme anahtarı yeniden açıldı ama grup ayarı işletmeden ÖNCE güncellenmişti: grup hâlâ açık.
+    const on = async () =>
+      (await admin.query("select public.app_option_automation_enabled($1) as e", [G.id])).rows[0]
+        .e as boolean;
+    expect(await on()).toBe(false); // global hâlâ kapalı
+    await setOptionGlobal(adminDb, adminId, true);
+    expect(await on()).toBe(true);
   });
 
   it("anahtarlar açık: onaydan sonra takvim değişmediyse uygulanır; geçmişte Super Admin aktörü; işletme denetimi; ikinci çalıştırma tekrar uygulamaz", async () => {
@@ -641,7 +629,6 @@ describe("onay, ret ve onaylı işlemin uygulanması", () => {
 
   it("onaydan sonra grubun villası değişirse uygulanmaz (stale, group_changed)", async () => {
     const g2 = await group(mavi);
-    await setOptionGroup(adminDb, adminId, g2.id, true);
     const id = await pendingCreate(70, 72, g2.jid);
     const v = (await getOperation(adminDb, adminId, id)).version;
     await decideOperation(adminDb, adminId, {

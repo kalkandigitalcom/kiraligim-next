@@ -295,31 +295,38 @@ describe("varsayılanlar ve kill switch", () => {
     expect(await enabled(G.id)).toBe(false);
   });
 
-  it("üç anahtar birlikte açılmadan otomasyon kapalı; global kill switch hepsini kapatır", async () => {
-    expect(await setWorkspace(ws, true, null, [])).toBe("changed");
-    expect(await enabled(G.id)).toBe(false); // global + grup kapalı
-    expect(await setGroup(G.id, true)).toBe("changed");
+  it("tek ortak sistem (0074): global açıkken bağlı her grup etkin; işletme / grup anahtarı gerekmez ve durdurmaz; kill switch hepsini kapatır", async () => {
     expect(await enabled(G.id)).toBe(false); // global kapalı
+    expect(await enabled(G2.id)).toBe(false);
     expect(await setGlobal(true)).toBe("changed");
+    // İşletme ve grup satırı YOK: bağlı, villalı, işletmesi aktif her grup kendiliğinden etkin.
     expect(await enabled(G.id)).toBe(true);
-    expect(await enabled(G2.id)).toBe(false); // grup satırı yok
+    expect(await enabled(G2.id)).toBe(true);
+    // Eski işletme / grup anahtarları artık otomasyonu belirlemez.
+    expect(await setWorkspace(ws, false, null, [])).toBe("changed");
+    expect(await setGroup(G.id, false)).toBe("changed");
+    expect(await enabled(G.id)).toBe(true);
+    // Global kill switch her zaman önceliklidir.
     expect(await setGlobal(false)).toBe("changed");
-    expect(await enabled(G.id)).toBe(false); // kill switch
+    expect(await enabled(G.id)).toBe(false);
+    expect(await enabled(G2.id)).toBe(false);
     expect(await setGlobal(false)).toBe("unchanged");
     expect(await setGlobal(true)).toBe("changed");
-    expect(await setWorkspace(ws, false, null, [])).toBe("changed");
-    expect(await enabled(G.id)).toBe(false); // işletme kill switch
-    expect(await setWorkspace(ws, true, null, [])).toBe("changed");
-    expect(await setGroup(G.id, false)).toBe("changed");
-    expect(await enabled(G.id)).toBe(false); // grup kill switch
-    expect(await setGroup(G.id, true)).toBe("changed");
     expect(await enabled(G.id)).toBe(true);
+    // İşletme askıdaysa ya da grubun villası yoksa çalışmaz.
+    await admin.query("update workspaces set status = 'suspended' where id = $1", [ws]);
+    expect(await enabled(G.id)).toBe(false);
+    await admin.query("update workspaces set status = 'active' where id = $1", [ws]);
+    expect(await enabled(G.id)).toBe(true);
+    await admin.query("update wa_groups set property_id = null where id = $1", [G2.id]);
+    expect(await enabled(G2.id)).toBe(false);
+    await admin.query("update wa_groups set property_id = $2 where id = $1", [G2.id, asya]);
+    expect(await enabled(G2.id)).toBe(true);
   });
 
-  it("grup bağlantısı kaldırılıp yeniden bağlanınca grup ayarı geçersiz (yeniden açılmalı)", async () => {
+  it("grup bağlantısı kaldırılınca / askıya alınınca durur; yeniden bağlanınca ya da başka işletmeye bağlanınca ayrıca açma gerekmeden etkin", async () => {
     const g = await group(ws, mavi);
-    expect(await setGroup(g.id, true)).toBe("changed");
-    expect(await enabled(g.id)).toBe(true);
+    expect(await enabled(g.id)).toBe(true); // yeni bağlanan grup: ek aktivasyon yok
     await admin.query(
       "update wa_groups set status = 'discovered', workspace_id = null, property_id = null, linked_at = null where id = $1",
       [g.id],
@@ -330,21 +337,29 @@ describe("varsayılanlar ve kill switch", () => {
       "update wa_groups set status = 'linked', workspace_id = $2, property_id = $3, linked_at = now() where id = $1",
       [g.id, ws, mavi],
     );
-    expect(await enabled(g.id)).toBe(false); // eski ayar, yeni bağlanmadan önce
-    expect(await setGroup(g.id, true)).toBe("changed");
     expect(await enabled(g.id)).toBe(true);
-    // Başka işletmeye bağlanırsa eski işletmenin ayarı geçmez.
+    await admin.query("update wa_groups set status = 'suspended' where id = $1", [g.id]);
+    expect(await enabled(g.id)).toBe(false);
+    await admin.query("update wa_groups set status = 'linked' where id = $1", [g.id]);
+    // Başka işletmeye bağlanırsa o işletmenin villasıyla çalışır; "beri" zamanı yeni bağlanma anı.
     await admin.query(
       "update wa_groups set workspace_id = $2, property_id = $3, linked_at = now() where id = $1",
       [g.id, wsX, villaX],
     );
-    expect(await enabled(g.id)).toBe(false);
-    expect(await setGroup(g.id, false)).toBe("changed");
+    expect(await enabled(g.id)).toBe(true);
+    const since = (
+      await admin.query(
+        "select public.app_option_automation_since($1) s, (select linked_at from wa_groups where id = $1) l",
+        [g.id],
+      )
+    ).rows[0];
+    expect(new Date(since.s).getTime()).toBe(new Date(since.l).getTime());
+    await admin.query(
+      "update wa_groups set status = 'discovered', workspace_id = null, property_id = null, linked_at = null where id = $1",
+      [g.id],
+    );
   });
-});
 
-// ---------------------------------------------------------------------------------------------
-describe("Super Admin ayarları: yetki, doğrulama, denetim", () => {
   it("pasif / olmayan yönetici reddedilir (42501); app_user ve ağ geçidi rolü fonksiyonları çağıramaz", async () => {
     for (const who of [disabledAdmin, uuidv7()]) {
       expect(await errCode(setGlobal(true, who))).toBe("option_admin_forbidden");
@@ -511,13 +526,21 @@ describe("RLS ve yetkiler", () => {
 
 // ---------------------------------------------------------------------------------------------
 describe("mesajdan işlem (görev fonksiyonları)", () => {
-  it("otomasyon kapalı grubun ve anahtar açılmadan önceki mesajların hiçbiri okunmaz", async () => {
-    const before = await send(`${day(20)}`, G2.jid); // G2'de grup anahtarı yok
+  it("global kapalıyken gelen mesaj açılınca geriye dönük okunmaz; açıldıktan sonra her bağlı gruptan okunur", async () => {
+    expect(await setGlobal(false)).toBe("changed");
+    const before = await send(`${day(20)}`, G2.jid);
     expect((await claim()).map((r) => r.message_id)).not.toContain(before.id);
-    // G2'yi aç: açılmadan önce gelen mesaj yine okunmaz (geriye dönük işlem yok).
-    expect(await setGroup(G2.id, true)).toBe("changed");
+    expect(await setGlobal(true)).toBe("changed");
     expect((await claim()).map((r) => r.message_id)).not.toContain(before.id);
-    expect(await setGroup(G2.id, false)).toBe("changed");
+    // Açıldıktan sonra: aynı işletmenin ikinci grubu da ayrıca açılmadan okunur.
+    const after = await send(`${day(21)}`, G2.jid);
+    const c = await claim();
+    expect(c.map((r) => r.message_id)).toContain(after.id);
+    expect(c.find((r) => r.message_id === after.id)).toMatchObject({
+      group_id: G2.id,
+      property_id: asya,
+    });
+    await apply(after.id, []); // imleci kapat (işlem yok)
   });
 
   it("oluşturma (süre mesajda): opsiyon + 'applied' işlem; mesaj, öneri ve WhatsApp tepkisi değişmez; ikinci kez işlem yok", async () => {

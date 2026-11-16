@@ -32,20 +32,22 @@ import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service
 import { createTestAdmin } from "./wa-admin";
 
 /**
- * Opsiyon Aşama 3f — tek grup pilotu (uygulama kodu ve migration DEĞİŞMEDEN; mevcut anahtarlar).
- * Gerçek PostgreSQL: mesajlar ağ geçidi fonksiyonuyla kaydedilir ve ÜRETİMDEKİ worker'la işlenir;
- * görev üretimdeki giriş noktasıyla aynı (tek bağlantı, mesaj işleyicisi, dönüştürücü); anahtarlar ve
- * onaylar GERÇEK app_admin rolüyle Super Admin fonksiyonlarından verilir.
+ * Opsiyon — tek ve ortak opsiyon sistemi (drizzle/0074). Gerçek PostgreSQL: mesajlar ağ geçidi
+ * fonksiyonuyla kaydedilir ve ÜRETİMDEKİ worker'la işlenir; görev üretimdeki giriş noktasıyla aynı
+ * (tek bağlantı, mesaj işleyicisi, dönüştürücü); anahtar ve onaylar GERÇEK app_admin rolüyle.
  *
- * Kanıtlananlar (docs/option-pilot-runbook.md):
- *   - Aynı işletmede yalnız pilot grubun anahtarı açıkken diğer grubun mesajı okunmaz; o grubun
- *     daha önce onaylanmış işlemi ve kesinleştirmesi uygulanmaz, BEKLER (silinmez).
- *   - Global kill switch her zaman önceliklidir: grup / işletme anahtarı açık olsa da kapatınca hiçbir
- *     mesaj okunmaz ve hiçbir onaylı işlem uygulanmaz; yeniden açılınca aradaki mesajlar işlenmez.
- *   - Pilot grubun bağlantısı kaldırılır ya da grup pasifleştirilirse otomasyon durur.
- *   - Grubun villası değişirse eski villaya ait onaylı işlem uygulanmaz (stale / group_changed).
- *   - Uçtan uca pilot akışı (oluşturma, iptal, süre dolumu, onaylı kesinleştirme) boyunca müsaitlik,
- *     API, iCal ve webhook yalnız kesin rezervasyonla değişir; mevcut rezervasyon komutları aynen çalışır.
+ * Kanıtlananlar:
+ *   - Yalnız global anahtar açıkken bağlı, villası atanmış, işletmesi aktif HER grup işler; işletme
+ *     ve grup başına açma yok (ayar satırı olmadan). Yeni işletme / yeni grup ek işlem gerektirmez.
+ *   - İşletmeler birbirinden izole: aynı tarihler iki işletmede birbirini etkilemez; her grup yalnız
+ *     kendi işletmesinin kendi villası için işlem yapar; başka işletmenin villa adı yazılsa da o
+ *     işletmeye dokunulmaz. Varsayılan opsiyon süresi işletmeye özel.
+ *   - Global kill switch her zaman önceliklidir: kapatınca hiçbir mesaj okunmaz, onaylı işlem /
+ *     kesinleştirme uygulanmaz (bekler, silinmez); açılınca aradaki mesajlar geriye dönük işlenmez.
+ *   - Grup pasifleştirilir / bağlantısı kaldırılırsa durur; villası değişirse eski villaya ait onaylı
+ *     işlem uygulanmaz (group_changed).
+ *   - Uçtan uca oluşturma, iptal, süre dolumu, onaylı kesinleştirme: dış görünüm (müsaitlik, API,
+ *     iCal, webhook) yalnız kesin rezervasyonla değişir; mevcut "kapat" komutu aynen çalışır.
  */
 const db = inject("testDb");
 const appPool = new Pool({ connectionString: db.appUrl, max: 4 });
@@ -106,6 +108,8 @@ let mavi: string, asya: string;
 let conn: string;
 let G: { id: string; jid: string };
 let adminId: string;
+/** Testte sonradan oluşturulan işletmeler (temizlik için). */
+const others: string[] = [];
 const planCode = `opt3f_${tag}`;
 const icalToken = `o3f${tag}`.padEnd(43, "x");
 
@@ -114,7 +118,7 @@ const jidBase = BigInt(`0x${randomBytes(4).toString("hex")}`) % 10_000_000n;
 const newJid = () =>
   `120364${String(jidBase).padStart(7, "0")}${String(++jidN).padStart(5, "0")}@g.us`;
 
-async function group(property: string) {
+async function group(property: string, workspace = ws) {
   const jid = newJid();
   await appPool.query("select public.app_wa_sync_group($1, $2, 'Ekip 3f', 4, false, false, true)", [
     conn,
@@ -124,7 +128,7 @@ async function group(property: string) {
     .id as string;
   await admin.query(
     "update wa_groups set status = 'linked', workspace_id = $2, property_id = $3, linked_at = now() where id = $1",
-    [id, ws, property],
+    [id, workspace, property],
   );
   return { id, jid };
 }
@@ -139,10 +143,10 @@ const adminOne = async (text: string, values: unknown[]) => {
 };
 const setGlobal = (on: boolean) =>
   adminOne("select public.app_option_admin_set_global($1, $2) as out", [adminId, on]);
-const setWorkspace = (on: boolean, def: number | null = null) =>
+const setWorkspace = (on: boolean, def: number | null = null, workspace = ws) =>
   adminOne("select public.app_option_admin_set_workspace($1, $2, $3, $4, $5) as out", [
     adminId,
-    ws,
+    workspace,
     on,
     def,
     [],
@@ -304,7 +308,9 @@ afterAll(async () => {
     "update workspace_option_settings set automation_enabled = false where workspace_id = $1",
     [ws],
   );
-  await admin.query("delete from wa_inbound_messages where workspace_id = $1", [ws]);
+  await admin.query("delete from wa_inbound_messages where workspace_id = any($1)", [
+    [ws, ...others],
+  ]);
   await admin.query(
     "update workspace_subscriptions set plan_id = (select id from plans where is_default) where workspace_id = $1",
     [ws],
@@ -407,106 +413,173 @@ const approveCreate = async (opId: string) => {
   });
 };
 
-let B: { id: string; jid: string };
+/** Ayrı bir işletme: sahibi (doğrulanmış telefon), tek villa ve bağlı grup. Ayar satırı YOK. */
+async function tenant(label: string, villaName: string) {
+  const u = await mkUser(label);
+  const w = (
+    await createWorkspace(app, { userId: u.id, name: `İşletme ${label}`, slug: `${label}-${tag}` })
+  ).id;
+  others.push(w);
+  const villa = await as(u, w, (tx, ctx) =>
+    createProperty(tx, ctx, {
+      name: villaName,
+      propertyType: "villa",
+      maxGuests: "6",
+      bedrooms: "3",
+      bathrooms: "2",
+      province: "Antalya",
+      district: "Kaş",
+    }),
+  );
+  const pn = num(90 + others.length);
+  await admin.query(
+    "insert into wa_verified_phones (user_id, phone_hash, phone_masked) values ($1, $2, '+90 532 *** ** 09')",
+    [u.id, phoneHash(pn)],
+  );
+  const g = await group(villa, w);
+  return { user: u, ws: w, villa, group: g, pn };
+}
+/** Bu dosyanın işletmelerinde açık işletme / grup anahtarı sayısı (tek ortak sistemde gerekmez). */
+const settingsRows = async () =>
+  (
+    await admin.query(
+      `select (select count(*) from workspace_option_settings
+                where automation_enabled and workspace_id = any($1))::int w,
+              (select count(*) from wa_group_option_settings
+                where enabled and workspace_id = any($1))::int g`,
+      [[ws, ...others]],
+    )
+  ).rows[0];
 
 beforeAll(async () => {
-  B = await group(asya);
-  // Pilot: global + işletme + YALNIZ pilot grubun anahtarı (işletme varsayılan süresi yok).
+  // Tek ortak sistem: YALNIZ global anahtar (acil durum kill switch'i). İşletme / grup ayarı yok.
   expect(await setGlobal(true)).toBe("changed");
-  expect(await setWorkspace(true)).toBe("changed");
-  expect(await setGroup(G.id, true)).toBe("changed");
 });
 
 // ---------------------------------------------------------------------------------------------
-describe("pilot izolasyonu: aynı işletmede yalnız pilot grup", () => {
-  it("pilot grubun mesajı işlenir; anahtarı kapalı diğer grubun mesajı hiç okunmaz, dış görünümü değişmez", async () => {
+describe("tek ortak sistem: yeni işletme ve yeni grup ek aktivasyon gerektirmez", () => {
+  it("işletme ve grup ayar satırı olmadan bağlı grup işler", async () => {
+    expect(await settingsRows()).toEqual({ w: 0, g: 0 });
     expect(await enabledFn(G.id)).toBe(true);
-    expect(await enabledFn(B.id)).toBe(false);
-    const viewB = await outside(asya, "2027-01-01", "2027-12-31");
-    const mB = await send("5-8 Ocak opsiyon 48 saat", { jid: B.jid });
-    const seenB = await existingView(mB.id);
-    const mA = await send("5-8 Ocak opsiyon 48 saat");
+    const m = await send("5-8 Ocak opsiyon 48 saat");
     await runTask();
-    expect(await scan(mB.id)).toBeUndefined();
-    expect(await opsOf(mB.id)).toEqual([]);
-    expect(await optionsOf(asya)).toEqual([]);
-    expect(await existingView(mB.id)).toEqual(seenB);
-    expect(await outside(asya, "2027-01-01", "2027-12-31")).toEqual(viewB);
-    expect(await opsOf(mA.id)).toEqual([
-      expect.objectContaining({ kind: "create", status: "applied" }),
-    ]);
+    expect((await opsOf(m.id))[0]).toMatchObject({ kind: "create", status: "applied" });
   });
 
-  it("diğer grubun daha önce onaylanmış işlemi ve kesinleştirmesi anahtarı kapanınca uygulanmaz, BEKLER; silinmez", async () => {
-    // B kısa süre açık: bir açık opsiyon + onaya düşen oluşturma ve kesinleştirme.
-    expect(await setGroup(B.id, true)).toBe("changed");
-    const m1 = await send("12-15 Şubat opsiyon 48 saat", { jid: B.jid });
+  it("global açıkken oluşturulan YENİ işletme ve YENİ grup hemen işler (Super Admin ayarı yok)", async () => {
+    const t = await tenant("o3n", "Villa Yeni");
+    expect(await enabledFn(t.group.id)).toBe(true);
+    const m = await send("5-8 Ocak opsiyon 48 saat", { jid: t.group.jid, pn: t.pn });
     await runTask();
-    expect((await opsOf(m1.id))[0]).toMatchObject({ kind: "create", status: "applied" });
-    const m2 = await send("12-15 Şubat opsiyon ödeme alındı", { jid: B.jid });
+    const [op] = await opsOf(m.id);
+    expect(op).toMatchObject({ kind: "create", status: "applied" });
+    expect(
+      (
+        await admin.query(
+          "select workspace_id, property_id from reservation_options where id = $1",
+          [op.result_option_id],
+        )
+      ).rows[0],
+    ).toEqual({ workspace_id: t.ws, property_id: t.villa });
+    // Aynı işletmeye eklenen ikinci grup da ayrıca açılmadan işler.
+    const g2 = await group(t.villa, t.ws);
+    const m2 = await send("12-15 Ocak opsiyon 24 saat", { jid: g2.jid, pn: t.pn });
     await runTask();
-    const conv = (
-      await admin.query("select id from option_operations where message_id = $1", [m2.id])
-    ).rows[0].id as string;
-    const create = await pendingCreate("20-23 Şubat", B.jid);
-    await approve(conv);
-    await approveCreate(create);
-    // Pilot dışına alınır: B kapalı. Onaylı işlemler beklemeli.
-    expect(await setGroup(B.id, false)).toBe("changed");
-    const before = await resCount();
-    const optsBefore = await optionsOf(asya);
-    const mA = await send("1-4 Mart opsiyon 48 saat"); // pilot aynı çalıştırmada çalışmaya devam eder
+    expect((await opsOf(m2.id))[0]).toMatchObject({ kind: "create", status: "applied" });
+    expect(await settingsRows()).toEqual({ w: 0, g: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+describe("işletme izolasyonu ve işletmeye özel süre", () => {
+  it("aynı tarihler iki işletmede birbirini etkilemez; varsayılan süre işletmeye özel", async () => {
+    const t = await tenant("o3i", "Villa Ada");
+    expect(await setWorkspace(false, 4320, t.ws)).toBe("changed"); // yalnız süre (3 gün)
+    const viewA = await outside(mavi, "2027-02-01", "2027-02-28");
+    const mA = await send("2-5 Şubat opsiyon"); // işletme A: varsayılan süre yok → onay
+    const mB = await send("2-5 Şubat opsiyon", { jid: t.group.jid, pn: t.pn });
     await runTask();
+    expect((await opsOf(mA.id))[0]).toMatchObject({ status: "pending", expires_in_minutes: null });
+    expect((await opsOf(mA.id))[0].reasons).toContain("duration_missing");
+    const [b] = await opsOf(mB.id);
+    expect(b).toMatchObject({
+      status: "applied",
+      expiry_source: "workspace_default",
+      expires_in_minutes: 4320,
+    });
+    expect(
+      (
+        await admin.query("select workspace_id from reservation_options where id = $1", [
+          b.result_option_id,
+        ])
+      ).rows[0].workspace_id,
+    ).toBe(t.ws);
+    // İşletme A'nın opsiyonları ve dış görünümü B'den etkilenmez.
+    expect(await outside(mavi, "2027-02-01", "2027-02-28")).toEqual(viewA);
+  });
+
+  it("bir grup başka işletmenin villa adını yazsa da o işletmeye ve villaya dokunulmaz", async () => {
+    const t = await tenant("o3x", "Villa Kuzey");
+    const before = await optionsOf(mavi);
+    const m = await send("Villa Mavi 20-23 Mart opsiyon 24 saat", { jid: t.group.jid, pn: t.pn });
     await runTask();
-    expect(await opRow(conv)).toMatchObject({ status: "approved", attempts: 0 });
-    expect(await opRow(create)).toMatchObject({ status: "approved", attempts: 0 });
-    expect(await resCount()).toBe(before);
-    expect(await optionsOf(asya)).toEqual(optsBefore);
-    expect((await opsOf(mA.id))[0]).toMatchObject({ kind: "create", status: "applied" });
-    // B'nin kapalıyken gelen mesajı okunmaz.
-    const mB = await send("10-12 Mart opsiyon 24 saat", { jid: B.jid });
+    expect(await optionsOf(mavi)).toEqual(before);
+    const ops = (
+      await admin.query(
+        "select workspace_id, property_id, status from option_operations where message_id = $1",
+        [m.id],
+      )
+    ).rows;
+    for (const o of ops) {
+      expect(o.workspace_id).toBe(t.ws);
+      expect(o.property_id === null || o.property_id === t.villa).toBe(true);
+    }
+  });
+
+  it("başka işletmenin sahibi bu işletmenin grubunda opsiyon işlemi başlatamaz", async () => {
+    const t = await tenant("o3y", "Villa Güney");
+    const m = await send("1-4 Nisan opsiyon 24 saat", { pn: t.pn }); // G grubuna, yabancı telefon
     await runTask();
-    expect(await scan(mB.id)).toBeUndefined();
-    // Bekleyen işlemler kaybolmaz: B yeniden açılınca uygulanır (kapalıyken gelen mesaj işlenmez).
-    expect(await setGroup(B.id, true)).toBe("changed");
-    await runTask();
-    expect((await opRow(conv)).status).toBe("applied");
-    expect((await opRow(create)).status).toBe("applied");
-    expect(await resCount()).toBe(before + 1);
-    expect(await scan(mB.id)).toBeUndefined();
-    expect(await setGroup(B.id, false)).toBe("changed");
+    expect(await opsOf(m.id)).toEqual([]);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
 describe("global kill switch önceliklidir", () => {
-  it("işletme ve grup anahtarı açıkken bile kapatınca hiçbir mesaj okunmaz, onaylı işlem / kesinleştirme uygulanmaz", async () => {
+  it("kapatınca hiçbir işletmede mesaj okunmaz, onaylı işlem / kesinleştirme uygulanmaz; açılınca bekleyenler uygulanır, aradaki mesajlar işlenmez", async () => {
+    const t = await tenant("o3k", "Villa Batı");
     const { op: conv } = await optionWithConvert("12-15 Nisan");
     const create = await pendingCreate("5-8 Nisan", G.jid);
     await approve(conv);
     await approveCreate(create);
     expect(await setGlobal(false)).toBe("changed");
     expect(await enabledFn(G.id)).toBe(false);
+    expect(await enabledFn(t.group.id)).toBe(false);
     const before = await resCount();
     const m = await send("20-23 Nisan opsiyon 24 saat");
+    const mt = await send("20-23 Nisan opsiyon 24 saat", { jid: t.group.jid, pn: t.pn });
     await runTask();
     expect(await scan(m.id)).toBeUndefined();
+    expect(await scan(mt.id)).toBeUndefined();
     expect(await opRow(create)).toMatchObject({ status: "approved", attempts: 0 });
     expect(await opRow(conv)).toMatchObject({ status: "approved", attempts: 0 });
     expect(await resCount()).toBe(before);
-    // Grup anahtarını yeniden yazmak kill switch'i aşmaz.
-    expect(await setGroup(G.id, false)).toBe("changed");
+    // Eski işletme / grup anahtarlarını açmak kill switch'i aşmaz.
+    expect(await setWorkspace(true)).toBe("changed");
     expect(await setGroup(G.id, true)).toBe("changed");
     await runTask();
     expect(await scan(m.id)).toBeUndefined();
     expect((await opRow(conv)).status).toBe("approved");
-    // Yeniden açılınca bekleyenler uygulanır; kapalıyken gelen mesaj geriye dönük işlenmez.
+    expect(await setGroup(G.id, false)).toBe("changed");
+    expect(await setWorkspace(false)).toBe("changed");
+    // Yeniden açılınca bekleyenler uygulanır; kapalıyken gelenler geriye dönük işlenmez.
     expect(await setGlobal(true)).toBe("changed");
     await runTask();
     expect((await opRow(create)).status).toBe("applied");
     expect((await opRow(conv)).status).toBe("applied");
     expect(await scan(m.id)).toBeUndefined();
-    const m2 = await send("26-28 Nisan opsiyon 24 saat");
+    expect(await scan(mt.id)).toBeUndefined();
+    const m2 = await send("26-28 Nisan opsiyon 24 saat", { jid: t.group.jid, pn: t.pn });
     await runTask();
     expect((await opsOf(m2.id))[0]).toMatchObject({ kind: "create", status: "applied" });
   });
@@ -516,7 +589,6 @@ describe("global kill switch önceliklidir", () => {
 describe("grup bağlantısı ve villa değişikliği", () => {
   it("grup pasifleştirilirse otomasyon durur; onaylı işlem bekler", async () => {
     const P = await group(mavi);
-    expect(await setGroup(P.id, true)).toBe("changed");
     const create = await pendingCreate("3-6 Mayıs", P.jid);
     await approveCreate(create);
     await setAdminGroupActive(adminDb, adminId, P.id, false);
@@ -527,7 +599,6 @@ describe("grup bağlantısı ve villa değişikliği", () => {
 
   it("grubun bağlantısı kaldırılırsa otomasyon durur; onaylı işlem uygulanmaz, silinmez", async () => {
     const P = await group(mavi);
-    expect(await setGroup(P.id, true)).toBe("changed");
     const create = await pendingCreate("10-13 Mayıs", P.jid);
     await approveCreate(create);
     await unlinkAdminGroup(adminDb, adminId, P.id);
@@ -538,7 +609,6 @@ describe("grup bağlantısı ve villa değişikliği", () => {
 
   it("grubun villası değişirse eski villaya ait onaylı işlem uygulanmaz (stale / group_changed)", async () => {
     const P = await group(mavi);
-    expect(await setGroup(P.id, true)).toBe("changed");
     const create = await pendingCreate("17-20 Mayıs", P.jid);
     await approveCreate(create);
     await setAdminGroupProperty(adminDb, adminId, P.id, asya);
@@ -546,12 +616,11 @@ describe("grup bağlantısı ve villa değişikliği", () => {
     await runTask();
     expect(await opRow(create)).toMatchObject({ status: "stale", failure_code: "group_changed" });
     expect(await optionsOf(mavi)).toEqual(before);
-    expect(await setGroup(P.id, false)).toBe("changed");
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-describe("uçtan uca pilot akışı", () => {
+describe("uçtan uca akış", () => {
   it("oluşturma → iptal; oluşturma → süre dolumu; oluşturma → onaylı kesinleştirme: dış görünüm yalnız kesin rezervasyonla değişir", async () => {
     const view0 = await outside(mavi, "2027-06-01", "2027-06-30");
     // Oluşturma + iptal (müşteri vazgeçti).
@@ -595,7 +664,7 @@ describe("uçtan uca pilot akışı", () => {
     expect(view1.panelConflicts).not.toEqual(view0.panelConflicts);
   });
 
-  it("mevcut rezervasyon komutu ('kapat') pilot açıkken aynen çalışır; görev ona opsiyon işlemi yazmaz", async () => {
+  it("mevcut rezervasyon komutu ('kapat') otomasyon açıkken aynen çalışır; görev ona opsiyon işlemi yazmaz", async () => {
     const m = await send("22-24 Haziran kapat");
     const seen = await existingView(m.id);
     await runTask();

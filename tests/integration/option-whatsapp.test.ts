@@ -142,8 +142,6 @@ const setWorkspace = (on: boolean, def: number | null = null) =>
     def,
     [],
   ]);
-const setGroup = (g: string, on: boolean) =>
-  adminOne("select public.app_option_admin_set_group($1, $2, $3) as out", [adminId, g, on]);
 
 let msgN = 0;
 /** Mesajı ağ geçidi fonksiyonuyla kaydeder ve üretimdeki worker'la işler. */
@@ -335,24 +333,24 @@ describe("anahtarlar ve kill switch", () => {
     expect(await existingView(m.id)).toEqual(seen);
   });
 
-  it("yalnız global, yalnız global + işletme, yalnız grup: hiçbiri tek başına yetmez", async () => {
-    expect(await setGlobal(true)).toBe("changed");
+  it("tek ortak sistem (0074): işletme / grup anahtarı gerekmez; global kapalıyken gelen mesaj açılınca geriye dönük işlenmez", async () => {
+    // Global kapalı (varsayılan); işletme ve grup ayarı hiç yok.
     const a = await send("10-14 Mart opsiyon 48 saat");
     await runTask();
     expect(await scan(a.id)).toBeUndefined();
-    expect(await setWorkspace(true)).toBe("changed");
-    const b = await send("10-14 Mart opsiyon 48 saat");
-    await runTask();
-    expect(await scan(b.id)).toBeUndefined();
-    expect(await setGlobal(false)).toBe("changed");
-    expect(await setGroup(G.id, true)).toBe("changed");
-    const c = await send("10-14 Mart opsiyon 48 saat");
-    await runTask();
-    expect(await scan(c.id)).toBeUndefined(); // global kapalı (kill switch)
     expect(await setGlobal(true)).toBe("changed");
-    // Anahtar açılmadan önce gelen mesajlar geriye dönük işlenmez.
     await runTask();
-    for (const x of [a, b, c]) expect(await scan(x.id)).toBeUndefined();
+    expect(await scan(a.id)).toBeUndefined();
+    expect(await opsOf(a.id)).toEqual([]);
+    // Bundan sonraki testler YALNIZ global anahtar açıkken çalışır (işletme / grup satırı yok).
+    expect(
+      (
+        await admin.query(
+          "select (select count(*) from workspace_option_settings where workspace_id = $1)::int w, (select count(*) from wa_group_option_settings where group_id = $2)::int g",
+          [ws, G.id],
+        )
+      ).rows[0],
+    ).toEqual({ w: 0, g: 0 });
   });
 });
 
@@ -461,7 +459,8 @@ describe("oluşturma", () => {
     ]);
     expect((await opsOf(m.id))[0].reasons).toContain("duration_missing");
 
-    expect(await setWorkspace(true, 1440)).toBe("changed");
+    // İşletmenin varsayılan süresi (eski işletme anahtarı KAPALI olsa da kullanılır).
+    expect(await setWorkspace(false, 1440)).toBe("changed");
     const m2 = await send("20-23 Nisan opsiyon");
     await runTask();
     expect(await opsOf(m2.id)).toEqual([
@@ -670,10 +669,31 @@ describe("iptal", () => {
 
 // ---------------------------------------------------------------------------------------------
 describe("grup, kill switch ve mevcut sistem", () => {
-  it("opsiyon otomasyonu kapalı (eşleşmeyen) grubun mesajı okunmaz", async () => {
+  it("aynı işletmenin ikinci grubu ayrıca açma gerekmeden kendi villası için işler; diğer villanın opsiyonlarına dokunmaz", async () => {
+    const before = (
+      await admin.query("select count(*)::int n from reservation_options where property_id = $1", [
+        mavi,
+      ])
+    ).rows[0].n;
     const m = await send("10-14 Mart opsiyon 48 saat", { jid: G2.jid });
     await runTask();
-    expect(await scan(m.id)).toBeUndefined();
+    expect(await scan(m.id)).toMatchObject({ status: "done" });
+    const [op] = await opsOf(m.id);
+    expect(op).toMatchObject({ kind: "create", status: "applied" });
+    const o = (
+      await admin.query("select property_id, workspace_id from reservation_options where id = $1", [
+        op.result_option_id,
+      ])
+    ).rows[0];
+    expect(o).toEqual({ property_id: asya, workspace_id: ws });
+    expect(
+      (
+        await admin.query(
+          "select count(*)::int n from reservation_options where property_id = $1",
+          [mavi],
+        )
+      ).rows[0].n,
+    ).toBe(before);
   });
 
   it("kill switch kapatılınca yeni mesaj okunmaz; açılınca o arada gelen mesaj geriye dönük işlenmez", async () => {
