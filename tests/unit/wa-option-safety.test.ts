@@ -76,8 +76,53 @@ const none = (tepki: Outcome["tepki"]): Outcome => ({
 });
 const APR = { giris: "2027-04-15", cikis: "2027-04-18" };
 
-describe("regresyon: 219 doğal dil + 138 opsiyon senaryosu (v8)", () => {
-  const all = regression.senaryolar;
+/**
+ * v9 farkları (fixture v8 olarak korunur): takvim komutu içermeyen TARİHSİZ ödeme / kesinleşme
+ * bildirimi artık opsiyonla ilgilidir ve ⚠️ alır (önceden tepkisizdi). Takvim işlemi hiçbirinde
+ * değişmez; başka hiçbir senaryonun sonucu değişmez.
+ */
+const V9_WARNING = new Set([
+  "NL-X23",
+  "OP-K01",
+  "OP-K02",
+  "OP-K03",
+  "OP-K05",
+  "OP-K17",
+  "OP-K18",
+  "OP-K22",
+  "OP-K23",
+  "OP-K25",
+  "OP-K26",
+  "OP-B02",
+  "OP-B03",
+  "OP-B07",
+  "OP-S07",
+  "OP-V02",
+  "OP-V04",
+  "OP-V05",
+  "OP-T02",
+  "OP-T03",
+  "OP-T04",
+  "OP-D08",
+  "OP-D14",
+  "OP-T07",
+  "OP-T08",
+  "OP-T09",
+]);
+
+describe("regresyon: 219 doğal dil + 138 opsiyon senaryosu (v8 → v9)", () => {
+  const all = regression.senaryolar.map((s) =>
+    V9_WARNING.has(s.id) ? { ...s, tepki: "⚠️" as const } : s,
+  );
+
+  it("v9 farkları yalnız tarihsiz ödeme bildirimleri: işlem yok, tepki yok → ⚠️", () => {
+    const changed = regression.senaryolar.filter((s) => V9_WARNING.has(s.id));
+    expect(changed).toHaveLength(26);
+    for (const s of changed) {
+      expect([s.id, s.islem, s.giris, s.tepki]).toEqual([s.id, null, null, "yok"]);
+      expect(s.mesaj).toMatch(/[ÖöOo]deme|[Kk]apora/u);
+    }
+  });
 
   it("senaryo sayısı", () => {
     expect(all.filter((s) => s.id.startsWith("NL-"))).toHaveLength(219);
@@ -194,4 +239,48 @@ describe("korunan davranış: kesin kapatma / açma / değiştirme", () => {
     expect([r.islem, r.tepki]).toEqual([islem, "✅"]);
     if (islem !== "change") expect({ giris: r.giris, cikis: r.cikis }).toEqual(APR);
   });
+});
+
+describe("v9: yazım hataları ve ödeme bildirimleri", () => {
+  it.each([
+    "15-18 Nisan obsiyon kapat",
+    "15-18 Nisan opsyon kapat",
+    "15-18 Nisan opsiyn, kapatalım",
+    "15-18 Nisan opsion iptal açalım",
+    "15-18 Nisan opisyon",
+  ])("opsiyon yazım hatası takvim işlemi üretmez: %s → işlem yok, ⚠️", (m) => {
+    expect(run(m)).toEqual(none("⚠️"));
+  });
+
+  it.each([
+    "Müşteri kapora gönderdi, kesinleşti",
+    "Kaparo yattı",
+    "Depozito alındı",
+    "Havale geldi",
+    "15-18 Nisan kaparo yattı",
+    "15-18 Nisan kesinleşti",
+  ])("takvim komutu olmayan ödeme / kesinleşme bildirimi: %s → işlem yok, ⚠️", (m) => {
+    expect(run(m)).toEqual(none("⚠️"));
+  });
+
+  it.each([
+    ["15-18 Nisan rezervasyon kesinleşti", "close"],
+    ["Kapora alındı, 15-18 Nisan kapat", "close"],
+    ["15-18 Nisan kiralandı, ödeme geldi", "close"],
+    ["15-18 Nisan rezervasyon alındı kapora geldi", "close"],
+    ["15-18 Nisan aç", "open"],
+  ] as const)("takvim komutu eskisi gibi çalışır: %s → %s, ✅", (m, islem) => {
+    expect(run(m)).toEqual({ islem, ...APR, tepki: "✅" });
+  });
+
+  it.each(["Havuz opsiyonel 15-18 Nisan kapat", "15-18 Nisan ödeme gelmedi", "Ödeme bekliyoruz"])(
+    "opsiyon sayılmayanlar eskisi gibi: %s",
+    (m) => {
+      const r = run(m);
+      expect(r.islem === "close" || r.tepki !== "✅" || r.islem === null).toBe(true);
+      expect(
+        parseCalendarMessage(m, TODAY).items.every((i) => !i.flags.includes("option_unsupported")),
+      ).toBe(true);
+    },
+  );
 });

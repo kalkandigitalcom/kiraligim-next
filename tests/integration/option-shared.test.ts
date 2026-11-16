@@ -664,6 +664,34 @@ describe("uçtan uca akış", () => {
     expect(view1.panelConflicts).not.toEqual(view0.panelConflicts);
   });
 
+  it("doğal Türkçe: süre v2, 'sil' iptali, ödeme kesinleştirmesi onaya, uzatma ASLA yeni opsiyon değil", async () => {
+    const c = await send("3-6 Temmuz opsiyon 1,5 gün");
+    await runTask();
+    const [o] = await opsOf(c.id);
+    expect(o).toMatchObject({ kind: "create", status: "applied", expires_in_minutes: 2160 });
+    const x = await send("3-6 Temmuz opsiyonu sil");
+    await runTask();
+    expect((await opsOf(x.id))[0]).toMatchObject({
+      kind: "cancel",
+      status: "applied",
+      end_reason: "owner_cancelled",
+    });
+    const c2 = await send("8-11 Temmuz opsiyon bir hafta");
+    await runTask();
+    expect((await opsOf(c2.id))[0]).toMatchObject({ status: "applied", expires_in_minutes: 10080 });
+    const before = await optionsOf(mavi);
+    const u = await send("8-11 Temmuz opsiyonu 1 gün uzat");
+    const k = await send("8-11 Temmuz opsiyon kaparo yattı");
+    const y = await send("8-11 Temmuz opsiyon yarına kadar");
+    await runTask();
+    expect((await opsOf(u.id))[0]).toMatchObject({ kind: "create", status: "pending" });
+    expect((await opsOf(u.id))[0].reasons).toContain("intent_unclear");
+    expect((await opsOf(k.id))[0]).toMatchObject({ kind: "convert", status: "pending" });
+    expect((await opsOf(y.id))[0]).toMatchObject({ kind: "create", status: "pending" });
+    expect((await opsOf(y.id))[0].reasons).toContain("duration_unclear");
+    expect(await optionsOf(mavi)).toEqual(before); // yeni opsiyon yok
+  });
+
   it("mevcut rezervasyon komutu ('kapat') otomasyon açıkken aynen çalışır; görev ona opsiyon işlemi yazmaz", async () => {
     const m = await send("22-24 Haziran kapat");
     const seen = await existingView(m.id);

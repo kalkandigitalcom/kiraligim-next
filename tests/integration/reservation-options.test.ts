@@ -443,7 +443,7 @@ describe("gölge mod", () => {
       reasons: [],
       property_id: mavi,
       group_id: G.id,
-      parser_version: 8,
+      parser_version: 9,
       target_option_id: null,
     });
     expect(r.summary.shadowDecisions).toBe(1);

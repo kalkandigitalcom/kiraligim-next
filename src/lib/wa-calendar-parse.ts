@@ -56,8 +56,14 @@ import {
  *     üretmez (kapatma, açma, tarih değiştirme dahil): tüm öğeler eylemsiz + option_unsupported
  *     (⚠️). Tarihsiz "Opsiyon iptal." / "Müşteri vazgeçti." de ⚠️ alır. Soru ve olumsuz
  *     ifadeler eskisi gibi tepkisizdir. "Opsiyonel" opsiyon sayılmaz.
+ *  9: opsiyon sözcüğünün yaygın yazım hataları ("opsyon", "obsiyon", "opsiyn", "opsion",
+ *     "opisyon"…) da opsiyon sayılır: böyle bir mesaj da takvim işlemi üretmez ("obsiyon kapat"
+ *     takvimi kapatmaz, ⚠️). Takvim komutu içermeyen ödeme / kesinleşme bildirimi ("Müşteri kapora
+ *     gönderdi, kesinleşti", "17-21 Ekim kaparo yattı") opsiyonla ilgili sayılır: tarihsiz olsa da
+ *     ⚠️ alır. Rezervasyon / kapatma / açma / tarih değiştirme sözcüğü içeren mesajlar ("rezervasyon
+ *     kesinleşti", "kapora alındı, 17-21 Ekim kapat") eskisi gibi takvim komutudur.
  */
-export const WA_CALENDAR_PARSER_VERSION = 8;
+export const WA_CALENDAR_PARSER_VERSION = 9;
 
 /** change (v6): mevcut kaydın tarihleri eski aralıktan yeni aralığa taşınır (oldCheckIn/Out). */
 export const WA_CALENDAR_ACTIONS = ["close", "reserve", "open", "cancel", "change"] as const;
@@ -371,7 +377,14 @@ const OPERATIONAL_CONTEXT = {
 /** Tarihi anlaşılamayan takvim komutu ⚠️ alır; tarih izi yoksa ("kapıyı kapat") sohbettir. */
 const DATE_TRACE =
   /\d|\btarih\w*|\bhafta\w*|\bgece\w*|\byarin\w*|\bbugun\w*|\bbayram\w*|\byil\s*basi\w*|\b(?:pazartesi|sali|carsamba|persembe|cuma|cumartesi|pazar)\w*/;
-const OPTION = /\bopsiyon(?!el)\w*/;
+/** v9: opsiyon ve yaygın yazım hataları; "opsiyonel" opsiyon değildir. */
+const OPTION = /\b(?:opsiyon|opsyon|obsiyon|opsiyn|opsion|opisyon|obsyon|opsyion|opsiyom)(?!el)\w*/;
+/**
+ * v9: ödeme / kesinleşme bildirimi (olumlu biçimler). Yalnız mesajda takvim komutu yoksa opsiyonla
+ * ilgili sayılır (bkz. optionRelated).
+ */
+const PAYMENT_NOTICE =
+  /\b(?:odeme\w*|kapora\w*|kaparo\w*|depozito\w*|havale\w*|eft\w*|pesinat\w*)\s+(?:de\s+|da\s+)?(?:alindi|aldik|aldim|geldi|gelmis|yapildi|yapti|yatti|yatmis|yatirildi|yatirdi|gonderdi|gonderildi|gonderilmis|ulasti|odendi|cekildi)\b|\b(?:musteri|misafir)\w*\s+(?:odemeyi|kaporayi|kaparoyu|depozitoyu)\s+(?:yapti|yatirdi|gonderdi|odedi|verdi)\b|\bkesinles(?:ti|di|mis)\b/;
 /** v8: müşteri / misafir vazgeçmesi (olumsuz biçimler hariç: "vazgeçmedi", "vazgeçmeyin"). */
 const WITHDRAWAL = /\bvazgec\w*/;
 const WITHDRAWAL_NEGATED = /\bvazgec(?:me(?!k)|mey|mem|ilme)\w*/g;
@@ -382,7 +395,25 @@ const WITHDRAWAL_NEGATED = /\bvazgec(?:me(?!k)|mey|mem|ilme)\w*/g;
  * aynı mesajdaki başka bir talimat da bu durumda işlenmez.
  */
 function optionRelated(folded: string): boolean {
-  return OPTION.test(folded) || WITHDRAWAL.test(folded.replace(WITHDRAWAL_NEGATED, " "));
+  return (
+    OPTION.test(folded) ||
+    WITHDRAWAL.test(folded.replace(WITHDRAWAL_NEGATED, " ")) ||
+    (PAYMENT_NOTICE.test(folded) && !calendarCommand(folded))
+  );
+}
+/**
+ * v9: mesajda bilinen bir takvim komutu / rezervasyon bildirimi var mı? Ödeme bildirimi yalnız
+ * böyle bir komut YOKSA opsiyonla ilgili sayılır: "rezervasyon kesinleşti", "kapora alındı 17-21
+ * Ekim kapat" eskisi gibi takvim komutudur.
+ */
+function calendarCommand(folded: string): boolean {
+  return (
+    CLOSE_WORDS.test(folded) ||
+    RESERVATION_DONE.test(folded) ||
+    /\brezervasyon\w*|\brezerve\b/.test(folded) ||
+    ACTION_WORDS.some((w) => w.action === "open" && w.re.test(folded)) ||
+    CHANGE_WORDS.test(folded)
+  );
 }
 const CHECK_IN_OUT = /\bgiris\b[\s\S]*\bcikis\b|\bcikis\b[\s\S]*\bgiris\b/;
 /** Açık kapatma TALİMATI ("kapat", "kapatalım", "kapatın"); "kapalı"/"dolu" durum bildirir. */

@@ -270,6 +270,7 @@ describe("yalıtım", () => {
   it("3d dosyaları worker'ı, ayrıştırıcıyı, tepki kuyruğunu, rezervasyon / API / iCal modüllerini içe aktarmaz; yalnız saf gölge fonksiyonu ve tipler", () => {
     for (const f of [
       "src/server/options/decide.ts",
+      "src/server/options/intent.ts",
       "src/server/options/message-handler.ts",
       "src/server/options/maintenance.ts",
       "src/server/options/run.ts",
