@@ -498,8 +498,8 @@ describe("tek ortak sistem: yeni işletme ve yeni grup ek aktivasyon gerektirmez
 });
 
 // ---------------------------------------------------------------------------------------------
-describe("işletme izolasyonu ve işletmeye özel süre", () => {
-  it("aynı tarihler iki işletmede birbirini etkilemez; varsayılan süre işletmeye özel", async () => {
+describe("işletme izolasyonu; süre her işletmede sabit 24 saat", () => {
+  it("aynı tarihler iki işletmede birbirini etkilemez; eski işletme varsayılanı okunmaz (0076)", async () => {
     const t = await tenant("o3i", "Villa Ada");
     expect(await setWorkspace(false, 4320, t.ws)).toBe("changed"); // yalnız süre (3 gün)
     const viewA = await outside(mavi, "2027-02-01", "2027-02-28");
@@ -512,10 +512,11 @@ describe("işletme izolasyonu ve işletmeye özel süre", () => {
       expires_in_minutes: 1440,
     });
     const [b] = await opsOf(mB.id);
+    // 0076: süre sabit 24 saat; işletmenin eski varsayılanı (3 gün) okunmaz.
     expect(b).toMatchObject({
       status: "applied",
-      expiry_source: "workspace_default",
-      expires_in_minutes: 4320,
+      expiry_source: "system_default",
+      expires_in_minutes: 1440,
     });
     expect(
       (

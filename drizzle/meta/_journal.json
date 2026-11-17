@@ -533,6 +533,13 @@
       "when": 1795053600000,
       "tag": "0075_option_default_duration",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1795140000000,
+      "tag": "0076_option_fixed_duration",
+      "breakpoints": true
     }
   ]
 }

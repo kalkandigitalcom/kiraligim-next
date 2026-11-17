@@ -624,7 +624,7 @@ describe("mesajdan işlem (görev fonksiyonları)", () => {
     ).toBe(1);
   });
 
-  it("süre yok + işletme varsayılanı yok → sistem varsayılanı (Faz A: 24 saat, onay yok); varsayılan varsa workspace_default", async () => {
+  it("süre yok → sabit 24 saat (system_default, onay yok); eski işletme varsayılanı okunmaz (0076)", async () => {
     const m = await send("opsiyon mesajı 2");
     await claim();
     const r = await apply(m.id, [
@@ -651,7 +651,8 @@ describe("mesajdan işlem (görev fonksiyonları)", () => {
       item({ intent: "create", check_in: day(44), check_out: day(46) }),
     ]);
     expect(r2[0].status).toBe("applied");
-    expect(await opt(r2[0].option_id)).toMatchObject({ expiry_source: "workspace_default" });
+    expect(await opt(r2[0].option_id)).toMatchObject({ expiry_source: "system_default" });
+    expect(await op(r2[0].operation_id)).toMatchObject({ expires_in_minutes: 1440 });
     expect(await setWorkspace(ws, true, null, [])).toBe("changed");
   });
 

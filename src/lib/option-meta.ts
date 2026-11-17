@@ -118,10 +118,12 @@ export const OPTION_SETTINGS_LIMITS = {
 } as const;
 
 /**
- * Faz A (0075): sistem geneli varsayılan opsiyon süresi (dakika; Super Admin değiştirir). Süre
- * önceliği: mesajda yazan → işletme varsayılanı → sistem varsayılanı. Yazılı süre asla
- * kısaltılmaz; varsayılan girişe taşarsa bitiş giriş anına çekilir, girişe bu kadar dakikadan az
- * kalıyorsa işlem açıklama bekler.
+ * Opsiyon süresi (0076): SABİT 24 saat (villa kiralama standardı; ayar yok — işletme ya da sistem
+ * bazında değiştirilmez). WhatsApp mesajında açıkça yazılan süre aynen kullanılır, yoksa bu süre
+ * ('system_default'). Yazılı süre asla kısaltılmaz; sabit süre girişe taşarsa bitiş giriş anına
+ * çekilir, girişe OPTION_MIN_LEAD_MINUTES'tan az kalıyorsa işlem açıklama bekler. Veritabanı
+ * (app_wa_option_apply) aynı değeri kullanır; option_automation_global.default_duration_minutes
+ * sütunu 0075'ten kalır, okunmaz.
  */
 export const OPTION_SYSTEM_DEFAULT_MINUTES = 24 * 60;
 export const OPTION_MIN_LEAD_MINUTES = 60;
@@ -133,7 +135,8 @@ export type OptionOperationKind = (typeof OPTION_OPERATION_KINDS)[number];
 /**
  * auto: kural gereği otomatik; needs_approval: Super Admin onayı bekler (eski kayıtlar, iptal ve
  * kesinleştirme); clarify (Faz A, 0075): WhatsApp'tan gelen oluşturma güvenle uygulanamadı,
- * açıklama bekliyor — hiçbir görev uygulamaz, Super Admin onaylayamaz; işletme panelinde listelenir.
+ * açıklama bekliyor — hiçbir görev uygulamaz, Super Admin onaylayamaz; Super Admin panelinde
+ * teknik takip için salt okunur listelenir. Ev sahibi WhatsApp'tan yeni mesaj yazar.
  */
 export const OPTION_OPERATION_MODES = ["auto", "needs_approval", "clarify"] as const;
 export type OptionOperationMode = (typeof OPTION_OPERATION_MODES)[number];

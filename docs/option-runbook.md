@@ -1,4 +1,4 @@
-# Opsiyon otomasyonu — işletim kılavuzu (tek ve ortak sistem, 0074; varsayılan süre, 0075)
+# Opsiyon otomasyonu — işletim kılavuzu (tek ve ortak sistem, 0074; sabit 24 saat, 0075–0076)
 
 Kiraligim'de tek bir ortak opsiyon sistemi vardır. Bütün işletmeler ve bütün bağlı WhatsApp
 grupları aynı kurallarla çalışır; işletme veya grup başına açma yoktur. Davranışın test kanıtı:
@@ -20,20 +20,20 @@ grupları aynı kurallarla çalışır; işletme veya grup başına açma yoktur
    doğrulanmamış katılımcının mesajı opsiyon işlemi üretmez.
 5. **İzolasyon:** her grup yalnız kendi işletmesinin, kendi bağlı villasının opsiyonlarını yönetir.
    Mesajda başka bir villanın adı yazılırsa otomatik işlem yapılmaz (açıklama bekler).
-6. **Süre (0075, Faz A):** öncelik mesajda yazan süre (1 saat – 14 gün) → işletmenin varsayılanı
-   (işletme sahibi panelden, Super Admin Otomasyon ayarları → İşletmeler'den değiştirir) → sistem
-   varsayılanı (24 saat; Super Admin → Otomasyon ayarları → Sistem varsayılan süresi).
-   - Mesajda yazılı süre ASLA kısaltılmaz: girişi aşarsa opsiyon açılmaz, istek "açıklama bekliyor"
-     olur.
-   - Varsayılan süre girişi aşarsa bitiş giriş saatine (İstanbul 00:00) çekilir; girişe 60 dakikadan
+6. **Süre (0076): sabit 24 saat.** Ev sahibi yalnız WhatsApp'a yazar ("20-23 Aralık opsiyon");
+   süre belirtmesi gerekmez. İşletme veya sistem bazında süre ayarı YOKTUR (işletme panelinde ve
+   Super Admin'de süre formu yok). Mesajda açıkça yazılan süre aynen kullanılır.
+   - Yazılı süre ASLA kısaltılmaz: girişi aşarsa opsiyon açılmaz, istek "açıklama bekliyor" olur.
+   - Sabit 24 saat girişi aşarsa bitiş giriş saatine (İstanbul 00:00) çekilir; girişe 60 dakikadan
      az kalıyorsa istek açıklama bekler.
    - Başlamış / geçmiş girişli istek otomatik işlenmez (açıklama bekler).
-   - Varsayılan değişiklikleri mevcut opsiyonların bitişini değiştirmez.
    - **Açıklama bekleyenler** (`mode = clarify`): WhatsApp'tan gelip güvenle uygulanamayan
-     oluşturmalar. Hiçbir görev uygulamaz, Super Admin onaylamaz; işletme panelinde → Opsiyonlar'da
-     salt okunur listelenir. Kullanıcı doğru bilgiyle yeni mesaj yazar. Kapatma / düzenleme Faz C.
+     oluşturmalar. Hiçbir görev uygulamaz, Super Admin onaylamaz; Super Admin → Opsiyonlar →
+     "Açıklama bekleyen" sekmesinde teknik takip için salt okunur listelenir. Ev sahibi doğru
+     bilgiyle gruba yeni mesaj yazar.
    - İptal ve kesinleştirme belirsizlikleri ile 0075 öncesinden kalan bekleyenler eskisi gibi Super
      Admin onayındadır.
+   - Opsiyon yönetimi yalnız WhatsApp'tan yapılır; işletme panelinde opsiyon bölümü yoktur.
 7. **Opsiyonlar müsaitliği etkilemez.** Panel takvimi, herkese açık villa sayfası, API, iCal ve
    webhook yalnız kesin rezervasyonla değişir.
 8. **Kesinleştirme her zaman Super Admin onayıyla.** Onayda misafir adı, yetişkin ve çocuk sayısı
@@ -51,7 +51,6 @@ grupları aynı kurallarla çalışır; işletme veya grup başına açma yoktur
 - [ ] Coolify'da `Option Maintenance` görevi (`node dist/option-maintenance.js`, her dakika) etkin.
       Görev yalnız global açıkken mesaj okur ve onaylı işlem uygular; süre dolumu ve çakışma
       uyarısı her durumda çalışır.
-- [ ] İşletmelerin varsayılan opsiyon süreleri (isteğe bağlı) ayarlanmış.
 
 ## 3. Açılış öncesi salt okunur kontroller
 
@@ -69,12 +68,9 @@ select g.status, g.property_id is not null as villa_var, p.status as villa, w.st
   left join workspaces w on w.id = g.workspace_id
  where g.status = 'linked';
 
--- İşletmelerin varsayılan süreleri.
-select workspace_id, default_duration_minutes from workspace_option_settings;
 
--- Global anahtar ve sistem varsayılan süresi (0075).
-select enabled, updated_at, default_duration_minutes, default_duration_updated_at
-  from option_automation_global;
+-- Global anahtar. (default_duration_* sütunları 0075'ten kalır; 0076'dan beri okunmaz.)
+select enabled, updated_at from option_automation_global;
 ```
 
 ## 4. İzleme (salt okunur)
@@ -109,3 +105,7 @@ ve grup anahtarı açık olmayan gruplarda otomasyon durur.
 (sistem varsayılanı sütunları ve yeni fonksiyonlar kalkar, karar fonksiyonu 0069 gövdesine döner).
 `system_default` kaynaklı opsiyon / işlem ya da `clarify` işlem varsa betik durur ve sayıları
 bildirir; önce bu kayıtlar için karar verilir. Uygulama kodu da önceki sürüme döndürülür.
+
+**0076'yı geri almak** (yalnız gerekirse): `docs/rollback-0076.sql` 0075 durumunu birebir getirir
+(süre zinciri mesaj → işletme varsayılanı → sistem varsayılanı; süre ayarı fonksiyonları yeniden
+oluşur). Veriye dokunmaz. 0075'i geri almak için önce 0076 geri alınmalıdır.

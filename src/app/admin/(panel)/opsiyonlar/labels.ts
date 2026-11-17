@@ -1,11 +1,21 @@
 /** Super Admin opsiyon ekranlarının etiketleri (yalnız gösterim). */
 import { OPTION_STATUS_BADGES, type OptionStatus } from "@/lib/option-meta";
 
-export const TABS = ["onay", "acik", "kesinlesen", "iptal", "suresi-dolan", "uyarilar"] as const;
+export const TABS = [
+  "onay",
+  "aciklama",
+  "acik",
+  "kesinlesen",
+  "iptal",
+  "suresi-dolan",
+  "uyarilar",
+] as const;
 export type OptionTab = (typeof TABS)[number];
 
 export const TAB_LABELS: Record<OptionTab, string> = {
   onay: "Onay bekleyen",
+  // Teknik takip (salt okunur): WhatsApp'tan gelip güvenle uygulanamayan oluşturmalar.
+  aciklama: "Açıklama bekleyen",
   acik: `Açık ${OPTION_STATUS_BADGES.open}`,
   kesinlesen: `Kesinleşen ${OPTION_STATUS_BADGES.converted}`,
   iptal: `İptal ${OPTION_STATUS_BADGES.cancelled}`,
@@ -48,7 +58,7 @@ export const EXPIRY_SOURCE_LABELS: Record<string, string> = {
   message: "mesajda yazan süre",
   workspace_default: "işletme varsayılanı",
   manual: "Super Admin girdi",
-  system_default: "sistem varsayılanı",
+  system_default: "sabit 24 saat",
 };
 
 export const EVENT_LABELS: Record<string, string> = {
@@ -77,7 +87,7 @@ export const OP_STATUS_LABELS: Record<string, string> = {
 export const OP_MODE_LABELS: Record<string, string> = {
   auto: "otomatik",
   needs_approval: "Super Admin onayı",
-  clarify: "açıklama bekliyor (işletme panelinde; onay gerekmez)",
+  clarify: "açıklama bekliyor (WhatsApp'tan yeni mesaj beklenir; onay gerekmez)",
 };
 
 export const FAILURE_LABELS: Record<string, string> = {

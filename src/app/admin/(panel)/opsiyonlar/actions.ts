@@ -6,7 +6,6 @@ import { logger } from "@/lib/logger";
 import {
   isUuid,
   parseCount,
-  parseDurationChoices,
   parseDurationMinutes,
   parseGuestName,
   parseIsoDate,
@@ -18,10 +17,7 @@ import {
   type AdminOptionErrorCode,
   cancelOption,
   decideOperation,
-  getOptionSettings,
   setOptionGlobal,
-  setOptionWorkspace,
-  setSystemDefaultDuration,
 } from "@/server/admin/options";
 import { requireAdmin } from "@/server/admin/session";
 
@@ -172,40 +168,5 @@ export async function setGlobalAction(enabled: boolean, fd: FormData): Promise<v
     (db, adminId) => setOptionGlobal(db, adminId, enabled),
     SETTING_NOTICES,
     "global",
-  );
-}
-
-/** Faz A (0075): sistem geneli varsayılan opsiyon süresi. */
-export async function setSystemDefaultAction(fd: FormData): Promise<void> {
-  const minutes = parseDurationMinutes(fd.get("systemDefault"));
-  if (minutes === null || Number.isNaN(minutes)) fail(SETTINGS, "duration_invalid");
-  await run(
-    SETTINGS,
-    (db, adminId) => setSystemDefaultDuration(db, adminId, minutes as number),
-    SETTING_NOTICES,
-    "system_default",
-  );
-}
-
-export async function setWorkspaceAction(workspaceId: string, fd: FormData): Promise<void> {
-  // Tek ortak opsiyon sistemi (0074): işletme başına otomasyon anahtarı yok; burada yalnız
-  // işletmenin varsayılan süresi ve süre seçenekleri kaydedilir. Eski anahtar değeri (artık
-  // kullanılmayan sütun) olduğu gibi korunur.
-  const def = parseDurationMinutes(fd.get("defaultDuration"));
-  if (def !== null && Number.isNaN(def)) fail(SETTINGS, "duration_invalid");
-  const choices = parseDurationChoices(fd.get("choices"));
-  if (choices === null) fail(SETTINGS, "choices_invalid");
-  await run(
-    SETTINGS,
-    async (db, adminId) =>
-      setOptionWorkspace(db, adminId, {
-        workspaceId,
-        enabled:
-          (await getOptionSettings(db, adminId)).workspaces.get(workspaceId)?.enabled ?? false,
-        defaultMinutes: def,
-        choices: choices ?? [],
-      }),
-    SETTING_NOTICES,
-    "workspace",
   );
 }

@@ -55,7 +55,13 @@ export default async function AdminOptionsPage({ searchParams }: Props) {
   const status = TAB_STATUS[tab] ?? null;
   const [counts, operations, options, alerts] = await Promise.all([
     getOptionCounts(db, admin.adminId),
-    tab === "onay" ? listOperations(db, admin.adminId, null) : Promise.resolve([]),
+    tab === "onay"
+      ? listOperations(db, admin.adminId, null)
+      : tab === "aciklama"
+        ? listOperations(db, admin.adminId, "pending").then((ops) =>
+            ops.filter((op) => op.mode === "clarify"),
+          )
+        : Promise.resolve([]),
     status ? listOptions(db, admin.adminId, status) : Promise.resolve([]),
     tab === "uyarilar" ? listAlerts(db, admin.adminId) : Promise.resolve([]),
   ]);
@@ -121,14 +127,23 @@ export default async function AdminOptionsPage({ searchParams }: Props) {
         ))}
       </nav>
 
-      {tab === "onay" ? (
+      {tab === "onay" || tab === "aciklama" ? (
         <section
           className={CARD}
-          aria-label="Onay bekleyen işlemler"
-          data-testid="admin-option-pending"
+          aria-label={tab === "onay" ? "Onay bekleyen işlemler" : "Açıklama bekleyen işlemler"}
+          data-testid={tab === "onay" ? "admin-option-pending" : "admin-option-clarify"}
         >
+          {tab === "aciklama" ? (
+            <p className="border-b border-border p-5 text-sm text-muted-foreground">
+              Teknik takip (salt okunur): WhatsApp&apos;tan gelip güvenle uygulanamadığı için
+              opsiyon açılmayan istekler. Onay gerekmez; ev sahibi doğru bilgiyle gruba yeni mesaj
+              yazar.
+            </p>
+          ) : null}
           {operations.length === 0 ? (
-            <p className="p-5 text-sm text-muted-foreground">Onay bekleyen işlem yok.</p>
+            <p className="p-5 text-sm text-muted-foreground">
+              {tab === "onay" ? "Onay bekleyen işlem yok." : "Açıklama bekleyen işlem yok."}
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

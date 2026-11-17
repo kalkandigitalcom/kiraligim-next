@@ -451,7 +451,7 @@ describe("oluşturma", () => {
     expect(ops[0].reasons).toContain("multiple_ranges");
   });
 
-  it("süre yok + işletme varsayılanı yok → sistem varsayılanı (24 saat, onay yok); işletme varsayılanı varsa o kullanılır (workspace_default)", async () => {
+  it("süre yok → sabit 24 saat (onay yok); eski işletme varsayılanı okunmaz (0076)", async () => {
     const m = await send("15-18 Nisan opsiyon");
     await runTask();
     expect(await opsOf(m.id)).toEqual([
@@ -464,15 +464,15 @@ describe("oluşturma", () => {
       }),
     ]);
 
-    // İşletmenin varsayılan süresi (eski işletme anahtarı KAPALI olsa da kullanılır).
-    expect(await setWorkspace(false, 1440)).toBe("changed");
+    // 0076: işletmenin eski varsayılan süresi (ör. 48 saat) okunmaz; süre sabit 24 saat.
+    expect(await setWorkspace(false, 2880)).toBe("changed");
     const m2 = await send("20-23 Nisan opsiyon");
     await runTask();
     expect(await opsOf(m2.id)).toEqual([
       expect.objectContaining({
         status: "applied",
         mode: "auto",
-        expiry_source: "workspace_default",
+        expiry_source: "system_default",
         expires_in_minutes: 1440,
       }),
     ]);

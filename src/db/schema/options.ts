@@ -280,8 +280,9 @@ export const optionAutomationGlobal = pgTable(
     enabled: boolean().notNull().default(false),
     updatedAt: ts().notNull().defaultNow(),
     updatedByAdmin: uuid().references(() => adminUsers.id, { onDelete: "set null" }),
-    // Faz A (0075): sistem varsayılan süresi. updated_at / updated_by_admin YALNIZ anahtarındır
-    // (app_option_automation_since onu okur); süre değişikliği ayrı zaman damgası tutar.
+    // 0075'ten kalan sistem varsayılanı sütunları. 0076'dan beri süre SABİT 24 saattir; bu
+    // sütunlar okunmaz / yazılmaz (verisiyle korunur, temizlik migration'ında kaldırılacak).
+    // updated_at / updated_by_admin YALNIZ anahtarındır (app_option_automation_since okur).
     defaultDurationMinutes: integer().notNull().default(OPTION_SYSTEM_DEFAULT_MINUTES),
     defaultDurationUpdatedAt: ts(),
   },

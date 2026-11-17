@@ -103,7 +103,6 @@ describe("fonksiyonlar", () => {
       "app_option_admin_check",
       "app_option_admin_counts",
       "app_option_admin_decide",
-      "app_option_admin_default_duration", // 0075 (opsiyon Faz A)
       "app_option_admin_operation",
       "app_option_admin_operations",
       "app_option_admin_option",
@@ -111,7 +110,6 @@ describe("fonksiyonlar", () => {
       "app_option_admin_option_operations",
       "app_option_admin_options",
       "app_option_admin_range_context",
-      "app_option_admin_set_default_duration", // 0075
       "app_option_admin_set_global",
       "app_option_admin_set_group",
       "app_option_admin_set_workspace",
@@ -133,7 +131,6 @@ describe("fonksiyonlar", () => {
       "app_option_finish_operation",
       "app_option_message_items",
       "app_option_operations_guard",
-      "app_option_owner_set_default", // 0075: yalnız işletme sahibi
       "app_option_scan_conflicts",
       "app_properties_enforce_limit",
       "app_property_photos_before_insert",
@@ -273,7 +270,6 @@ describe("fonksiyonlar", () => {
       "app_option_admin_check",
       "app_option_admin_counts",
       "app_option_admin_decide",
-      "app_option_admin_default_duration", // 0075 (opsiyon Faz A)
       "app_option_admin_operation",
       "app_option_admin_operations",
       "app_option_admin_option",
@@ -281,7 +277,6 @@ describe("fonksiyonlar", () => {
       "app_option_admin_option_operations",
       "app_option_admin_options",
       "app_option_admin_range_context",
-      "app_option_admin_set_default_duration", // 0075
       "app_option_admin_set_global",
       "app_option_admin_set_group",
       "app_option_admin_set_workspace",
@@ -300,7 +295,6 @@ describe("fonksiyonlar", () => {
       "app_option_expire_due",
       "app_option_finish_operation",
       "app_option_message_items",
-      "app_option_owner_set_default", // 0075: yalnız işletme sahibi
       "app_option_scan_conflicts",
       // 0027 (F3): yayındaki villaya beklemede web talebi yazan tek fonksiyon
       "app_public_reservation_request",
@@ -640,7 +634,6 @@ describe("fonksiyonlar", () => {
       app_option_admin_check: [],
       app_option_admin_counts: ["app_admin"],
       app_option_admin_decide: ["app_admin"],
-      app_option_admin_default_duration: ["app_admin"], // 0075
       app_option_admin_operation: ["app_admin"],
       app_option_admin_operations: ["app_admin"],
       app_option_admin_option: ["app_admin"],
@@ -648,7 +641,6 @@ describe("fonksiyonlar", () => {
       app_option_admin_option_operations: ["app_admin"],
       app_option_admin_options: ["app_admin"],
       app_option_admin_range_context: ["app_admin"],
-      app_option_admin_set_default_duration: ["app_admin"], // 0075
       app_option_admin_set_global: ["app_admin"],
       app_option_admin_set_group: ["app_admin"],
       app_option_admin_set_workspace: ["app_admin"],
@@ -670,7 +662,6 @@ describe("fonksiyonlar", () => {
       app_option_finish_operation: ["app_user"],
       app_option_message_items: ["app_user"],
       app_option_operations_guard: [],
-      app_option_owner_set_default: ["app_user"], // 0075: yalnız işletme sahibi (bağlamdan)
       app_option_scan_conflicts: ["app_user"],
       app_properties_enforce_limit: [],
       app_property_photos_before_insert: [],
