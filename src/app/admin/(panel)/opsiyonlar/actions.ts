@@ -21,6 +21,7 @@ import {
   getOptionSettings,
   setOptionGlobal,
   setOptionWorkspace,
+  setSystemDefaultDuration,
 } from "@/server/admin/options";
 import { requireAdmin } from "@/server/admin/session";
 
@@ -171,6 +172,18 @@ export async function setGlobalAction(enabled: boolean, fd: FormData): Promise<v
     (db, adminId) => setOptionGlobal(db, adminId, enabled),
     SETTING_NOTICES,
     "global",
+  );
+}
+
+/** Faz A (0075): sistem geneli varsayılan opsiyon süresi. */
+export async function setSystemDefaultAction(fd: FormData): Promise<void> {
+  const minutes = parseDurationMinutes(fd.get("systemDefault"));
+  if (minutes === null || Number.isNaN(minutes)) fail(SETTINGS, "duration_invalid");
+  await run(
+    SETTINGS,
+    (db, adminId) => setSystemDefaultDuration(db, adminId, minutes as number),
+    SETTING_NOTICES,
+    "system_default",
   );
 }
 

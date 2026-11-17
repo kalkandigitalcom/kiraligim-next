@@ -14,6 +14,7 @@ import { pgErrorInfo } from "@/db/pg-error";
 import { isUuid } from "@/lib/option-admin";
 import {
   OPTION_OPERATION_STATUSES,
+  OPTION_SETTINGS_LIMITS,
   OPTION_STATUSES,
   type OptionOperationKind,
   type OptionOperationStatus,
@@ -768,6 +769,40 @@ export async function setOptionGlobal(
   const out = await scalar(
     db,
     sql`select public.app_option_admin_set_global(${adminId}::uuid, ${enabled}) as out`,
+  );
+  return outcome(out, ["changed", "unchanged"] as const);
+}
+
+/** Faz A (0075): sistem geneli varsayılan opsiyon süresi (dakika) ve son değişikliği. */
+export type SystemDefaultDuration = { minutes: number; updatedAt: Date | null };
+
+export async function getSystemDefaultDuration(
+  db: Database,
+  adminId: string,
+): Promise<SystemDefaultDuration> {
+  const r = await rows<{ minutes: number | string; updated_at: Date | string | null }>(
+    db,
+    sql`select * from public.app_option_admin_default_duration(${adminId}::uuid)`,
+  );
+  return { minutes: Number(r[0]?.minutes ?? 0), updatedAt: d(r[0]?.updated_at ?? null) };
+}
+
+/** Sistem varsayılanını değiştirir (1 saat – 14 gün); otomasyon anahtarına dokunmaz. */
+export async function setSystemDefaultDuration(
+  db: Database,
+  adminId: string,
+  minutes: number,
+): Promise<SettingOutcome> {
+  if (
+    !Number.isInteger(minutes) ||
+    minutes < OPTION_SETTINGS_LIMITS.minMinutes ||
+    minutes > OPTION_SETTINGS_LIMITS.maxMinutes
+  ) {
+    throw new AdminOptionError("duration_invalid");
+  }
+  const out = await scalar(
+    db,
+    sql`select public.app_option_admin_set_default_duration(${adminId}::uuid, ${minutes}::integer) as out`,
   );
   return outcome(out, ["changed", "unchanged"] as const);
 }

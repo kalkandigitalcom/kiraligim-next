@@ -44,6 +44,7 @@ import { createAutoOpener } from "@/server/whatsapp/auto-open";
 import { runCalendarWorker, type WorkerDeps } from "@/server/whatsapp/calendar/worker";
 import { createWorkspace } from "@/server/workspaces/service";
 
+import { toLegacyPendingCreate } from "./option-legacy";
 import { createTestAdmin } from "./wa-admin";
 
 /**
@@ -177,12 +178,24 @@ const opRow = async (id: string) =>
 const optRow = async (id: string) =>
   (await admin.query("select * from reservation_options where id = $1", [id])).rows[0];
 
-/** Mesajdan Super Admin onayı bekleyen OLUŞTUR işlemi (süre yazılmamış → duration_missing). */
+/**
+ * Mesajdan Super Admin onayı bekleyen OLUŞTUR işlemi. 0075'ten (Faz A) sonra WhatsApp oluşturması
+ * onaya düşmediği için production'daki eski bekleyenlerin biçimine çevrilir (./option-legacy).
+ */
 async function pendingCreate(a: number, b: number, jid = G.jid) {
   const m = await send(`opsiyon 3c ${a}`, jid);
   await claim();
-  const r = await applyMsg(m.id, [item({ intent: "create", check_in: day(a), check_out: day(b) })]);
+  const r = await applyMsg(m.id, [
+    item({
+      intent: "create",
+      decision: "ask",
+      reasons: ["villa_unclear"],
+      check_in: day(a),
+      check_out: day(b),
+    }),
+  ]);
   expect(r[0]).toMatchObject({ status: "pending", option_id: null });
+  await toLegacyPendingCreate(admin, r[0].operation_id as string);
   return r[0].operation_id as string;
 }
 

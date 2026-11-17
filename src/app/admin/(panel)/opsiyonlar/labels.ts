@@ -48,6 +48,7 @@ export const EXPIRY_SOURCE_LABELS: Record<string, string> = {
   message: "mesajda yazan süre",
   workspace_default: "işletme varsayılanı",
   manual: "Super Admin girdi",
+  system_default: "sistem varsayılanı",
 };
 
 export const EVENT_LABELS: Record<string, string> = {
@@ -76,6 +77,7 @@ export const OP_STATUS_LABELS: Record<string, string> = {
 export const OP_MODE_LABELS: Record<string, string> = {
   auto: "otomatik",
   needs_approval: "Super Admin onayı",
+  clarify: "açıklama bekliyor (işletme panelinde; onay gerekmez)",
 };
 
 export const FAILURE_LABELS: Record<string, string> = {
@@ -119,6 +121,7 @@ export const REASON_LABELS: Record<string, string> = {
   dateless_target_pending: "Tarihsiz hedef",
   group_without_villa: "Grubun villası yok",
   duration_missing: "Süre yazılmamış, varsayılan yok",
+  check_in_too_close: "Girişe 60 dakikadan az kaldı",
   guest_info_missing: "Misafir bilgisi eksik",
   automation_off: "Otomasyon kapalı",
   property_inactive: "Villa pasif",

@@ -20,6 +20,7 @@ import { createAutoOpener } from "@/server/whatsapp/auto-open";
 import { runCalendarWorker, type WorkerDeps } from "@/server/whatsapp/calendar/worker";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
+import { toLegacyPendingCreate } from "./option-legacy";
 import { createTestAdmin } from "./wa-admin";
 
 /**
@@ -187,6 +188,21 @@ const op = async (id: string) =>
   (await admin.query("select * from option_operations where id = $1", [id])).rows[0];
 const opt = async (id: string) =>
   (await admin.query("select * from reservation_options where id = $1", [id])).rows[0];
+
+/** 0075 öncesi biçimde Super Admin onayı bekleyen oluşturma (bkz. ./option-legacy). */
+async function legacyPendingCreate(messageId: string, checkIn: string, checkOut: string) {
+  const r = await apply(messageId, [
+    item({
+      intent: "create",
+      decision: "ask",
+      reasons: ["villa_unclear"],
+      check_in: checkIn,
+      check_out: checkOut,
+    }),
+  ]);
+  await toLegacyPendingCreate(admin, r[0].operation_id as string);
+  return r;
+}
 
 /** Mevcut sistemin bu mesaj için ürettiği her şey (öneri, tepki, mesaj durumu). */
 async function existingView(messageId: string) {
@@ -608,18 +624,25 @@ describe("mesajdan işlem (görev fonksiyonları)", () => {
     ).toBe(1);
   });
 
-  it("süre yok + varsayılan yok → opsiyon YOK, Super Admin onayı (duration_missing); varsayılan varsa workspace_default", async () => {
+  it("süre yok + işletme varsayılanı yok → sistem varsayılanı (Faz A: 24 saat, onay yok); varsayılan varsa workspace_default", async () => {
     const m = await send("opsiyon mesajı 2");
     await claim();
     const r = await apply(m.id, [
       item({ intent: "create", check_in: day(40), check_out: day(42) }),
     ]);
-    expect(r[0]).toMatchObject({ status: "pending", option_id: null });
+    expect(r[0].status).toBe("applied");
     expect(await op(r[0].operation_id)).toMatchObject({
-      mode: "needs_approval",
-      reasons: ["duration_missing"],
-      expires_in_minutes: null,
+      mode: "auto",
+      reasons: [],
+      expires_in_minutes: 1440,
+      expiry_source: "system_default",
     });
+    const o0 = await opt(r[0].option_id);
+    expect(o0.expiry_source).toBe("system_default");
+    const sent = (
+      await admin.query("select sent_at from wa_inbound_messages where id = $1", [m.id])
+    ).rows[0].sent_at as Date;
+    expect(new Date(o0.expires_at).getTime() - sent.getTime()).toBe(1440 * 60_000);
 
     expect(await setWorkspace(ws, true, 2880, [1440, 2880])).toBe("changed");
     const m2 = await send("opsiyon mesajı 3");
@@ -641,6 +664,7 @@ describe("mesajdan işlem (görev fonksiyonları)", () => {
     ]);
     expect(await op(r[0].operation_id)).toMatchObject({
       status: "pending",
+      mode: "clarify",
       reasons: ["option_overlap"],
     });
 
@@ -672,7 +696,13 @@ describe("mesajdan işlem (görev fonksiyonları)", () => {
       [1, "pending"],
     ]);
     expect((await op(r2[0].operation_id)).reasons).toEqual(["calendar_conflict"]);
-    expect((await op(r2[1].operation_id)).reasons).toEqual(["duration_missing", "villa_unclear"]);
+    // Faz A: süre sistem varsayılanından gelir (duration_missing yok); oluşturma "ask" → clarify.
+    expect(await op(r2[0].operation_id)).toMatchObject({ mode: "clarify" });
+    expect(await op(r2[1].operation_id)).toMatchObject({
+      mode: "clarify",
+      reasons: ["villa_unclear"],
+      expiry_source: "system_default",
+    });
   });
 
   it("geçersiz öğe reddedilir; veritabanı nedeni dışarıdan verilemez; panel_cancel WhatsApp'tan gelemez", async () => {
@@ -849,9 +879,7 @@ describe("Super Admin onayı, uygulama ve panelden iptal", () => {
   beforeAll(async () => {
     const m = await send("opsiyon mesajı 8");
     await claim();
-    const r = await apply(m.id, [
-      item({ intent: "create", check_in: day(120), check_out: day(123) }),
-    ]);
+    const r = await legacyPendingCreate(m.id, day(120), day(123));
     pendingCreate = r[0].operation_id;
   });
 
@@ -926,9 +954,7 @@ describe("Super Admin onayı, uygulama ve panelden iptal", () => {
   it("onaydan sonra takvim değişirse işlem uygulanmaz ('stale'); ret kaydı tutulur", async () => {
     const m = await send("opsiyon mesajı 9");
     await claim();
-    const r = await apply(m.id, [
-      item({ intent: "create", check_in: day(130), check_out: day(132) }),
-    ]);
+    const r = await legacyPendingCreate(m.id, day(130), day(132));
     const id = r[0].operation_id as string;
     expect(
       await adminOne(
@@ -969,9 +995,7 @@ describe("Super Admin onayı, uygulama ve panelden iptal", () => {
 
     const m2 = await send("opsiyon mesajı 10");
     await claim();
-    const r2 = await apply(m2.id, [
-      item({ intent: "create", check_in: day(140), check_out: day(142) }),
-    ]);
+    const r2 = await legacyPendingCreate(m2.id, day(140), day(142));
     expect(
       await adminOne(
         "select public.app_option_admin_decide($1, $2, 1, false, 'gerek yok', null, null, null, null, null, null) as out",
@@ -1102,9 +1126,7 @@ describe("mevcut davranış korunur", () => {
     await setGroup(g.id, true);
     const m = await send("opsiyon mesajı 11", g.jid);
     await claim();
-    const r = await apply(m.id, [
-      item({ intent: "create", check_in: day(160), check_out: day(162) }),
-    ]);
+    const r = await legacyPendingCreate(m.id, day(160), day(162));
     expect(r[0].status).toBe("pending");
     const out = await adminOne("select public.app_wa_admin_unlink_group($1, $2) as out", [
       adminId,

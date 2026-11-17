@@ -10,6 +10,7 @@ describe("panel menüsü", () => {
       ["Mülkler", "/villalar"],
       ["Rezervasyonlar", "/rezervasyonlar"],
       ["Takvim", "/takvim"],
+      ["Opsiyonlar", "/opsiyonlar"],
     ]);
   });
 
@@ -22,6 +23,7 @@ describe("panel menüsü", () => {
     );
     expect(activeNavHref("/rezervasyonlar/yeni")).toBe("/rezervasyonlar");
     expect(activeNavHref("/takvim")).toBe("/takvim");
+    expect(activeNavHref("/opsiyonlar")).toBe("/opsiyonlar");
   });
 
   it("benzer önekli ya da menü dışı adresler etkin değildir", () => {

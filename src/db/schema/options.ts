@@ -29,6 +29,7 @@ import {
   OPTION_SETTINGS_LIMITS as SL,
   OPTION_SOURCES,
   OPTION_STATUSES,
+  OPTION_SYSTEM_DEFAULT_MINUTES,
   SHADOW_DECISIONS,
   SHADOW_INTENTS,
 } from "../../lib/option-meta";
@@ -279,8 +280,15 @@ export const optionAutomationGlobal = pgTable(
     enabled: boolean().notNull().default(false),
     updatedAt: ts().notNull().defaultNow(),
     updatedByAdmin: uuid().references(() => adminUsers.id, { onDelete: "set null" }),
+    // Faz A (0075): sistem varsayılan süresi. updated_at / updated_by_admin YALNIZ anahtarındır
+    // (app_option_automation_since onu okur); süre değişikliği ayrı zaman damgası tutar.
+    defaultDurationMinutes: integer().notNull().default(OPTION_SYSTEM_DEFAULT_MINUTES),
+    defaultDurationUpdatedAt: ts(),
   },
-  (t) => [check("option_automation_global_singleton", sql`${t.id} = 1`)],
+  (t) => [
+    check("option_automation_global_singleton", sql`${t.id} = 1`),
+    check("option_automation_global_default_duration", minutesCheck(t.defaultDurationMinutes)),
+  ],
 );
 
 /** İşletme anahtarı, varsayılan süre ve süre seçenekleri (dakika). Satır yoksa kapalı, süresiz. */

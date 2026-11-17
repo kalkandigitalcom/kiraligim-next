@@ -1,4 +1,4 @@
-# Opsiyon otomasyonu — işletim kılavuzu (tek ve ortak sistem, 0074)
+# Opsiyon otomasyonu — işletim kılavuzu (tek ve ortak sistem, 0074; varsayılan süre, 0075)
 
 Kiraligim'de tek bir ortak opsiyon sistemi vardır. Bütün işletmeler ve bütün bağlı WhatsApp
 grupları aynı kurallarla çalışır; işletme veya grup başına açma yoktur. Davranışın test kanıtı:
@@ -19,9 +19,21 @@ grupları aynı kurallarla çalışır; işletme veya grup başına açma yoktur
 4. **Kim başlatabilir:** yalnız işletmenin doğrulanmış sahip veya yönetici telefonu. Personel ve
    doğrulanmamış katılımcının mesajı opsiyon işlemi üretmez.
 5. **İzolasyon:** her grup yalnız kendi işletmesinin, kendi bağlı villasının opsiyonlarını yönetir.
-   Mesajda başka bir villanın adı yazılırsa otomatik işlem yapılmaz (onaya düşer).
-6. **Süre:** mesajda yazan süre (1 saat – 14 gün, girişten önce dolmalı) ya da işletmenin varsayılan
-   süresi (Otomasyon ayarları → İşletmeler). İkisi de yoksa Super Admin onayına düşer.
+   Mesajda başka bir villanın adı yazılırsa otomatik işlem yapılmaz (açıklama bekler).
+6. **Süre (0075, Faz A):** öncelik mesajda yazan süre (1 saat – 14 gün) → işletmenin varsayılanı
+   (işletme sahibi panelden, Super Admin Otomasyon ayarları → İşletmeler'den değiştirir) → sistem
+   varsayılanı (24 saat; Super Admin → Otomasyon ayarları → Sistem varsayılan süresi).
+   - Mesajda yazılı süre ASLA kısaltılmaz: girişi aşarsa opsiyon açılmaz, istek "açıklama bekliyor"
+     olur.
+   - Varsayılan süre girişi aşarsa bitiş giriş saatine (İstanbul 00:00) çekilir; girişe 60 dakikadan
+     az kalıyorsa istek açıklama bekler.
+   - Başlamış / geçmiş girişli istek otomatik işlenmez (açıklama bekler).
+   - Varsayılan değişiklikleri mevcut opsiyonların bitişini değiştirmez.
+   - **Açıklama bekleyenler** (`mode = clarify`): WhatsApp'tan gelip güvenle uygulanamayan
+     oluşturmalar. Hiçbir görev uygulamaz, Super Admin onaylamaz; işletme panelinde → Opsiyonlar'da
+     salt okunur listelenir. Kullanıcı doğru bilgiyle yeni mesaj yazar. Kapatma / düzenleme Faz C.
+   - İptal ve kesinleştirme belirsizlikleri ile 0075 öncesinden kalan bekleyenler eskisi gibi Super
+     Admin onayındadır.
 7. **Opsiyonlar müsaitliği etkilemez.** Panel takvimi, herkese açık villa sayfası, API, iCal ve
    webhook yalnız kesin rezervasyonla değişir.
 8. **Kesinleştirme her zaman Super Admin onayıyla.** Onayda misafir adı, yetişkin ve çocuk sayısı
@@ -60,8 +72,9 @@ select g.status, g.property_id is not null as villa_var, p.status as villa, w.st
 -- İşletmelerin varsayılan süreleri.
 select workspace_id, default_duration_minutes from workspace_option_settings;
 
--- Global anahtar.
-select enabled, updated_at from option_automation_global;
+-- Global anahtar ve sistem varsayılan süresi (0075).
+select enabled, updated_at, default_duration_minutes, default_duration_updated_at
+  from option_automation_global;
 ```
 
 ## 4. İzleme (salt okunur)
@@ -69,6 +82,8 @@ select enabled, updated_at from option_automation_global;
 ```sql
 select status, count(*) from reservation_options group by 1 order by 1;
 select kind, mode, status, count(*) from option_operations group by 1,2,3 order by 1,2,3;
+-- Süre kaynağı (message / workspace_default / system_default / manual).
+select expiry_source, count(*) from reservation_options group by 1 order by 1;
 select status, count(*) from option_message_scans group by 1 order by 1;
 select count(*) from option_conflict_alerts where acknowledged_at is null;
 select action, count(*) from admin_audit_log where action like 'option.%'
@@ -89,3 +104,8 @@ iptal edilebilir ya da süreleri dolar.
 **0074'ü geri almak** (yalnız gerekirse): `docs/rollback-0074.sql` üç anahtar kuralını (global +
 işletme + grup) geri getirir; uygulama kodu da önceki sürüme döndürülür. Geri almadan sonra işletme
 ve grup anahtarı açık olmayan gruplarda otomasyon durur.
+
+**0075'i geri almak** (yalnız gerekirse): `docs/rollback-0075.sql` 0074 durumunu birebir getirir
+(sistem varsayılanı sütunları ve yeni fonksiyonlar kalkar, karar fonksiyonu 0069 gövdesine döner).
+`system_default` kaynaklı opsiyon / işlem ya da `clarify` işlem varsa betik durur ve sayıları
+bildirir; önce bu kayıtlar için karar verilir. Uygulama kodu da önceki sürüme döndürülür.

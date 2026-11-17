@@ -3,11 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   OPTION_END_REASON_LIST,
   OPTION_END_REASONS,
+  OPTION_EXPIRY_SOURCES,
+  OPTION_MIN_LEAD_MINUTES,
   OPTION_OPERATION_FINAL,
+  OPTION_OPERATION_MODES,
   OPTION_OPERATION_REASONS,
   OPTION_OPERATION_STATUSES,
   OPTION_SETTINGS_LIMITS,
   OPTION_STATUS_BADGES,
+  OPTION_SYSTEM_DEFAULT_MINUTES,
   OPTION_WHATSAPP_CANCEL_REASONS,
   SHADOW_REASONS,
 } from "@/lib/option-meta";
@@ -29,6 +33,21 @@ describe("opsiyon sabitleri (Aşama 3a kararları)", () => {
   it("süre ayarları 1 saat – 14 gün (dakika); hazır liste yok", () => {
     expect(OPTION_SETTINGS_LIMITS.minMinutes).toBe(60);
     expect(OPTION_SETTINGS_LIMITS.maxMinutes).toBe(20160);
+  });
+
+  it("Faz A (0075): sistem varsayılanı 24 saat, sınırlar içinde; yeni kaynak ve mod", () => {
+    expect(OPTION_SYSTEM_DEFAULT_MINUTES).toBe(1440);
+    expect(OPTION_SYSTEM_DEFAULT_MINUTES).toBeGreaterThanOrEqual(OPTION_SETTINGS_LIMITS.minMinutes);
+    expect(OPTION_SYSTEM_DEFAULT_MINUTES).toBeLessThanOrEqual(OPTION_SETTINGS_LIMITS.maxMinutes);
+    expect(OPTION_MIN_LEAD_MINUTES).toBe(60);
+    expect(OPTION_EXPIRY_SOURCES).toEqual([
+      "message",
+      "workspace_default",
+      "manual",
+      "system_default",
+    ]);
+    expect(OPTION_OPERATION_MODES).toEqual(["auto", "needs_approval", "clarify"]);
+    expect(OPTION_OPERATION_REASONS).toContain("check_in_too_close");
   });
 
   it("işlem durumları ve nedenleri: gölge nedenlerini kapsar, son durumlar durum listesinde", () => {

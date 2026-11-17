@@ -428,13 +428,13 @@ describe("oluşturma", () => {
     ).toEqual([]);
   });
 
-  it("aynı tarihe ikinci opsiyon otomatik oluşturulmaz → onay (option_overlap)", async () => {
+  it("aynı tarihe ikinci opsiyon otomatik oluşturulmaz → açıklama bekler (option_overlap)", async () => {
     const m = await send("10-14 Mart opsiyon 24 saat");
     await runTask();
     expect(await opsOf(m.id)).toEqual([
       expect.objectContaining({
         kind: "create",
-        mode: "needs_approval",
+        mode: "clarify",
         status: "pending",
         result_option_id: null,
       }),
@@ -451,13 +451,18 @@ describe("oluşturma", () => {
     expect(ops[0].reasons).toContain("multiple_ranges");
   });
 
-  it("süre yok + varsayılan yok → onay (duration_missing); işletme varsayılanı varsa uygulanır (workspace_default)", async () => {
+  it("süre yok + işletme varsayılanı yok → sistem varsayılanı (24 saat, onay yok); işletme varsayılanı varsa o kullanılır (workspace_default)", async () => {
     const m = await send("15-18 Nisan opsiyon");
     await runTask();
     expect(await opsOf(m.id)).toEqual([
-      expect.objectContaining({ status: "pending", expires_in_minutes: null }),
+      expect.objectContaining({
+        status: "applied",
+        mode: "auto",
+        reasons: [],
+        expiry_source: "system_default",
+        expires_in_minutes: 1440,
+      }),
     ]);
-    expect((await opsOf(m.id))[0].reasons).toContain("duration_missing");
 
     // İşletmenin varsayılan süresi (eski işletme anahtarı KAPALI olsa da kullanılır).
     expect(await setWorkspace(false, 1440)).toBe("changed");

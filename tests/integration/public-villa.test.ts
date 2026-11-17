@@ -922,6 +922,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_option_admin_check",
       "app_option_admin_counts",
       "app_option_admin_decide",
+      "app_option_admin_default_duration", // 0075 (opsiyon Faz A)
       "app_option_admin_operation",
       "app_option_admin_operations",
       "app_option_admin_option",
@@ -929,6 +930,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_option_admin_option_operations",
       "app_option_admin_options",
       "app_option_admin_range_context",
+      "app_option_admin_set_default_duration", // 0075
       "app_option_admin_set_global",
       "app_option_admin_set_group",
       "app_option_admin_set_workspace",
@@ -947,6 +949,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_option_expire_due",
       "app_option_finish_operation",
       "app_option_message_items",
+      "app_option_owner_set_default", // 0075: yalnız işletme sahibi
       "app_option_scan_conflicts",
       "app_public_reservation_request",
       "app_public_villa",
@@ -1039,6 +1042,9 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
         "p_admin uuid, p_enabled boolean": `gen_random_uuid(), false`,
         "p_admin uuid, p_group uuid, p_enabled boolean": `gen_random_uuid(), gen_random_uuid(), false`,
         "p_admin uuid, p_workspace uuid, p_enabled boolean, p_default_minutes integer, p_choices integer[]": `gen_random_uuid(), gen_random_uuid(), false, null, '{}'::integer[]`,
+        // 0075: opsiyon Faz A (varsayılan süre)
+        "p_admin uuid, p_minutes integer": `gen_random_uuid(), 60`,
+        "p_minutes integer": `60`,
         "p_op uuid, p_token uuid": `gen_random_uuid(), gen_random_uuid()`,
         "p_op uuid, p_token uuid, p_outcome text, p_code text": `gen_random_uuid(), gen_random_uuid(), 'release', null`,
         // 0073: opsiyon Aşama 3e

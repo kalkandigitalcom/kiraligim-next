@@ -29,6 +29,7 @@ import { createAutoOpener } from "@/server/whatsapp/auto-open";
 import { runCalendarWorker, type WorkerDeps } from "@/server/whatsapp/calendar/worker";
 import { addWorkspaceMember, createWorkspace } from "@/server/workspaces/service";
 
+import { toLegacyPendingCreate } from "./option-legacy";
 import { createTestAdmin } from "./wa-admin";
 
 /**
@@ -388,13 +389,19 @@ const enabledFn = async (g: string) =>
     .on as boolean;
 
 /** Opsiyon oluşturma işlemini onaya düşürür (süre yazılmamış, işletme varsayılanı yok). */
+/**
+ * Super Admin onayı bekleyen oluşturma. 0075'ten (Faz A) sonra WhatsApp oluşturması onaya düşmez
+ * (belirsiz ifade "açıklama bekliyor" olur); production'daki eski bekleyenlerin biçimine
+ * çevrilir (./option-legacy).
+ */
 async function pendingCreate(range: string, jid: string) {
-  const m = await send(`${range} opsiyon`, { jid });
+  const m = await send(`${range} opsiyon belki`, { jid });
   await runTask();
   const [op] = await opsOf(m.id);
-  expect(op).toMatchObject({ kind: "create", status: "pending", mode: "needs_approval" });
+  expect(op).toMatchObject({ kind: "create", status: "pending", mode: "clarify" });
   const id = (await admin.query("select id from option_operations where message_id = $1", [m.id]))
     .rows[0].id as string;
+  await toLegacyPendingCreate(admin, id);
   return id;
 }
 const approveCreate = async (opId: string) => {
@@ -496,11 +503,14 @@ describe("işletme izolasyonu ve işletmeye özel süre", () => {
     const t = await tenant("o3i", "Villa Ada");
     expect(await setWorkspace(false, 4320, t.ws)).toBe("changed"); // yalnız süre (3 gün)
     const viewA = await outside(mavi, "2027-02-01", "2027-02-28");
-    const mA = await send("2-5 Şubat opsiyon"); // işletme A: varsayılan süre yok → onay
+    const mA = await send("2-5 Şubat opsiyon"); // işletme A: varsayılan süre yok → sistem varsayılanı
     const mB = await send("2-5 Şubat opsiyon", { jid: t.group.jid, pn: t.pn });
     await runTask();
-    expect((await opsOf(mA.id))[0]).toMatchObject({ status: "pending", expires_in_minutes: null });
-    expect((await opsOf(mA.id))[0].reasons).toContain("duration_missing");
+    expect((await opsOf(mA.id))[0]).toMatchObject({
+      status: "applied",
+      expiry_source: "system_default",
+      expires_in_minutes: 1440,
+    });
     const [b] = await opsOf(mB.id);
     expect(b).toMatchObject({
       status: "applied",

@@ -28,8 +28,17 @@ export const OPTION_END_REASON_LIST = [
   ...OPTION_END_REASONS.expired,
 ] as const;
 
-/** Süre nereden geldi: mesajda yazan, işletme varsayılanı, panelde elle. Süresiz: null. */
-export const OPTION_EXPIRY_SOURCES = ["message", "workspace_default", "manual"] as const;
+/**
+ * Süre nereden geldi: mesajda yazan, işletme varsayılanı, panelde elle, sistem varsayılanı (Faz A,
+ * 0075). Süresiz: null.
+ */
+export const OPTION_EXPIRY_SOURCES = [
+  "message",
+  "workspace_default",
+  "manual",
+  "system_default",
+] as const;
+export type OptionExpirySource = (typeof OPTION_EXPIRY_SOURCES)[number];
 
 /** Geçmiş (append-only) olay türleri; tetikleyici yazar. */
 export const OPTION_EVENTS = ["created", "updated", "converted", "cancelled", "expired"] as const;
@@ -108,12 +117,25 @@ export const OPTION_SETTINGS_LIMITS = {
   noteMax: 500,
 } as const;
 
+/**
+ * Faz A (0075): sistem geneli varsayılan opsiyon süresi (dakika; Super Admin değiştirir). Süre
+ * önceliği: mesajda yazan → işletme varsayılanı → sistem varsayılanı. Yazılı süre asla
+ * kısaltılmaz; varsayılan girişe taşarsa bitiş giriş anına çekilir, girişe bu kadar dakikadan az
+ * kalıyorsa işlem açıklama bekler.
+ */
+export const OPTION_SYSTEM_DEFAULT_MINUTES = 24 * 60;
+export const OPTION_MIN_LEAD_MINUTES = 60;
+
 /** İşlem türü: oluştur, iptal, kesin rezervasyona dönüştür. */
 export const OPTION_OPERATION_KINDS = ["create", "cancel", "convert"] as const;
 export type OptionOperationKind = (typeof OPTION_OPERATION_KINDS)[number];
 
-/** auto: kural gereği otomatik; needs_approval: Super Admin onayı bekler. */
-export const OPTION_OPERATION_MODES = ["auto", "needs_approval"] as const;
+/**
+ * auto: kural gereği otomatik; needs_approval: Super Admin onayı bekler (eski kayıtlar, iptal ve
+ * kesinleştirme); clarify (Faz A, 0075): WhatsApp'tan gelen oluşturma güvenle uygulanamadı,
+ * açıklama bekliyor — hiçbir görev uygulamaz, Super Admin onaylayamaz; işletme panelinde listelenir.
+ */
+export const OPTION_OPERATION_MODES = ["auto", "needs_approval", "clarify"] as const;
 export type OptionOperationMode = (typeof OPTION_OPERATION_MODES)[number];
 
 /**
@@ -139,6 +161,8 @@ export const OPTION_OPERATION_REASONS = [
   "guest_info_missing",
   "automation_off",
   "property_inactive",
+  // Faz A (0075): varsayılan süre girişe kısaltılınca girişe 60 dakikadan az kalıyor.
+  "check_in_too_close",
 ] as const;
 export type OptionOperationReason = (typeof OPTION_OPERATION_REASONS)[number];
 

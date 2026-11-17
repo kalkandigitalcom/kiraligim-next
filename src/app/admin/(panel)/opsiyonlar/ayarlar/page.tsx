@@ -10,11 +10,12 @@ import {
   ADMIN_OPTION_ERRORS,
   type AdminOptionErrorCode,
   getOptionSettings,
+  getSystemDefaultDuration,
 } from "@/server/admin/options";
 import { requireAdmin } from "@/server/admin/session";
 import { listAdminGroups, searchAdminWorkspaces } from "@/server/admin/whatsapp";
 
-import { setGlobalAction, setWorkspaceAction } from "../actions";
+import { setGlobalAction, setSystemDefaultAction, setWorkspaceAction } from "../actions";
 import { fmt } from "../format";
 import { NOTICES } from "../labels";
 
@@ -48,8 +49,9 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
   const { db } = admin.ctx;
   const sp = await searchParams;
   const query = one(sp.ara).slice(0, 100);
-  const [settings, groups, found] = await Promise.all([
+  const [settings, systemDefault, groups, found] = await Promise.all([
     getOptionSettings(db, admin.adminId),
+    getSystemDefaultDuration(db, admin.adminId),
     listAdminGroups(db, admin.adminId),
     query ? searchAdminWorkspaces(db, admin.adminId, query) : Promise.resolve([]),
   ]);
@@ -127,6 +129,44 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
         )}
       </section>
 
+      <section
+        className={CARD}
+        aria-labelledby="system-default-title"
+        data-testid="admin-option-system-default"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="system-default-title" className="font-semibold text-navy-900">
+            Sistem varsayılan süresi: {formatMinutes(systemDefault.minutes)}
+          </h2>
+          <span className="text-sm text-muted-foreground">
+            son değişiklik {fmt(systemDefault.updatedAt)}
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          WhatsApp mesajında süre yazılmamışsa ve işletmenin kendi varsayılanı yoksa bu süre
+          kullanılır (öncelik: mesajdaki süre → işletme varsayılanı → sistem varsayılanı).
+          Varsayılan süre girişi aşarsa bitiş giriş saatine çekilir; girişe 60 dakikadan az
+          kalıyorsa işlem açıklama bekler. Mesajda yazılı süre hiçbir zaman kısaltılmaz. Değişiklik
+          mevcut opsiyonların bitişini etkilemez.
+        </p>
+        <form
+          action={setSystemDefaultAction}
+          className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
+        >
+          <Field
+            id="system-default"
+            name="systemDefault"
+            label="Sistem varsayılanı (saat, ör. 24 veya 2g)"
+            defaultValue={durationInput(systemDefault.minutes)}
+            required
+            maxLength={8}
+          />
+          <Button type="submit" variant="secondary" size="sm">
+            Kaydet
+          </Button>
+        </form>
+      </section>
+
       <section className={CARD} aria-labelledby="ws-title" data-testid="admin-option-workspaces">
         <div>
           <h2 id="ws-title" className="font-semibold text-navy-900">
@@ -135,8 +175,8 @@ export default async function AdminOptionSettingsPage({ searchParams }: Props) {
           <p className="mt-1 text-sm text-muted-foreground">
             Her işletmenin kendi varsayılan opsiyon süresi. Süreler saat (ör. 48) ya da gün (ör. 2g)
             olarak, 1 saat – 14 gün arasında. Süre seçenekleri virgülle ayrılır (en fazla 12);
-            varsayılan seçeneklerden biri olmalı. Süre yazılmamış mesaj, varsayılan yoksa Super
-            Admin onayına düşer.
+            varsayılan seçeneklerden biri olmalı. İşletme sahibi de kendi varsayılanını işletme
+            panelinden değiştirebilir. Varsayılan yoksa sistem varsayılanı kullanılır.
           </p>
         </div>
         <form method="get" className="flex flex-col gap-3 sm:flex-row sm:items-end">
