@@ -8,8 +8,13 @@
  *   ignore — işlem yok (soru, olumsuz ifade)
  *
  * Güvenlik ilkesi: otomatik işlem YALNIZ tanınan, tek anlamlı kalıplarda. Mesajda tanınmayan bir
- * sözcük, ikinci bir niyet, uzatma / tarih kaydırma, belirsiz süre ya da belirsiz tarih varsa karar
- * en fazla "ask"tır. Kesinleştirme her zaman "ask"tır. Belirsizlik tahminle kapatılmaz.
+ * sözcük, ikinci bir niyet, belirsiz süre ya da belirsiz tarih varsa karar en fazla "ask"tır.
+ * Kesinleştirme her zaman "ask"tır. Belirsizlik tahminle kapatılmaz.
+ *
+ * Faz B (0077): uzatma ("2 saat uzatalım", "1 gün daha süre verelim"; opsiyon sözcüğü ya da ödeme
+ * bekleme bağlamı zorunlu; en az 1 saat; saat / "…'e kadar" açıklama bekler) ve tarih değişikliği
+ * (opsiyon sözcüğü + değiştirme fiili; 2 aralık → eski + yeni, 1 aralık → yeni; göreli kaydırma
+ * açıklama bekler). İptal / kesinleştirme sinyali varsa eski davranış aynen geçerlidir.
  *
  * Süre (v2): "48 saat", "48s", "2 gün", "2g", "iki gün", "bir hafta", "1,5 gün", "1 buçuk gün",
  * "2 gün 12 saat", "36 saatlik", "3 günlük", "90 dakika". Süreye benzeyen ama anlaşılamayan ifade
@@ -20,9 +25,9 @@
  */
 import { foldTr } from "@/lib/wa-calendar-parse";
 import { STARTS_WITH_MONTH } from "@/lib/wa-date-parse";
-import { OPTION_LIMITS } from "@/lib/option-meta";
+import { OPTION_EXTEND_LIMITS, OPTION_LIMITS } from "@/lib/option-meta";
 
-export type OptionIntent = "create" | "cancel" | "convert";
+export type OptionIntent = "create" | "cancel" | "convert" | "extend" | "reschedule";
 export type OptionEndReason = "customer_declined" | "owner_cancelled";
 /** Veritabanının kabul ettiği neden kodları (app_wa_option_apply). */
 export type OptionReason =
@@ -38,7 +43,11 @@ export type OptionReason =
   | "villa_unclear"
   | "duration_unclear"
   | "duration_out_of_bounds"
-  | "duration_after_check_in";
+  | "duration_after_check_in"
+  // Faz B (0077): uzatma / tarih değişikliği.
+  | "duration_missing"
+  | "new_range_missing"
+  | "same_range";
 
 /** Ayrıştırıcının kaydettiği öğe (yalnız bu modülün okuduğu alanlar). */
 export type IntentItem = {
@@ -55,8 +64,12 @@ export type IntentResult = {
   reasons: OptionReason[];
   checkIn: string | null;
   checkOut: string | null;
+  /** Oluşturmada opsiyon süresi; uzatmada EKLENEN süre (dakika). */
   expiresInMinutes: number | null;
   endReason: OptionEndReason | null;
+  /** Faz B: tarih değişikliğinde hedefin (eski) aralığı; yoksa grubun tek açık opsiyonu. */
+  oldCheckIn: string | null;
+  oldCheckOut: string | null;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -104,7 +117,7 @@ const CANCEL_NEGATED =
 /** Süre doldu / bitti: otomatik değil (süre dolumunu görev yapar). */
 const EXPIRED =
   /\bsuresi\s+(?:dol|bit|gec)\w*|\bsure\s+(?:doldu|bitti|gecti)\b|\bbitti\b|\bsona\s+erdi\b/;
-/** Uzatma ve tarih değiştirme: henüz otomatik değil (onaya). */
+/** Uzatma / tarih değiştirme fiilleri: Faz B kalıbı tanınmazsa oluşturma ve iptal otomatik değil. */
 const MODIFY =
   /\buzat\w*|\bkaydir\w*|\bertele\w*|\bdegis\w*|\btasi(?:n|d|y|r)\w*|\bguncelle\w*|\byerine\b/;
 /** Yalın onay / bekletme: niyet belirsiz. */
@@ -113,6 +126,42 @@ const HOLD = /\bkalsin\b|\btamam\w*|\bbekle\w*|\bdevam\b|\bayni\b|\bsabit\w*/;
 const CREATE_NEGATED =
   /\b(?:verme(?:yelim|yin|yiniz|yecegiz|dik|di)|vermeyecek\w*|koyma(?:yalim|yin|yiniz|dik)|tutma(?:yalim|yin|dik)|alma(?:yalim|yin|dik))\b/;
 const HEDGED = /\b(?:olabilir|belki|galiba|sanirim|herhalde|gibi|dusunuyor\w*|bakalim)\b/;
+
+// Faz B (0077): uzatma ve tarih değiştirme ----------------------------------------------------
+/** Uzatma fiilleri / kalıpları ("uzat", "ek süre", "süre ver / tanı"). */
+const EXTEND_VERB = /\buzat\w*|\bek\s+sure\w*|\bsure\s+(?:ver|tani)\w*/;
+/** "<süre> daha" ile birlikte bekleme / verme fiili ("2 saat daha bekleyelim"). */
+const MORE_TIME_VERB = /\b(?:bekle|ver|tani|tut|uzat)\w*/;
+const EXTEND_NEGATED = /\buzatma(?:yalim|yin|yiniz|yacag\w*|dik|di|yiz|yalim)\b|\buzatilma\w*/;
+/**
+ * Ödeme / kapora BEKLEME bağlamı ("ödeme bekliyorum", "kaporayı gönderecek"): kesinleşme DEĞİL.
+ * Kesinleşme yalnız geçmiş zaman (CONVERT: alındı, geldi, yattı, ödendi, gönderdi …).
+ */
+const WAITING = new RegExp(
+  [
+    `\\b${PAYMENT}\\s+(?:\\w+\\s+)?bekl(?:e|i)\\w*`,
+    `\\b${PAYMENT}\\s+(?:gonderecek|yollayacak|atacak|yatiracak|yapacak|getirecek|gelecek)\\w*`,
+    "\\b(?:musteri|misafir)\\w*\\s+(?:odemeyi|kaporayi|kaparoyu|parayi|depozitoyu)\\s+(?:gonderecek|yollayacak|atacak|yatiracak|yapacak|getirecek)\\w*",
+  ].join("|"),
+);
+/** Tarih değiştirme ("yerine", "değiştir", "kaydır", "ertele", "tarihini … yap"). */
+const RESCHEDULE_VERB =
+  /\byerine\b|\bileri\s+al\w*|\bdegis\w*|\bkaydir\w*|\bertele\w*|\btasi(?:n|d|y|r)\w*|\bguncelle\w*|\btarih(?:ini|lerini|i|leri)\s+(?:\S+\s+){0,6}(?:yap|cek)\w*/;
+const RESCHEDULE_NEGATED =
+  /\bdegis(?:me(?!k)|mey|mem|mi)\w*|\bdegistirme(?!k)\w*|\b(?:kaydir|ertele|guncelle)(?:me(?!k)|mey|ma(?!k)|may)\w*/;
+/** Saat ya da "…'e kadar" gibi mutlak bitiş: Faz B'de desteklenmez (açıklama). */
+const CLOCK_TIME = /\b\d{1,2}[:.]\d{2}\b|\bkadar\b/;
+/** Uzatma sinyali: uzatma fiili ya da "<süre> daha" + bekleme / verme fiili. */
+function extendSignal(f: string): boolean {
+  if (EXTEND_VERB.test(f) || EXTEND_NEGATED.test(f)) return true;
+  return /\bdaha\b/.test(f) && MORE_TIME_VERB.test(f) && parseOptionDuration(f).kind !== "none";
+}
+/** Uzatma bağlamı: opsiyon sözcüğü ya da ödeme / kapora bekleme ("ödeme bekliyorum", "gelmedi"). */
+function extendContext(f: string): boolean {
+  return OPTION_WORD.test(f) || WAITING.test(f) || CONVERT_NEGATED.test(f);
+}
+/** İki aralıkla ("20-23 opsiyonunu 21-24 yap"): eski → yeni. */
+const MAKE = /\byap\w*/;
 const QUESTION = /\?|\bm[iu](?:yiz|sin|siniz|dir|yim)?\b/;
 
 /** Oluşturma fiilleri (opsiyon sözcüğüyle birlikte). */
@@ -309,7 +358,9 @@ export function optionRelevant(body: string): boolean {
     WITHDRAWAL.test(f.replace(WITHDRAWAL_NEGATED, " ")) ||
     CUSTOMER_DECLINED.test(f) ||
     CONVERT.test(f) ||
-    CONVERT_NEGATED.test(f)
+    CONVERT_NEGATED.test(f) ||
+    // Faz B: "müşteri kaporayı gönderecek, 2 saat uzatalım" (bekleme bağlamı + uzatma).
+    (WAITING.test(f) && extendSignal(f))
   );
 }
 
@@ -380,6 +431,12 @@ export function analyzeOptionMessage(input: {
   const reasons = new Set<OptionReason>();
   const fNoWithdrawalNeg = f.replace(WITHDRAWAL_NEGATED, " ");
 
+  // Tarih aralıkları (ayrıştırıcı öğelerinin sırasıyla; tekrarlar birleşir).
+  const ranges = new Map<string, IntentItem>();
+  for (const i of input.items) {
+    if (i.checkIn && i.checkOut) ranges.set(`${i.checkIn}/${i.checkOut}`, i);
+  }
+
   // 1. Niyet sinyalleri.
   const convert = CONVERT.test(f);
   const customer = WITHDRAWAL.test(fNoWithdrawalNeg) || CUSTOMER_DECLINED.test(f);
@@ -387,12 +444,26 @@ export function analyzeOptionMessage(input: {
   const expired = EXPIRED.test(f);
   const modify = MODIFY.test(f);
   const hold = HOLD.test(f);
-  const negated =
-    CREATE_NEGATED.test(f) ||
-    CONVERT_NEGATED.test(f) ||
-    CANCEL_NEGATED.test(f) ||
-    (/\bvazgec(?:me(?!k)|mey|mem|ilme)\w*/.test(f) && !customer);
   const cancel = customer || owner || expired;
+  // Faz B: uzatma / tarih değişikliği yalnız iptal ve kesinleştirme sinyali YOKSA (varsa eski
+  // davranış aynen: iptal / kesinleştirme + intent_unclear).
+  const extend = !convert && !cancel && extendSignal(f) && extendContext(f);
+  const reschedule =
+    !convert &&
+    !cancel &&
+    OPTION_WORD.test(f) &&
+    (RESCHEDULE_VERB.test(f) || (ranges.size === 2 && MAKE.test(f)));
+  const negated =
+    extend || reschedule
+      ? CREATE_NEGATED.test(f) ||
+        CANCEL_NEGATED.test(f) ||
+        EXTEND_NEGATED.test(f) ||
+        RESCHEDULE_NEGATED.test(f) ||
+        /\bvazgec(?:me(?!k)|mey|mem|ilme)\w*/.test(f)
+      : CREATE_NEGATED.test(f) ||
+        CONVERT_NEGATED.test(f) ||
+        CANCEL_NEGATED.test(f) ||
+        (/\bvazgec(?:me(?!k)|mey|mem|ilme)\w*/.test(f) && !customer);
 
   let intent: OptionIntent;
   if (convert && cancel) {
@@ -400,6 +471,10 @@ export function analyzeOptionMessage(input: {
     reasons.add("intent_conflict");
   } else if (convert) intent = "convert";
   else if (cancel) intent = "cancel";
+  else if (extend) {
+    intent = "extend";
+    if (reschedule) reasons.add("intent_conflict");
+  } else if (reschedule) intent = "reschedule";
   else intent = "create";
 
   // 2. Soru / olumsuz: işlem yok.
@@ -419,33 +494,51 @@ export function analyzeOptionMessage(input: {
   }
   if (decision !== "ignore" && HEDGED.test(f)) reasons.add("hedged");
 
-  // 3. Tarih: tek ve net aralık.
-  const ranges = new Map<string, IntentItem>();
-  for (const i of input.items) {
-    if (i.checkIn && i.checkOut) ranges.set(`${i.checkIn}/${i.checkOut}`, i);
-  }
+  // 3. Tarih. Oluştur / iptal / kesinleştir: tek ve net aralık. Uzatma: tarihsiz olabilir (hedef
+  // grubun tek açık opsiyonu). Tarih değişikliği: 2 aralık → eski + yeni, 1 aralık → yeni.
   let checkIn: string | null = null;
   let checkOut: string | null = null;
+  let oldCheckIn: string | null = null;
+  let oldCheckOut: string | null = null;
   const flags = new Set(input.items.flatMap((i) => i.flags));
-  if (ranges.size > 1) {
+  const villaUnclear = () =>
+    [...flags].some((x) => VILLA_UNCLEAR.has(x)) ||
+    input.items.some(
+      (i) =>
+        i.villaResolution === "ambiguous" ||
+        (i.propertyId !== null && i.propertyId !== input.groupPropertyId),
+    );
+  const dateFlags = () => {
+    if ([...flags].some((x) => DATE_UNCLEAR.has(x))) reasons.add("date_unclear");
+    if ([...flags].some((x) => DATE_PAST.has(x))) reasons.add("date_past");
+    if (villaUnclear()) reasons.add("villa_unclear");
+  };
+  if (intent === "reschedule") {
+    const list = [...ranges.values()];
+    if (list.length > 2) reasons.add("multiple_ranges");
+    else if (list.length === 0) {
+      if ([...flags].some((x) => DATE_UNCLEAR.has(x))) reasons.add("date_unclear");
+      else reasons.add("new_range_missing");
+    } else {
+      const next = list[list.length - 1]!;
+      checkIn = next.checkIn;
+      checkOut = next.checkOut;
+      if (list.length === 2) {
+        oldCheckIn = list[0]!.checkIn;
+        oldCheckOut = list[0]!.checkOut;
+      }
+      dateFlags();
+    }
+  } else if (ranges.size > 1) {
     reasons.add("multiple_ranges");
   } else if (ranges.size === 1) {
     const [only] = [...ranges.values()];
     checkIn = only!.checkIn;
     checkOut = only!.checkOut;
-    if ([...flags].some((x) => DATE_UNCLEAR.has(x))) reasons.add("date_unclear");
-    if ([...flags].some((x) => DATE_PAST.has(x))) reasons.add("date_past");
-    const villaUnclear =
-      [...flags].some((x) => VILLA_UNCLEAR.has(x)) ||
-      input.items.some(
-        (i) =>
-          i.villaResolution === "ambiguous" ||
-          (i.propertyId !== null && i.propertyId !== input.groupPropertyId),
-      );
-    if (villaUnclear) reasons.add("villa_unclear");
+    dateFlags();
   } else if ([...flags].some((x) => DATE_UNCLEAR.has(x))) {
     reasons.add("date_unclear");
-  } else {
+  } else if (intent !== "extend") {
     reasons.add("date_missing");
   }
 
@@ -471,6 +564,21 @@ export function analyzeOptionMessage(input: {
     if (modify || hold || !OPTION_WORD.test(f) || (!alreadyAsk && !onlyCreateWords(f, spans))) {
       reasons.add("intent_unclear");
     }
+  } else if (intent === "extend") {
+    // Eklenen süre: en az 1 saat, en çok 14 gün (opsiyonun ilk oluşturulmasından itibaren 14 gün
+    // sınırını ve giriş sınırını veritabanı denetler). Saat / "…'e kadar": desteklenmez.
+    const d = parseOptionDuration(f);
+    if (CLOCK_TIME.test(f) || d.kind === "unclear") reasons.add("duration_unclear");
+    else if (d.kind === "none") reasons.add("duration_missing");
+    else if (
+      d.minutes < OPTION_EXTEND_LIMITS.minMinutes ||
+      d.minutes > OPTION_EXTEND_LIMITS.maxLifetimeMinutes
+    ) {
+      reasons.add("duration_out_of_bounds");
+    } else minutes = d.minutes;
+  } else if (intent === "reschedule") {
+    // Bitiş korunur (yeni 24 saat başlamaz): mesajda süre yazılıysa niyet belirsiz.
+    if (parseOptionDuration(f).kind !== "none" || CLOCK_TIME.test(f)) reasons.add("intent_unclear");
   } else if (intent === "cancel") {
     if (expired) {
       // "Süresi doldu / bitti": süre dolumunu görev yapar; otomatik iptal YOK.
@@ -494,7 +602,9 @@ export function analyzeOptionMessage(input: {
     reasons: [...reasons].sort(),
     checkIn,
     checkOut,
-    expiresInMinutes: intent === "create" ? minutes : null,
+    expiresInMinutes: intent === "create" || intent === "extend" ? minutes : null,
     endReason: decision === "ignore" ? null : endReason,
+    oldCheckIn,
+    oldCheckOut,
   };
 }

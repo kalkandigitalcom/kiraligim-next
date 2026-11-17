@@ -540,6 +540,13 @@
       "when": 1795140000000,
       "tag": "0076_option_fixed_duration",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1795226400000,
+      "tag": "0077_option_extend_reschedule",
+      "breakpoints": true
     }
   ]
 }

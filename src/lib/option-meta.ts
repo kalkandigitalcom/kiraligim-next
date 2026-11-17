@@ -18,7 +18,9 @@ export type OptionSource = (typeof OPTION_SOURCES)[number];
 export const OPTION_END_REASONS = {
   converted: ["payment_received", "confirmed_in_panel"],
   // Aşama 3 kararı (15 Kasım 2026): müşteri vazgeçti, sahip iptal etti, panelden iptal.
-  cancelled: ["customer_declined", "owner_cancelled", "panel_cancel"],
+  // Faz B (0077): date_changed — WhatsApp'tan tarih değişikliği; eski opsiyon kapanır, yenisi
+  // replaces_option_id ile ona bağlı açılır.
+  cancelled: ["customer_declined", "owner_cancelled", "panel_cancel", "date_changed"],
   expired: ["expired"],
 } as const;
 export type OptionEndReason = (typeof OPTION_END_REASONS)[keyof typeof OPTION_END_REASONS][number];
@@ -128,8 +130,27 @@ export const OPTION_SETTINGS_LIMITS = {
 export const OPTION_SYSTEM_DEFAULT_MINUTES = 24 * 60;
 export const OPTION_MIN_LEAD_MINUTES = 60;
 
-/** İşlem türü: oluştur, iptal, kesin rezervasyona dönüştür. */
-export const OPTION_OPERATION_KINDS = ["create", "cancel", "convert"] as const;
+/**
+ * İşlem türü: oluştur, iptal, kesin rezervasyona dönüştür; Faz B (0077): uzat (bitiş + süre) ve
+ * tarih değiştir (eski kapanır, yenisi bağlı açılır). Uzatma / tarih değişikliği yalnız
+ * WhatsApp'tan, yalnız otomatik ya da açıklama bekler (Super Admin onayı yok).
+ */
+export const OPTION_OPERATION_KINDS = [
+  "create",
+  "cancel",
+  "convert",
+  "extend",
+  "reschedule",
+] as const;
+
+/**
+ * Faz B uzatma sınırları: eklenen süre en az 1 saat; opsiyonun toplam ömrü (ilk oluşturulduğu
+ * andan yeni bitişe) en fazla 14 gün; yeni bitiş girişi (İstanbul 00:00) geçemez.
+ */
+export const OPTION_EXTEND_LIMITS = {
+  minMinutes: 60,
+  maxLifetimeMinutes: OPTION_LIMITS.maxHours * 60,
+} as const;
 export type OptionOperationKind = (typeof OPTION_OPERATION_KINDS)[number];
 
 /**
@@ -166,6 +187,12 @@ export const OPTION_OPERATION_REASONS = [
   "property_inactive",
   // Faz A (0075): varsayılan süre girişe kısaltılınca girişe 60 dakikadan az kalıyor.
   "check_in_too_close",
+  // Faz B (0077): uzatma / tarih değişikliği.
+  "extend_after_check_in",
+  "extend_over_max",
+  "new_range_missing",
+  "same_range",
+  "option_without_expiry",
 ] as const;
 export type OptionOperationReason = (typeof OPTION_OPERATION_REASONS)[number];
 

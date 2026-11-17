@@ -14,6 +14,7 @@ import {
   getOption,
   listAlerts,
   listOptionEvents,
+  listOptionLinks,
   listOptionOperations,
 } from "@/server/admin/options";
 import { requireAdmin } from "@/server/admin/session";
@@ -67,10 +68,11 @@ export default async function AdminOptionPage({ params, searchParams }: Props) {
     if (isAppError(err) && err.code === "NOT_FOUND") notFound();
     throw err;
   }
-  const [events, operations, alerts] = await Promise.all([
+  const [events, operations, alerts, links] = await Promise.all([
     listOptionEvents(db, admin.adminId, o.id),
     listOptionOperations(db, admin.adminId, o.id),
     listAlerts(db, admin.adminId, { optionId: o.id, includeAcknowledged: true }),
+    listOptionLinks(db, admin.adminId, o.id),
   ]);
   const notice = NOTICES[one(sp.durum)];
   const code = one(sp.hata) as AdminOptionErrorCode;
@@ -123,6 +125,23 @@ export default async function AdminOptionPage({ params, searchParams }: Props) {
               <span className="font-mono text-sm">{o.convertedReservationId}</span>
             </Row>
           ) : null}
+          {links.map((l) => (
+            <Row
+              key={`${l.relation}-${l.id}`}
+              label={l.relation === "previous" ? "Önceki opsiyon" : "Sonraki opsiyon"}
+            >
+              <Link
+                href={`/opsiyonlar/${l.id}`}
+                className="text-turquoise-700 hover:underline"
+                data-testid={`admin-option-link-${l.relation}`}
+              >
+                {range(l.checkIn, l.checkOut)}
+              </Link>
+              {` · ${badge(l.status)}`}
+              {l.endReason ? ` · ${END_REASON_LABELS[l.endReason] ?? l.endReason}` : ""}
+              {l.relation === "previous" ? " (tarih değişikliğiyle bu opsiyona taşındı)" : ""}
+            </Row>
+          ))}
           <Row label="Sürüm">{o.version}</Row>
         </dl>
         <p className="text-sm text-muted-foreground">

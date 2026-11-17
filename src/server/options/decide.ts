@@ -10,9 +10,11 @@
  * Kurallar:
  *   - Yalnız DOĞRULANMIŞ sahip / yöneticinin mesajı işlem üretir. Personel, doğrulanmamış
  *     katılımcı veya worker'ın öğe kaydetmediği mesaj: işlem YOK (worker'ın ⚠️'si aynen kalır).
- *   - Otomatik uygulama yalnız tek anlamlı oluşturma ve tarihli, nedeni net iptal kalıplarında.
- *     Kesinleştirme, uzatma, tarih kaydırma, "süresi doldu", belirsiz tarih / süre / niyet ve
- *     tanınmayan sözcük içeren oluşturma Super Admin onayına düşer.
+ *   - Otomatik uygulama yalnız tek anlamlı oluşturma, tarihli ve nedeni net iptal, süresi net
+ *     uzatma ve tek hedefli tarih değişikliği kalıplarında (Faz B). Kesinleştirme, "süresi doldu",
+ *     belirsiz tarih / süre / niyet ve tanınmayan sözcük içeren oluşturma onaya / açıklamaya düşer.
+ *   - Faz B: uzatma / tarih değişikliği worker öğesi olmadan da üretilebilir; veritabanı göndereni
+ *     worker'ınkiyle aynı kuralla yeniden denetler.
  *   - Soru ve olumsuz ifade işlem üretmez. panel_cancel WhatsApp'tan gelemez.
  */
 import { analyzeOptionMessage, cancelReasonOf } from "./intent";
@@ -35,13 +37,16 @@ export type OptionMessageItem = {
 /** app_wa_option_apply öğesi (JSON alan adları veritabanı fonksiyonuyla aynı). */
 export type OptionApplyItem = {
   item_no: number;
-  intent: "create" | "cancel" | "convert";
+  intent: "create" | "cancel" | "convert" | "extend" | "reschedule";
   decision: "apply" | "ask" | "ignore";
   reasons: string[];
   check_in: string | null;
   check_out: string | null;
   expires_in_minutes: number | null;
   end_reason: "customer_declined" | "owner_cancelled" | null;
+  /** Faz B: yalnız tarih değişikliğinde, mesajda eski aralık da yazılıysa. */
+  old_check_in?: string | null;
+  old_check_out?: string | null;
 };
 
 export type OptionDecision =
@@ -60,8 +65,10 @@ export function decideOptionMessage(input: {
   items: readonly OptionMessageItem[];
   groupPropertyId: string | null;
 }): OptionDecision {
-  if (input.items.length === 0) return { kind: "none", why: "no_items" };
-  if (!input.items.every((i) => i.senderVerified && VERIFIED_ROLES.has(i.senderRole))) {
+  if (
+    input.items.length > 0 &&
+    !input.items.every((i) => i.senderVerified && VERIFIED_ROLES.has(i.senderRole))
+  ) {
     return { kind: "none", why: "sender_not_allowed" };
   }
   const r = analyzeOptionMessage({
@@ -70,6 +77,14 @@ export function decideOptionMessage(input: {
     items: input.items,
     groupPropertyId: input.groupPropertyId,
   });
+  // Worker öğesi yoksa YALNIZ uzatma / tarih değişikliği (Faz B; "2 saat daha bekleyelim" gibi
+  // tarihsiz mesajlar). Gönderen veritabanında yeniden denetlenir (doğrulanmış sahip / yönetici).
+  if (
+    input.items.length === 0 &&
+    (r === null || r.decision === "ignore" || (r.intent !== "extend" && r.intent !== "reschedule"))
+  ) {
+    return { kind: "none", why: "no_items" };
+  }
   if (r === null) return { kind: "none", why: "not_option" };
   return {
     kind: "items",
@@ -83,6 +98,9 @@ export function decideOptionMessage(input: {
         check_out: r.checkOut,
         expires_in_minutes: r.expiresInMinutes,
         end_reason: r.endReason,
+        ...(r.oldCheckIn !== null
+          ? { old_check_in: r.oldCheckIn, old_check_out: r.oldCheckOut }
+          : {}),
       },
     ],
   };

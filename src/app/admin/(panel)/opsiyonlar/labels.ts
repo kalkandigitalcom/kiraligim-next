@@ -51,6 +51,7 @@ export const END_REASON_LABELS: Record<string, string> = {
   customer_declined: "Müşteri vazgeçti",
   owner_cancelled: "Sahip iptal etti",
   panel_cancel: "Super Admin panelden iptal etti",
+  date_changed: "Tarih değişti (yerine yeni opsiyon açıldı)",
   expired: "Süresi doldu",
 };
 
@@ -73,6 +74,8 @@ export const OP_KIND_LABELS: Record<string, string> = {
   create: "Opsiyon oluştur",
   cancel: "Opsiyonu iptal et",
   convert: "Kesin rezervasyona dönüştür",
+  extend: "Opsiyonu uzat",
+  reschedule: "Opsiyon tarihini değiştir",
 };
 
 export const OP_STATUS_LABELS: Record<string, string> = {
@@ -130,7 +133,12 @@ export const REASON_LABELS: Record<string, string> = {
   option_expired: "Opsiyonun süresi dolmuş",
   dateless_target_pending: "Tarihsiz hedef",
   group_without_villa: "Grubun villası yok",
-  duration_missing: "Süre yazılmamış, varsayılan yok",
+  duration_missing: "Süre yazılmamış",
+  extend_after_check_in: "Uzatma girişten sonraya taşıyor",
+  extend_over_max: "Uzatma ilk oluşturmadan itibaren 14 günü aşıyor",
+  new_range_missing: "Yeni tarih yazılmamış",
+  same_range: "Yeni tarih eskisiyle aynı",
+  option_without_expiry: "Opsiyonun bitişi yok",
   check_in_too_close: "Girişe 60 dakikadan az kaldı",
   guest_info_missing: "Misafir bilgisi eksik",
   automation_off: "Otomasyon kapalı",

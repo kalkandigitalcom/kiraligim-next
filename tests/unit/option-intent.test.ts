@@ -7,7 +7,7 @@
  * ayrıca yeniden denetler (çakışma, açık opsiyon, hedef; süre yazılmamışsa işletme varsayılanı).
  *
  * Kanıtlananlar: opsiyon sözcüğü + tanınmayan / başka niyetli sözcük ASLA otomatik oluşturma
- * değildir; kesinleştirme her zaman onaydır; uzatma / tarih kaydırma onaya düşer; süre
+ * değildir; kesinleştirme her zaman onaydır; uzatma / tarih değişikliği (Faz B) ayrı niyettir; süre
  * ayrıştırıcısı v2 (sayı sözcükleri, hafta, kısaltma, ondalık, bileşik); anlaşılmayan süre varsa
  * işletme varsayılanı kullanılmaz (onay); soru ve olumsuz ifade işlem üretmez; opsiyon mesajı
  * takvim işlemi üretmez; normal takvim komutları opsiyon işlemi üretmez.
@@ -56,7 +56,7 @@ const items = (body: string): OptionMessageItem[] =>
 type Expected =
   | { none: string }
   | {
-      intent: "create" | "cancel" | "convert";
+      intent: "create" | "cancel" | "convert" | "extend" | "reschedule";
       decision: "apply" | "ask" | "ignore";
       minutes: number | null;
       end: "customer_declined" | "owner_cancelled" | null;
@@ -510,26 +510,22 @@ const MATRIX: [string, string, Expected][] = [
     "17-21 Ekim opsiyon onaylandı, tarihleri kapatalım",
     { intent: "convert", decision: "ask", minutes: null, end: null, reasons: [] },
   ],
+  // Faz B (0077): uzatma ve tarih değişikliği artık tanınır (veritabanı hedefi yeniden denetler).
   [
-    "Desteklenmeyen",
+    "Uzatma",
     "17-21 Ekim opsiyonu 1 gün uzat",
-    { intent: "create", decision: "ask", minutes: 1440, end: null, reasons: ["intent_unclear"] },
+    { intent: "extend", decision: "apply", minutes: 1440, end: null, reasons: [] },
   ],
   [
-    "Desteklenmeyen",
+    "Uzatma",
     "17-21 Ekim opsiyon süresini uzattık",
-    { intent: "create", decision: "ask", minutes: null, end: null, reasons: ["intent_unclear"] },
+    { intent: "extend", decision: "ask", minutes: null, end: null, reasons: ["duration_missing"] },
   ],
   [
-    "Desteklenmeyen",
+    "Tarih değişikliği",
+    // Ayrıştırıcı "X'i Y'ye kaydır"da eski aralığı saklamaz (date_change): hedef doğrulanamaz.
     "17-21 Ekim opsiyonu 18-22 Ekim'e kaydır",
-    {
-      intent: "create",
-      decision: "ask",
-      minutes: null,
-      end: null,
-      reasons: ["date_unclear", "intent_unclear"],
-    },
+    { intent: "reschedule", decision: "ask", minutes: null, end: null, reasons: ["date_unclear"] },
   ],
   ["Mevcut komut", "17-21 Ekim kapat", { none: "not_option" }],
   ["Mevcut komut", "17-21 Ekim kiralandı", { none: "not_option" }],
@@ -628,4 +624,280 @@ describe("süre ayrıştırıcısı v2", () => {
       expect(dur(s).kind).toBe("none");
     },
   );
+});
+
+// ---------------------------------------------------------------------------------------------
+// Faz B (0077): uzatma ve tarih değişikliği
+// ---------------------------------------------------------------------------------------------
+type FazB =
+  | { none: string }
+  | {
+      intent: "create" | "cancel" | "convert" | "extend" | "reschedule";
+      decision: "apply" | "ask" | "ignore";
+      minutes: number | null;
+      range: string | null;
+      old: string | null;
+      reasons: string[];
+    };
+
+const FAZ_B: [string, FazB][] = [
+  // Uzatma: süre net, en az 1 saat; tarih yazılıysa hedef o aralık, yoksa grubun tek açık opsiyonu.
+  [
+    "20-23 Aralık opsiyonunu 2 saat uzatalım",
+    {
+      intent: "extend",
+      decision: "apply",
+      minutes: 120,
+      range: "2026-12-20/2026-12-23",
+      old: null,
+      reasons: [],
+    },
+  ],
+  [
+    "Opsiyonu 2 saat uzatın",
+    { intent: "extend", decision: "apply", minutes: 120, range: null, old: null, reasons: [] },
+  ],
+  [
+    "Bu opsiyona 1 gün daha süre verelim",
+    { intent: "extend", decision: "apply", minutes: 1440, range: null, old: null, reasons: [] },
+  ],
+  // Ödeme bekleme bağlamı (opsiyon sözcüğü olmadan); worker öğesi yok.
+  [
+    "Ödeme bekliyorum, 2 saat daha bekleyelim",
+    { intent: "extend", decision: "apply", minutes: 120, range: null, old: null, reasons: [] },
+  ],
+  [
+    "Kapora gelmedi, 1 gün daha bekleyelim",
+    { intent: "extend", decision: "apply", minutes: 1440, range: null, old: null, reasons: [] },
+  ],
+  // Karar 3: mutlak zaman ("…'e kadar", saat) desteklenmez → açıklama.
+  [
+    "Müşteri kaporayı gönderecek, yarına kadar uzatalım",
+    {
+      intent: "extend",
+      decision: "ask",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["duration_unclear"],
+    },
+  ],
+  [
+    "Yarın 18:00'e kadar uzat opsiyonu",
+    {
+      intent: "extend",
+      decision: "ask",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["duration_unclear"],
+    },
+  ],
+  // Karar 1: 1 saatten kısa uzatma otomatik değil; 14 günü aşan süre de değil.
+  [
+    "Opsiyonu 30 dakika uzat",
+    {
+      intent: "extend",
+      decision: "ask",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["duration_out_of_bounds"],
+    },
+  ],
+  [
+    "Opsiyonu 3 hafta uzat",
+    {
+      intent: "extend",
+      decision: "ask",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["duration_out_of_bounds"],
+    },
+  ],
+  [
+    "Opsiyonu uzatalım",
+    {
+      intent: "extend",
+      decision: "ask",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["duration_missing"],
+    },
+  ],
+  [
+    "Opsiyonu belki 1 gün uzatırız",
+    {
+      intent: "extend",
+      decision: "ask",
+      minutes: 1440,
+      range: null,
+      old: null,
+      reasons: ["hedged"],
+    },
+  ],
+  // Soru / olumsuz: işlem yok.
+  ["Opsiyonu uzatalım mı?", { none: "no_items" }],
+  [
+    "Opsiyonu uzatmayalım",
+    {
+      intent: "extend",
+      decision: "ignore",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["negated"],
+    },
+  ],
+  // Karar 4: opsiyon / ödeme bağlamı yoksa hiçbir şey.
+  ["2 saat daha bekleyelim", { none: "no_items" }],
+  ["Biraz daha bekleyelim", { none: "no_items" }],
+  // İptal / kesinleştirme sinyali varsa eski davranış aynen.
+  [
+    "Kapora alındı opsiyonu 1 gün uzat",
+    {
+      intent: "convert",
+      decision: "ask",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["date_missing"],
+    },
+  ],
+  // Tarih değişikliği: opsiyon sözcüğü + değiştirme fiili; 2 aralık → eski + yeni.
+  [
+    "20-23 Aralık opsiyonunu 21-24 Aralık yap",
+    {
+      intent: "reschedule",
+      decision: "apply",
+      minutes: null,
+      range: "2026-12-21/2026-12-24",
+      old: "2026-12-20/2026-12-23",
+      reasons: [],
+    },
+  ],
+  [
+    "Opsiyon tarihini 20-24 Aralık yapalım",
+    {
+      intent: "reschedule",
+      decision: "apply",
+      minutes: null,
+      range: "2026-12-20/2026-12-24",
+      old: null,
+      reasons: [],
+    },
+  ],
+  // Göreli kaydırma ve yeni tarihsiz değişiklik → açıklama; opsiyon sözcüğü yoksa hiçbir şey.
+  [
+    "Opsiyonu bir gün ileri alalım",
+    {
+      intent: "reschedule",
+      decision: "ask",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["intent_unclear", "new_range_missing"],
+    },
+  ],
+  [
+    "Opsiyon tarihlerini değiştirelim",
+    {
+      intent: "reschedule",
+      decision: "ask",
+      minutes: null,
+      range: null,
+      old: null,
+      reasons: ["new_range_missing"],
+    },
+  ],
+  ["Müşteri bir gün geç gelecek, tarihleri değiştirelim", { none: "no_items" }],
+  ["Opsiyon tarihini değiştirmeyelim", { none: "no_items" }],
+  // Tarih değişikliğinde süre yazılırsa (bitiş korunur): açıklama.
+  [
+    "20-23 Aralık opsiyonunu 21-24 Aralık yap 48 saat",
+    {
+      intent: "reschedule",
+      decision: "ask",
+      minutes: null,
+      range: "2026-12-21/2026-12-24",
+      old: "2026-12-20/2026-12-23",
+      reasons: ["intent_unclear"],
+    },
+  ],
+  // Oluşturma etkilenmez.
+  [
+    "20-23 Aralık opsiyon",
+    {
+      intent: "create",
+      decision: "apply",
+      minutes: null,
+      range: "2026-12-20/2026-12-23",
+      old: null,
+      reasons: [],
+    },
+  ],
+  [
+    "20-23 Aralık opsiyon 48 saat",
+    {
+      intent: "create",
+      decision: "apply",
+      minutes: 2880,
+      range: "2026-12-20/2026-12-23",
+      old: null,
+      reasons: [],
+    },
+  ],
+];
+
+describe("Faz B: uzatma ve tarih değişikliği", () => {
+  it.each(FAZ_B)("%s", (body, exp) => {
+    const d = decideOptionMessage({
+      body,
+      sentAt: SENT,
+      items: items(body),
+      groupPropertyId: "mavi",
+    });
+    if ("none" in exp) {
+      expect(d).toEqual({ kind: "none", why: exp.none });
+      return;
+    }
+    expect(d.kind).toBe("items");
+    if (d.kind !== "items") return;
+    expect(d.items).toHaveLength(1);
+    const r = d.items[0]!;
+    expect({
+      intent: r.intent,
+      decision: r.decision,
+      minutes: r.expires_in_minutes,
+      range: r.check_in ? `${r.check_in}/${r.check_out}` : null,
+      old: r.old_check_in ? `${r.old_check_in}/${r.old_check_out}` : null,
+      reasons: r.reasons,
+    }).toEqual(exp);
+    expect(r.end_reason).toBeNull();
+  });
+
+  it("worker öğesi olmayan mesajda yalnız uzatma / tarih değişikliği öğesi üretilir", () => {
+    for (const body of ["17-21 Ekim opsiyon iptal", "Kapora alındı", "Opsiyon verelim"]) {
+      expect(
+        decideOptionMessage({ body, sentAt: SENT, items: [], groupPropertyId: "mavi" }),
+      ).toEqual({ kind: "none", why: "no_items" });
+    }
+  });
+
+  it("doğrulanmamış göndericinin öğeli mesajı işlem üretmez", () => {
+    const its = items("20-23 Aralık opsiyonunu 2 saat uzatalım").map((i) => ({
+      ...i,
+      senderVerified: false,
+    }));
+    expect(
+      decideOptionMessage({
+        body: "20-23 Aralık opsiyonunu 2 saat uzatalım",
+        sentAt: SENT,
+        items: its,
+        groupPropertyId: "mavi",
+      }),
+    ).toEqual({ kind: "none", why: "sender_not_allowed" });
+  });
 });

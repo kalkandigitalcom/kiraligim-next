@@ -675,7 +675,7 @@ describe("uçtan uca akış", () => {
     expect(view1.panelConflicts).not.toEqual(view0.panelConflicts);
   });
 
-  it("doğal Türkçe: süre v2, 'sil' iptali, ödeme kesinleştirmesi onaya, uzatma ASLA yeni opsiyon değil", async () => {
+  it("doğal Türkçe: süre v2, 'sil' iptali, ödeme kesinleştirmesi onaya, uzatma ASLA yeni opsiyon değil (Faz B: mevcudu uzatır)", async () => {
     const c = await send("3-6 Temmuz opsiyon 1,5 gün");
     await runTask();
     const [o] = await opsOf(c.id);
@@ -695,8 +695,16 @@ describe("uçtan uca akış", () => {
     const k = await send("8-11 Temmuz opsiyon kaparo yattı");
     const y = await send("8-11 Temmuz opsiyon yarına kadar");
     await runTask();
-    expect((await opsOf(u.id))[0]).toMatchObject({ kind: "create", status: "pending" });
-    expect((await opsOf(u.id))[0].reasons).toContain("intent_unclear");
+    // Faz B (0077): uzatma artık tanınır ve MEVCUT opsiyonu uzatır (yeni opsiyon açmaz).
+    const target = before.find(
+      (x) => x.status === "open" && x.check_in === rangeOf("8-11 Temmuz")[0],
+    );
+    expect((await opsOf(u.id))[0]).toMatchObject({
+      kind: "extend",
+      status: "applied",
+      expires_in_minutes: 1440,
+      result_option_id: target!.id,
+    });
     expect((await opsOf(k.id))[0]).toMatchObject({ kind: "convert", status: "pending" });
     expect((await opsOf(y.id))[0]).toMatchObject({ kind: "create", status: "pending" });
     expect((await opsOf(y.id))[0].reasons).toContain("duration_unclear");

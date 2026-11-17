@@ -926,6 +926,7 @@ describe("app.public_read bayrağı: havuz, hata ve yetki regresyonları", () =>
       "app_option_admin_operations",
       "app_option_admin_option",
       "app_option_admin_option_events",
+      "app_option_admin_option_links",
       "app_option_admin_option_operations",
       "app_option_admin_options",
       "app_option_admin_range_context",

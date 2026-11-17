@@ -332,6 +332,46 @@ export async function listOptionOperations(
   }));
 }
 
+/** Faz B (0077): tarih değişikliği zinciri — önceki (yerini aldığı) ve sonraki (yerine açılan). */
+export type AdminOptionLink = {
+  relation: "previous" | "next";
+  id: string;
+  status: OptionStatus;
+  checkIn: string;
+  checkOut: string;
+  endReason: string | null;
+  createdAt: Date;
+};
+
+export async function listOptionLinks(
+  db: Database,
+  adminId: string,
+  optionId: string,
+): Promise<AdminOptionLink[]> {
+  if (!isUuid(optionId)) throw new AdminOptionError("not_found");
+  const r = await rows<{
+    relation: "previous" | "next";
+    id: string;
+    status: OptionStatus;
+    check_in: Date | string;
+    check_out: Date | string;
+    end_reason: string | null;
+    created_at: Date | string;
+  }>(
+    db,
+    sql`select * from public.app_option_admin_option_links(${adminId}::uuid, ${optionId}::uuid)`,
+  );
+  return r.map((x) => ({
+    relation: x.relation,
+    id: x.id,
+    status: x.status,
+    checkIn: iso(x.check_in)!,
+    checkOut: iso(x.check_out)!,
+    endReason: x.end_reason,
+    createdAt: new Date(x.created_at),
+  }));
+}
+
 // ---------------------------------------------------------------------------------------------
 // İşlemler (onay / ret)
 // ---------------------------------------------------------------------------------------------

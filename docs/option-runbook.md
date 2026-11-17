@@ -1,4 +1,4 @@
-# Opsiyon otomasyonu — işletim kılavuzu (tek ve ortak sistem, 0074; sabit 24 saat, 0075–0076)
+# Opsiyon otomasyonu — işletim kılavuzu (tek ve ortak sistem, 0074; sabit 24 saat, 0075–0076; uzatma / tarih değişikliği, 0077)
 
 Kiraligim'de tek bir ortak opsiyon sistemi vardır. Bütün işletmeler ve bütün bağlı WhatsApp
 grupları aynı kurallarla çalışır; işletme veya grup başına açma yoktur. Davranışın test kanıtı:
@@ -34,6 +34,22 @@ grupları aynı kurallarla çalışır; işletme veya grup başına açma yoktur
    - İptal ve kesinleştirme belirsizlikleri ile 0075 öncesinden kalan bekleyenler eskisi gibi Super
      Admin onayındadır.
    - Opsiyon yönetimi yalnız WhatsApp'tan yapılır; işletme panelinde opsiyon bölümü yoktur.
+     6a. **Uzatma ve tarih değişikliği (0077, Faz B).** Yalnız doğrulanmış sahip / yönetici, yalnız
+     WhatsApp'tan; veritabanı göndereni yeniden denetler (engelli değil + doğrulanmış sahip / yönetici).
+   - Uzatma: "20-23 Aralık opsiyonunu 2 saat uzatalım", "Ödeme bekliyorum, 2 saat daha
+     bekleyelim", "Bu opsiyona 1 gün daha süre verelim". Yeni bitiş = mevcut bitiş + yazılan süre
+     (en az 1 saat). Opsiyon sözcüğü ya da ödeme bekleme bağlamı yoksa ("2 saat daha bekleyelim")
+     hiçbir şey yapılmaz. Mutlak zaman ("yarın 18:00'e kadar") desteklenmez → açıklama bekler.
+   - Uzatma kısaltılmaz: yeni bitiş girişi aşarsa ya da opsiyonun İLK oluşturulmasından itibaren
+     14 günü aşarsa (art arda uzatmalar dahil) açıklama bekler.
+   - Tarih değişikliği: "20-23 Aralık opsiyonunu 21-24 Aralık yap", "Opsiyon tarihini 20-24 Aralık
+     yapalım". Eski opsiyon silinmez: "Tarih değişti" nedeniyle kapanır, yenisi ona bağlı açılır;
+     bitiş KORUNUR (yeni 24 saat başlamaz). "X'i Y'ye kaydır / değiştir" biçiminde ayrıştırıcı eski
+     aralığı saklamadığı için açıklama bekler; göreli kaydırma ("bir gün ileri alalım") da öyle.
+   - Hedef: mesajdaki aralıkla birebir tek açık opsiyon; tarih yoksa grubun TEK açık opsiyonu.
+     Birden çok aday, süre dolmuş opsiyon, çakışma ya da belirsizlikte hiçbir şey değişmez.
+   - Uygulanan uzatma / tarih değişikliği opsiyonun geçmişinde ve işlem kaydında (önce / sonra)
+     görünür.
 7. **Opsiyonlar müsaitliği etkilemez.** Panel takvimi, herkese açık villa sayfası, API, iCal ve
    webhook yalnız kesin rezervasyonla değişir.
 8. **Kesinleştirme her zaman Super Admin onayıyla.** Onayda misafir adı, yetişkin ve çocuk sayısı
@@ -109,3 +125,10 @@ bildirir; önce bu kayıtlar için karar verilir. Uygulama kodu da önceki sür�
 **0076'yı geri almak** (yalnız gerekirse): `docs/rollback-0076.sql` 0075 durumunu birebir getirir
 (süre zinciri mesaj → işletme varsayılanı → sistem varsayılanı; süre ayarı fonksiyonları yeniden
 oluşur). Veriye dokunmaz. 0075'i geri almak için önce 0076 geri alınmalıdır.
+
+**0077'yi geri almak** (yalnız gerekirse): `docs/rollback-0077.sql` 0076 durumunu birebir getirir
+(karar ve tetikleyici fonksiyonları, iki yeni sütun, bağlantı FK / indeksi, kısıt değerleri).
+Uzatma / tarih değişikliği işlemi, `date_changed` ya da bağlı opsiyon varsa betik hiçbir şey
+değiştirmeden durur; o durumda yalnız uygulama kodu geri alınır (0076 kodu uzatma / tarih
+değişikliği göndermez). Olaylardaki bitiş anlık görüntüsü silinir. 0076'yı geri almak için önce
+0077 geri alınmalıdır.

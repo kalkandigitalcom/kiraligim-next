@@ -95,8 +95,21 @@ export const reservationOptions = pgTable(
     updatedAt: ts().notNull().defaultNow(),
     /** İyimser kilit; her güncellemede veritabanı artırır. */
     version: integer().notNull().default(1),
+    /**
+     * Faz B (0077): tarih değişikliğinde bu opsiyonun yerine geçtiği (kapatılan) opsiyon. Aynı
+     * işletme içinde; bir opsiyonun en fazla bir halefi olur; yalnız oluştururken yazılır.
+     */
+    replacesOptionId: uuid(),
   },
   (t) => [
+    foreignKey({
+      name: "reservation_options_replaces_fk",
+      columns: [t.replacesOptionId, t.workspaceId],
+      foreignColumns: [t.id, t.workspaceId],
+    }).onDelete("restrict"),
+    uniqueIndex("reservation_options_replaces_key")
+      .on(t.replacesOptionId)
+      .where(sql`${t.replacesOptionId} is not null`),
     foreignKey({
       name: "reservation_options_property_fk",
       columns: [t.propertyId, t.workspaceId],
@@ -189,6 +202,8 @@ export const reservationOptionEvents = pgTable(
     convertedReservationId: uuid(),
     version: integer().notNull(),
     createdAt: ts().notNull().defaultNow(),
+    /** Faz B (0077): olay anındaki bitiş (uzatma geçmişi); eski olaylarda NULL. */
+    expiresAt: ts(),
   },
   (t) => [
     foreignKey({
